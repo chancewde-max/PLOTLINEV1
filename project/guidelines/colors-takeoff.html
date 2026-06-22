@@ -1,0 +1,32 @@
+<!-- @dsCard group="Colors" viewport="700x180" name="Takeoff — Measurement Types" subtitle="Each measurement type owns a hue across the whole product" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<link rel="stylesheet" href="../styles.css"/>
+<style>
+  html,body{margin:0;background:var(--surface-card);font-family:var(--font-sans);color:var(--text-body);}
+  .wrap{padding:22px;display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}
+  .cell{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--border-default);border-radius:10px;background:var(--_bg);}
+  .sw{width:26px;height:26px;border-radius:6px;background:var(--_c);flex:0 0 auto;}
+  .t{display:flex;flex-direction:column;gap:2px;}
+  .n{font-size:14px;font-weight:600;color:var(--text-strong);}
+  .h{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:var(--text-muted);}
+</style>
+</head>
+<body>
+<div class="wrap" id="r"></div>
+<script>
+  const cs=getComputedStyle(document.documentElement);
+  const types=[["area","Area","fills · regions"],["linear","Linear","lines · edging"],["count","Count","symbols · trees"],["volume","Volume","depth · mulch"],["region","Region","sub-regions"],["slope","Slope","grade · drainage"]];
+  const r=document.getElementById('r');
+  types.forEach(([k,name,desc])=>{
+    const c=cs.getPropertyValue('--takeoff-'+k).trim();
+    const bg=cs.getPropertyValue('--takeoff-'+k+'-bg').trim();
+    r.insertAdjacentHTML('beforeend',
+      `<div class="cell" style="--_c:${c};--_bg:${bg}"><div class="sw"></div>
+       <div class="t"><div class="n">${name}</div><div class="h">${c} · ${desc}</div></div></div>`);
+  });
+</script>
+</body>
+</html>

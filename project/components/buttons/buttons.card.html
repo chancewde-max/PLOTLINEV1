@@ -1,0 +1,74 @@
+<!-- @dsCard group="Components" viewport="700x300" name="Buttons & IconButtons" subtitle="Primary / secondary / ghost / danger, sizes, icons, toolbar tools" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<link rel="stylesheet" href="../../styles.css"/>
+<style>
+  html,body{margin:0;background:var(--bg-app);font-family:var(--font-sans);color:var(--text-body);}
+  .wrap{padding:24px;display:flex;flex-direction:column;gap:18px;}
+  .row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  .label{font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-subtle);min-width:74px;}
+</style>
+</head>
+<body>
+<div id="root" class="wrap"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/lucide@0.456.0/dist/umd/lucide.min.js"></script>
+<script src="../../assets/icons.js"></script>
+<script src="../../_ds_bundle.js"></script>
+
+<script type="text/babel">
+const { Button, IconButton } = window.PlotlineDesignSystem_0cdb69;
+
+function Icon({ name, size = 18 }) {
+  const ref = React.useRef(null);
+  React.useEffect(() => {
+    if (ref.current) {
+      ref.current.innerHTML = "";
+      const node = window.plIconSVG(name, { size });
+      if (node) ref.current.appendChild(node);
+    }
+  });
+  return <span ref={ref} style={{ display: "inline-flex", width: size, height: size }} />;
+}
+
+function Demo() {
+  return (
+    <React.Fragment>
+      <div className="row"><span className="label">Variants</span>
+        <Button variant="primary">Save estimate</Button>
+        <Button variant="secondary">Duplicate</Button>
+        <Button variant="ghost">Cancel</Button>
+        <Button variant="danger">Delete sheet</Button>
+      </div>
+      <div className="row"><span className="label">Sizes</span>
+        <Button size="sm">Small</Button>
+        <Button size="md">Medium</Button>
+        <Button size="lg">Large</Button>
+        <Button disabled>Disabled</Button>
+      </div>
+      <div className="row"><span className="label">Icons</span>
+        <Button variant="primary" iconLeft={<Icon name="plus" size={16}/>}>New takeoff</Button>
+        <Button variant="secondary" iconRight={<Icon name="chevron-down" size={16}/>}>Export</Button>
+        <Button variant="ghost" iconLeft={<Icon name="share-2" size={16}/>}>Share</Button>
+      </div>
+      <div className="row"><span className="label">Tools</span>
+        <IconButton label="Pan" variant="ghost"><Icon name="hand"/></IconButton>
+        <IconButton label="Area" selected variant="ghost"><Icon name="square-dashed"/></IconButton>
+        <IconButton label="Linear" variant="ghost"><Icon name="spline"/></IconButton>
+        <IconButton label="Count" variant="ghost"><Icon name="locate"/></IconButton>
+        <IconButton label="Zoom in" variant="solid"><Icon name="plus"/></IconButton>
+        <IconButton label="More" variant="primary"><Icon name="settings-2"/></IconButton>
+      </div>
+    </React.Fragment>
+  );
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<Demo/>);
+</script>
+</body>
+</html>

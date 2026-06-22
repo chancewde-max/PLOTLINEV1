@@ -1,0 +1,469 @@
+<!-- @dsCard group="App" viewport="1280x760" name="Region Count — Draw, Count & Measure" subtitle="Set scale, draw an area; counts items, clips areas (sq ft) & walls (ln ft). Dark mode + a11y controls" -->
+<!-- @startingPoint section="App" subtitle="Set scale, draw a region; count + clip areas inside" viewport="1280x800" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Plotline — Region Count & Measure</title>
+<link rel="stylesheet" href="../../styles.css"/>
+<style>
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;background:var(--bg-app);font-family:var(--font-sans);color:var(--text-body);}
+  #root{height:100%;}
+
+  /* --rc-fs is the user text-size multiplier; every UI font size scales by it */
+  .rc{position:fixed;inset:0;display:flex;flex-direction:column;background:var(--bg-app);--rc-fs:1;}
+  .rc-top{height:var(--topbar);flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:0 18px;background:var(--surface-card);border-bottom:1px solid var(--border-default);z-index:6;}
+  .rc-brand{display:flex;align-items:center;gap:9px;}
+  .rc-brand img{width:26px;height:26px;}
+  .rc-brand b{font-family:var(--font-display);font-weight:700;font-size:calc(17px*var(--rc-fs));letter-spacing:-0.02em;color:var(--text-strong);}
+  .rc-brand .dot{color:var(--brand-600);}
+  .rc-crumb{font-size:calc(13px*var(--rc-fs));color:var(--text-muted);}
+  .rc-crumb b{color:var(--text-strong);font-weight:600;}
+  .rc-top-right{margin-left:auto;display:flex;align-items:center;gap:8px;}
+  .rc-iconbtn{width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;border:1px solid transparent;border-radius:var(--radius-md);background:transparent;color:var(--text-body);cursor:pointer;}
+  .rc-iconbtn:hover{background:var(--surface-muted);}
+  .rc-iconbtn[data-on="true"]{background:var(--brand-600);color:#fff;border-color:var(--brand-700);}
+
+  .rc-body{flex:1 1 auto;display:flex;min-height:0;}
+
+  .rc-canvas{flex:1 1 auto;position:relative;background:var(--bg-canvas);background-image:var(--grid-blueprint);background-size:var(--grid-size) var(--grid-size);overflow:hidden;min-width:0;display:flex;align-items:center;justify-content:center;}
+  .rc-sheet-wrap{transition:transform 120ms var(--ease-out);}
+  .rc-sheet{position:relative;background:var(--surface-paper);border:1px solid var(--paper-edge);border-radius:3px;box-shadow:var(--sheet-shadow);background-image:linear-gradient(var(--paper-line) 1px,transparent 1px),linear-gradient(90deg,var(--paper-line) 1px,transparent 1px);background-size:24px 24px;}
+  .rc-svg{position:absolute;inset:0;}
+  .rc-svg.draw{cursor:crosshair;}
+
+  .rc-hint{position:absolute;top:14px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:9px;font-size:calc(13px*var(--rc-fs));color:var(--text-body);background:var(--surface-card);border:1px solid var(--border-default);border-radius:var(--radius-pill);padding:7px 16px;box-shadow:var(--shadow-sm);white-space:nowrap;max-width:90%;}
+  .rc-hint b{color:var(--text-strong);}
+  .rc-hint kbd{font-family:var(--font-mono);font-size:calc(11px*var(--rc-fs));background:var(--surface-muted);border:1px solid var(--border-default);border-radius:4px;padding:1px 5px;color:var(--text-body);}
+
+  .rc-bubble{position:absolute;font-family:var(--font-mono);font-weight:700;font-size:calc(14px*var(--rc-fs));padding:6px 12px;border-radius:var(--radius-md);background:var(--brand-600);color:#fff;box-shadow:var(--shadow-md);transform:translate(-50%,-50%);pointer-events:none;white-space:nowrap;text-align:center;line-height:1.25;}
+  .rc-bubble small{display:block;font-weight:500;opacity:.85;font-size:calc(10.5px*var(--rc-fs));}
+
+  .rc-zoom{position:absolute;right:16px;bottom:16px;display:flex;align-items:center;gap:2px;background:var(--surface-card);border:1px solid var(--border-default);border-radius:var(--radius-md);padding:3px;box-shadow:var(--shadow-sm);}
+  .rc-zoom button{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border:none;background:transparent;border-radius:var(--radius-sm);color:var(--text-body);cursor:pointer;}
+  .rc-zoom button:hover{background:var(--surface-muted);}
+  .rc-zoom .val{font-family:var(--font-mono);font-size:calc(12px*var(--rc-fs));min-width:42px;text-align:center;}
+  .rc-scalechip{position:absolute;left:16px;bottom:16px;display:flex;align-items:center;gap:7px;font-family:var(--font-mono);font-size:calc(11px*var(--rc-fs));color:var(--text-body);background:var(--surface-card);border:1px solid var(--border-default);border-radius:var(--radius-sm);padding:6px 10px;box-shadow:var(--shadow-xs);}
+  .rc-scalechip.warn{color:var(--warning-500);border-color:color-mix(in srgb,var(--warning-500) 40%,var(--border-default));}
+  .rc-scalechip .lk{display:inline-flex;}
+
+  .rc-arealabel{position:absolute;transform:translate(-50%,-50%);font-family:var(--font-mono);font-size:calc(10px*var(--rc-fs));font-weight:600;padding:2px 6px;border-radius:var(--radius-xs);background:color-mix(in srgb,var(--surface-card) 88%,transparent);box-shadow:var(--shadow-xs);pointer-events:none;white-space:nowrap;}
+
+  .rc-right{width:360px;flex:0 0 auto;display:flex;flex-direction:column;background:var(--surface-card);border-left:1px solid var(--border-default);min-height:0;}
+  .rc-ph{padding:18px 20px 14px;border-bottom:1px solid var(--border-subtle);}
+  .rc-ph h2{font-family:var(--font-display);font-size:calc(18px*var(--rc-fs));font-weight:600;letter-spacing:-0.01em;color:var(--text-strong);margin:0 0 4px;display:flex;align-items:center;gap:8px;}
+  .rc-ph p{margin:0;font-size:calc(12.5px*var(--rc-fs));color:var(--text-muted);line-height:1.5;}
+
+  .rc-region{padding:16px 20px;border-bottom:1px solid var(--border-subtle);display:flex;gap:10px;}
+  .rc-rcell{flex:1;background:var(--surface-sunken);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:11px 13px;}
+  .rc-rcell .k{font-size:calc(11px*var(--rc-fs));color:var(--text-muted);display:flex;align-items:center;gap:5px;}
+  .rc-rcell .v{font-family:var(--font-mono);font-size:calc(23px*var(--rc-fs));font-weight:700;letter-spacing:-0.02em;color:var(--text-strong);margin-top:3px;line-height:1;}
+  .rc-rcell .v.empty{color:var(--border-strong);}
+  .rc-rcell .u{font-size:calc(11px*var(--rc-fs));color:var(--text-muted);font-weight:500;}
+
+  .rc-list{flex:1 1 auto;overflow:auto;padding:8px 12px 12px;}
+  .rc-glab{font-family:var(--font-mono);font-size:calc(10px*var(--rc-fs));letter-spacing:.08em;text-transform:uppercase;color:var(--text-subtle);padding:14px 8px 6px;}
+  .rc-row{display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:var(--radius-md);cursor:pointer;transition:background 120ms var(--ease-standard);}
+  .rc-row:hover{background:var(--surface-sunken);}
+  .rc-row[data-off="true"]{opacity:.42;}
+  .rc-check{width:18px;height:18px;border-radius:5px;border:1.5px solid var(--border-strong);display:inline-flex;align-items:center;justify-content:center;color:#fff;flex:0 0 auto;}
+  .rc-row[data-off="false"] .rc-check{background:var(--brand-600);border-color:var(--brand-600);}
+  .rc-sw{width:13px;height:13px;border-radius:4px;flex:0 0 auto;}
+  .rc-sw.linear{height:5px;border-radius:3px;}
+  .rc-nm{flex:1 1 auto;min-width:0;font-size:calc(13.5px*var(--rc-fs));font-weight:500;color:var(--text-strong);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .rc-val{font-family:var(--font-mono);font-size:calc(13.5px*var(--rc-fs));font-weight:600;color:var(--text-strong);text-align:right;white-space:nowrap;}
+  .rc-val small{color:var(--text-subtle);font-weight:400;font-size:calc(11px*var(--rc-fs));}
+  .rc-row[data-zero="true"] .rc-val{color:var(--text-subtle);}
+
+  .rc-foot{padding:14px 16px;border-top:1px solid var(--border-subtle);display:flex;gap:10px;}
+
+  /* Settings popover */
+  .rc-pop{position:absolute;top:48px;right:14px;z-index:30;width:268px;background:var(--surface-card);border:1px solid var(--border-default);border-radius:var(--radius-lg);box-shadow:var(--shadow-xl);padding:16px;display:flex;flex-direction:column;gap:16px;}
+  .rc-pop h4{margin:0 0 8px;font-family:var(--font-mono);font-size:calc(10px*var(--rc-fs));letter-spacing:.08em;text-transform:uppercase;color:var(--text-subtle);font-weight:600;}
+  .rc-seg{display:flex;background:var(--surface-sunken);border:1px solid var(--border-default);border-radius:var(--radius-md);padding:3px;gap:3px;}
+  .rc-seg button{flex:1;height:30px;border:none;background:transparent;border-radius:var(--radius-sm);font:600 calc(13px*var(--rc-fs))/1 var(--font-sans);color:var(--text-muted);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;}
+  .rc-seg button[data-on="true"]{background:var(--surface-card);color:var(--text-strong);box-shadow:var(--shadow-xs);}
+  .rc-swatches{display:flex;gap:8px;}
+  .rc-swatches button{width:30px;height:30px;border-radius:var(--radius-pill);border:2px solid transparent;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;color:#fff;}
+  .rc-swatches button[data-on="true"]{border-color:var(--text-strong);}
+  .rc-fsrow{display:flex;align-items:center;gap:10px;}
+  .rc-fsrow input[type=range]{flex:1;accent-color:var(--brand-600);}
+  .rc-fsrow .a-sm{font-size:13px;color:var(--text-muted);}
+  .rc-fsrow .a-lg{font-size:20px;color:var(--text-strong);font-weight:700;}
+  .rc-fsval{font-family:var(--font-mono);font-size:calc(12px*var(--rc-fs));color:var(--text-body);min-width:42px;text-align:right;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/lucide@0.456.0/dist/umd/lucide.min.js"></script>
+<script src="../../assets/icons.js"></script>
+<script src="../../_ds_bundle.js"></script>
+
+<script type="text/babel">
+const { Button, Tag, Dialog, Input, Select } = window.PlotlineDesignSystem_0cdb69;
+function Ic({name,size=18,style}){ const r=React.useRef(null);
+  React.useEffect(()=>{ if(r.current){r.current.innerHTML="";const n=window.plIconSVG(name,{size});if(n)r.current.appendChild(n);} });
+  return <span ref={r} style={{display:"inline-flex",width:size,height:size,...style}}/>; }
+
+const SHEET_W=900, SHEET_H=620, FIT=0.74, DEFAULT_PXFT=4;
+
+const ACCENTS = {
+  pine:   {50:"#eef7f2",500:"#258c62",600:"#157a52",700:"#0f6243",label:"Pine"},
+  ocean:  {50:"#e8f0fe",500:"#3b82f6",600:"#2563eb",700:"#1d4ed8",label:"Ocean"},
+  violet: {50:"#f1ebfe",500:"#8b5cf6",600:"#7c3aed",700:"#6d28d9",label:"Violet"},
+  amber:  {50:"#fdf4e3",500:"#f59e0b",600:"#d97706",700:"#b45309",label:"Amber"},
+  slate:  {50:"#eef1f4",500:"#64748b",600:"#475569",700:"#334155",label:"Slate"},
+};
+
+const CATS = [
+  { id:"tree",name:"Trees",kind:"point" },
+  { id:"shrub",name:"Shrubs",kind:"point" },
+  { id:"lime-block",name:"Limestone blocks",kind:"point" },
+  { id:"irrigation",name:"Irrigation items",kind:"point" },
+  { id:"sod",name:"Sod areas",kind:"area" },
+  { id:"rock",name:"Rock areas",kind:"area" },
+  { id:"hydroseed",name:"Hydroseed areas",kind:"area" },
+  { id:"lime-wall",name:"Limestone walls",kind:"linear" },
+];
+const catColor=(id)=>`var(--mat-${id})`;
+const catOf=(id)=>CATS.find(c=>c.id===id);
+
+function inside(pt,poly){ if(poly.length<3) return false; let c=false;
+  for(let i=0,j=poly.length-1;i<poly.length;j=i++){ const xi=poly[i].x,yi=poly[i].y,xj=poly[j].x,yj=poly[j].y;
+    if(((yi>pt.y)!==(yj>pt.y)) && (pt.x<(xj-xi)*(pt.y-yi)/(yj-yi)+xi)) c=!c; } return c; }
+function polyAreaPx(poly){ let a=0; for(let i=0,j=poly.length-1;i<poly.length;j=i++) a+=(poly[j].x+poly[i].x)*(poly[j].y-poly[i].y); return Math.abs(a/2); }
+function perimPx(poly,closed){ let d=0; for(let i=0;i<poly.length-1;i++) d+=Math.hypot(poly[i+1].x-poly[i].x,poly[i+1].y-poly[i].y);
+  if(closed&&poly.length>2) d+=Math.hypot(poly[0].x-poly[poly.length-1].x,poly[0].y-poly[poly.length-1].y); return d; }
+function centroid(poly){ const n=poly.length; if(!n) return{x:0,y:0}; return {x:poly.reduce((s,p)=>s+p.x,0)/n,y:poly.reduce((s,p)=>s+p.y,0)/n}; }
+function bbox(poly){ let a={x:1/0,y:1/0,X:-1/0,Y:-1/0}; poly.forEach(p=>{a.x=Math.min(a.x,p.x);a.y=Math.min(a.y,p.y);a.X=Math.max(a.X,p.x);a.Y=Math.max(a.Y,p.y);}); return a; }
+// TRUE polygon clipping by grid sampling: returns overlap px² + overlap centroid
+function clipPx2(subj, region, step){
+  if(region.length<3) return {px2:0,c:null};
+  const a=bbox(subj), b=bbox(region);
+  const x0=Math.max(a.x,b.x), y0=Math.max(a.y,b.y), x1=Math.min(a.X,b.X), y1=Math.min(a.Y,b.Y);
+  if(x1<=x0||y1<=y0) return {px2:0,c:null};
+  let hits=0,sx=0,sy=0;
+  for(let y=y0+step/2;y<y1;y+=step) for(let x=x0+step/2;x<x1;x+=step){
+    const p={x,y}; if(inside(p,subj)&&inside(p,region)){ hits++; sx+=x; sy+=y; } }
+  return { px2:hits*step*step, c:hits?{x:sx/hits,y:sy/hits}:null };
+}
+
+const P=(a)=>a.map(([x,y])=>({x,y}));
+const AREAS=[
+  {id:"a1",type:"sod",poly:P([[130,108],[400,98],[420,288],[150,308]])},
+  {id:"a2",type:"sod",poly:P([[560,348],[772,360],[776,512],[576,506]])},
+  {id:"a3",type:"rock",poly:P([[452,120],[592,128],[582,250],[444,242]])},
+  {id:"a4",type:"rock",poly:P([[172,360],[322,360],[322,470],[172,470]])},
+  {id:"a5",type:"hydroseed",poly:P([[622,108],[800,120],[800,300],[642,300]])},
+  {id:"a6",type:"hydroseed",poly:P([[360,378],[520,388],[512,520],[372,512]])},
+].map(a=>({...a,c:centroid(a.poly),fullPx2:polyAreaPx(a.poly)}));
+const LINES=[
+  {id:"w1",type:"lime-wall",pts:P([[112,326],[112,544],[300,544]])},
+  {id:"w2",type:"lime-wall",pts:P([[558,330],[804,330]])},
+  {id:"w3",type:"lime-wall",pts:P([[150,150],[150,70],[390,70]])},
+].map(l=>({...l,c:centroid(l.pts),lenPx:perimPx(l.pts,false)}));
+const POINTS=(()=>{ let s=20260622; const rnd=()=>(s=(s*1664525+1013904223)%4294967296)/4294967296;
+  const counts={tree:9,shrub:14,"lime-block":7,irrigation:18}; const out=[]; let id=0;
+  ["tree","shrub","lime-block","irrigation"].forEach(t=>{ for(let i=0;i<counts[t];i++)
+    out.push({id:id++,type:t,x:64+rnd()*(SHEET_W-128),y:62+rnd()*(SHEET_H-128)}); }); return out; })();
+const SAMPLE=P([[150,120],[470,110],[560,360],[430,500],[160,470]]);
+const UNIT_FT={ft:1,in:1/12,yd:3,m:3.28084};
+
+function App(){
+  const [mode,setMode]=React.useState("region");        // region | scale | measure
+  const [measurePts,setMeasurePts]=React.useState([]);
+  const [measureDone,setMeasureDone]=React.useState(false);
+  const [verts,setVerts]=React.useState([]);
+  const [closed,setClosed]=React.useState(null);
+  const [cursor,setCursor]=React.useState(null);
+  const [scalePts,setScalePts]=React.useState([]);
+  const [scaleDlg,setScaleDlg]=React.useState(null);     // {px} when 2 pts picked
+  const [scaleVal,setScaleVal]=React.useState("40");
+  const [scaleUnit,setScaleUnit]=React.useState("ft");
+  const [pxPerFt,setPxPerFt]=React.useState(DEFAULT_PXFT);
+  const [calib,setCalib]=React.useState(null);           // {feet, px} display
+  const [active,setActive]=React.useState(()=>new Set(CATS.map(c=>c.id)));
+  const [zoom,setZoom]=React.useState(100);
+  // display prefs
+  const [theme,setTheme]=React.useState("light");
+  const [accent,setAccent]=React.useState("pine");
+  const [fs,setFs]=React.useState(1);
+  const [settings,setSettings]=React.useState(false);
+  const svgRef=React.useRef(null);
+
+  const drawing = mode==="region" && closed===null;
+  const poly = closed || verts;
+  const hasRegion = poly.length>=3;
+  const STEP = drawing ? 6 : 4;
+
+  const toSheet=(e)=>{ const svg=svgRef.current; if(!svg) return{x:0,y:0}; const pt=svg.createSVGPoint();
+    pt.x=e.clientX; pt.y=e.clientY; const m=svg.getScreenCTM(); if(!m) return{x:0,y:0};
+    const p=pt.matrixTransform(m.inverse()); return{x:p.x,y:p.y}; };
+  const NEAR=16, dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+
+  const onMove=(e)=>{ if(drawing||mode==="scale") setCursor(toSheet(e)); };
+  const onClick=(e)=>{
+    const p=toSheet(e);
+    if(mode==="scale"){ const np=[...scalePts,p];
+      if(np.length>=2){ setScaleDlg({px:dist(np[0],np[1])}); setScalePts(np.slice(0,2)); }
+      else setScalePts(np);
+      return; }
+    if(!drawing) return;
+    if(verts.length>=3 && dist(p,verts[0])<NEAR){ setClosed(verts); setCursor(null); return; }
+    setVerts(v=>[...v,p]);
+  };
+  const onDbl=()=>{ if(drawing && verts.length>=3){ setClosed(verts); setCursor(null); } };
+
+  React.useEffect(()=>{ const onKey=(e)=>{
+      if(e.key==="Escape"){ setVerts([]); setCursor(null); setClosed(null); setScalePts([]); setScaleDlg(null); setMode("region"); }
+      if(e.key==="Enter" && drawing && verts.length>=3){ setClosed(verts); setCursor(null); } };
+    window.addEventListener("keydown",onKey); return ()=>window.removeEventListener("keydown",onKey); },[drawing,verts]);
+
+  const reset=()=>{ setVerts([]); setClosed(null); setCursor(null); };
+  const trySample=()=>{ setMode("region"); setVerts([]); setCursor(null); setClosed(SAMPLE); };
+  const toggle=(id)=>setActive(s=>{ const n=new Set(s); n.has(id)?n.delete(id):n.add(id); return n; });
+  const startScale=()=>{ setMode("scale"); setScalePts([]); setCursor(null); };
+  const confirmScale=()=>{ const feetVal=parseFloat(scaleVal)*(UNIT_FT[scaleUnit]||1);
+    if(feetVal>0 && scaleDlg){ setPxPerFt(scaleDlg.px/feetVal); setCalib({feet:parseFloat(scaleVal),unit:scaleUnit,px:scaleDlg.px}); }
+    setScaleDlg(null); setScalePts([]); setMode("region"); };
+  const cancelScale=()=>{ setScaleDlg(null); setScalePts([]); setMode("region"); };
+
+  const sqft=(px2)=>px2/(pxPerFt*pxPerFt);
+  const lnft=(px)=>px/pxPerFt;
+  const fSq=(n)=>(Math.round(n/5)*5).toLocaleString();
+  const fLn=(n)=>Math.round(n).toLocaleString();
+
+  // compute inside / clipped
+  const res={}; CATS.forEach(c=>res[c.id]={count:0,sqft:0,lnft:0});
+  const inPoints={}, areaClip={}, inLines={};
+  if(hasRegion){
+    POINTS.forEach(p=>{ if(active.has(p.type)&&inside(p,poly)){ res[p.type].count++; inPoints[p.id]=1; } });
+    AREAS.forEach(a=>{ if(!active.has(a.type)) return; const cp=clipPx2(a.poly,poly,STEP);
+      if(cp.px2>0){ res[a.type].count++; res[a.type].sqft+=sqft(cp.px2); areaClip[a.id]=cp; } });
+    LINES.forEach(l=>{ if(active.has(l.type)&&inside(l.c,poly)){ res[l.type].count++; res[l.type].lnft+=lnft(l.lenPx); inLines[l.id]=1; } });
+  }
+  const totalCount=CATS.filter(c=>c.kind==="point").reduce((s,c)=>s+res[c.id].count,0);
+  const regionSqft=hasRegion?sqft(polyAreaPx(poly)):0;
+  const regionPerim=hasRegion?lnft(perimPx(poly,true)):0;
+
+  const cen=hasRegion?centroid(poly):null;
+  const previewPts=drawing&&verts.length?[...verts,...(cursor?[cursor]:[])]:poly;
+  const clipPts=previewPts.length>=3?previewPts:null;
+  const px2pct=(v,dim)=>`calc(50% + ${(v-dim/2)*(zoom/100)*FIT}px)`;
+
+  const groups=[["Counted items",CATS.filter(c=>c.kind==="point")],["Areas · sq ft",CATS.filter(c=>c.kind==="area")],["Linear · ln ft",CATS.filter(c=>c.kind==="linear")]];
+  const totalOf=(id)=>{ const k=catOf(id).kind; if(k==="point") return POINTS.filter(p=>p.type===id).length;
+    if(k==="area") return AREAS.filter(a=>a.type===id).length; return LINES.filter(l=>l.type===id).length; };
+
+  const ac=ACCENTS[accent];
+  const rootStyle={ "--rc-fs":fs, "--brand-50":ac[50], "--brand-500":ac[500], "--brand-600":ac[600], "--brand-700":ac[700] };
+  const clipId="rc-regionclip";
+
+  return (
+    <div className="rc" data-theme={theme} style={rootStyle}>
+      <div className="rc-top">
+        <div className="rc-brand"><img src="../../assets/plotline-mark.svg" alt=""/><b>Plotline<span className="dot">.</span></b></div>
+        <span className="rc-crumb">Maple Grove Estates&nbsp; / &nbsp;<b>L-2 · Planting Plan</b></span>
+        <div className="rc-top-right">
+          <Button size="sm" variant={mode==="scale"?"primary":"secondary"} iconLeft={<Ic name="ruler" size={15}/>} onClick={startScale}>Set scale</Button>
+          <button className="rc-iconbtn" data-on={settings} title="Display settings" onClick={()=>setSettings(s=>!s)}><Ic name="settings-2" size={18}/></button>
+        </div>
+      </div>
+
+      {settings && (
+        <div className="rc-pop">
+          <div>
+            <h4>Theme</h4>
+            <div className="rc-seg">
+              <button data-on={theme==="light"} onClick={()=>setTheme("light")}><Ic name="sun" size={15}/> Light</button>
+              <button data-on={theme==="dark"} onClick={()=>setTheme("dark")}><Ic name="moon" size={15}/> Dark</button>
+            </div>
+          </div>
+          <div>
+            <h4>Accent color</h4>
+            <div className="rc-swatches">
+              {Object.keys(ACCENTS).map(k=>(
+                <button key={k} data-on={accent===k} title={ACCENTS[k].label}
+                  style={{background:ACCENTS[k][600]}} onClick={()=>setAccent(k)}>
+                  {accent===k && <Ic name="check" size={15}/>}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <h4>Text size</h4>
+            <div className="rc-fsrow">
+              <span className="a-sm">A</span>
+              <input type="range" min="0.85" max="1.6" step="0.05" value={fs} onChange={e=>setFs(parseFloat(e.target.value))}/>
+              <span className="a-lg">A</span>
+              <span className="rc-fsval">{Math.round(fs*100)}%</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="rc-body">
+        <div className="rc-canvas">
+          <div className="rc-hint">
+            {mode==="scale"
+              ? (scalePts.length===0
+                  ? <><Ic name="ruler" size={15}/> <b>Set scale</b> — click the first end of a known distance on the plan</>
+                  : <><Ic name="ruler" size={15}/> Now click the <b>other end</b> of that distance</>)
+              : drawing
+                ? (verts.length===0
+                    ? <><Ic name="lasso" size={15}/> <b>Click</b> on the plan to start outlining an area</>
+                    : <><Ic name="lasso" size={15}/> Keep clicking · <b>click the first point</b> or <kbd>Enter</kbd> to close · <kbd>Esc</kbd> cancel</>)
+                : <><Ic name="check" size={15} style={{color:"var(--brand-600)"}}/> <b>{fSq(regionSqft)} sq ft</b> region · {totalCount} item{totalCount===1?"":"s"} counted. Draw again to recount.</>}
+          </div>
+
+          <div className="rc-sheet-wrap" style={{transform:`scale(${(zoom/100)*FIT})`}}>
+            <div className="rc-sheet" style={{width:SHEET_W,height:SHEET_H}}>
+              <svg ref={svgRef} className={"rc-svg"+(drawing||mode==="scale"?" draw":"")} width={SHEET_W} height={SHEET_H}
+                   viewBox={`0 0 ${SHEET_W} ${SHEET_H}`} onMouseMove={onMove} onClick={onClick} onDoubleClick={onDbl}>
+                <defs>{clipPts && <clipPath id={clipId}><polygon points={clipPts.map(p=>`${p.x},${p.y}`).join(" ")}/></clipPath>}</defs>
+
+                {/* base AREA features (dim when a region exists) */}
+                {AREAS.map(a=>{ const on=active.has(a.type);
+                  const base=hasRegion?0.07:0.20;
+                  return <polygon key={a.id} points={a.poly.map(p=>`${p.x},${p.y}`).join(" ")}
+                    fill={catColor(a.type)} fillOpacity={on?base:0.04}
+                    stroke={catColor(a.type)} strokeOpacity={on?(hasRegion?0.35:0.9):0.25} strokeWidth="1.5"/>; })}
+
+                {/* TRUE-CLIPPED bright overlay: material ∩ region */}
+                {clipPts && (
+                  <g clipPath={`url(#${clipId})`}>
+                    {AREAS.filter(a=>active.has(a.type)).map(a=>(
+                      <polygon key={a.id} points={a.poly.map(p=>`${p.x},${p.y}`).join(" ")}
+                        fill={catColor(a.type)} fillOpacity="0.34" stroke={catColor(a.type)} strokeWidth="2"/>
+                    ))}
+                  </g>
+                )}
+
+                {/* LINEAR features */}
+                {LINES.map(l=>{ const on=active.has(l.type); const isIn=!!inLines[l.id]; const dim=(hasRegion&&!isIn)||!on;
+                  return <polyline key={l.id} points={l.pts.map(p=>`${p.x},${p.y}`).join(" ")} fill="none"
+                    stroke={catColor(l.type)} strokeOpacity={dim?0.3:1} strokeWidth={isIn?6:4} strokeLinecap="round" strokeLinejoin="round"/>; })}
+
+                {/* region outline */}
+                {previewPts.length>=2 && mode==="region" && (
+                  <polygon points={previewPts.map(p=>`${p.x},${p.y}`).join(" ")} fill="none"
+                    stroke="var(--brand-600)" strokeWidth="2.5" strokeDasharray={drawing?"7 5":"0"} strokeLinejoin="round"/>
+                )}
+
+                {/* POINT items */}
+                {POINTS.map(p=>{ const on=active.has(p.type); const isIn=!!inPoints[p.id]; const dim=(hasRegion&&!isIn)||!on; const col=catColor(p.type);
+                  return <g key={p.id} opacity={dim?0.26:1}>
+                    {isIn && <circle cx={p.x} cy={p.y} r="12" fill={col} opacity="0.18"/>}
+                    <circle cx={p.x} cy={p.y} r={isIn?7:5.5} fill={isIn?col:"#fff"} stroke={col} strokeWidth={isIn?2.5:2}/>
+                    {isIn && <circle cx={p.x} cy={p.y} r="2.2" fill="#fff"/>}
+                  </g>; })}
+
+                {/* drawing vertices */}
+                {drawing && verts.map((v,i)=>(<circle key={i} cx={v.x} cy={v.y} r={i===0&&verts.length>=3?7:4.5}
+                  fill={i===0&&verts.length>=3?"#fff":"var(--brand-600)"} stroke="var(--brand-600)" strokeWidth="2.5"/>))}
+                {!drawing && mode==="region" && poly.map((v,i)=>(<rect key={i} x={v.x-4} y={v.y-4} width="8" height="8" fill="#fff" stroke="var(--brand-600)" strokeWidth="2"/>))}
+
+                {/* scale calibration line */}
+                {mode==="scale" && (()=>{ const pts=[...scalePts,...(scalePts.length===1&&cursor?[cursor]:[])];
+                  return <g>
+                    {pts.length===2 && <line x1={pts[0].x} y1={pts[0].y} x2={pts[1].x} y2={pts[1].y} stroke="var(--brand-600)" strokeWidth="2.5"/>}
+                    {pts.map((p,i)=><g key={i}><line x1={p.x} y1={p.y-9} x2={p.x} y2={p.y+9} stroke="var(--brand-600)" strokeWidth="2.5"/><circle cx={p.x} cy={p.y} r="4" fill="var(--brand-600)"/></g>)}
+                  </g>; })()}
+              </svg>
+
+              {/* clipped area sq ft labels */}
+              {Object.keys(areaClip).map(id=>{ const a=AREAS.find(x=>x.id===id); const cp=areaClip[id]; if(!cp.c) return null;
+                return <div key={id} className="rc-arealabel" style={{left:`${(cp.c.x/SHEET_W)*100}%`,top:`${(cp.c.y/SHEET_H)*100}%`,color:catColor(a.type)}}>
+                  {fSq(sqft(cp.px2))} sq ft</div>; })}
+
+              <div style={{position:"absolute",right:14,bottom:14,width:160,border:"1px solid var(--paper-edge)",background:"rgba(255,255,255,.6)",borderRadius:3,fontFamily:"var(--font-mono)",fontSize:9,color:"#5b6b54"}}>
+                <div style={{padding:"4px 7px",borderBottom:"1px solid var(--paper-edge)"}}><b style={{color:"#2b3a24",fontSize:11}}>PLANTING PLAN</b></div>
+                <div style={{padding:"4px 7px"}}>SHEET L-2</div>
+              </div>
+            </div>
+          </div>
+
+          {cen && hasRegion && mode==="region" && (
+            <div className="rc-bubble" style={{left:px2pct(cen.x,SHEET_W),top:px2pct(cen.y,SHEET_H)}}>
+              {fSq(regionSqft)} sq ft<small>{totalCount} items · {fLn(regionPerim)} ln ft perim.</small>
+            </div>
+          )}
+
+          <div className={"rc-scalechip"+(calib?"":" warn")}>
+            <span className="lk"><Ic name={calib?"ruler":"triangle-alert"} size={13}/></span>
+            {calib ? <>Scale set · {calib.feet} {calib.unit} = {Math.round(calib.px)} px</> : <>Default scale — click “Set scale” to calibrate</>}
+          </div>
+          <div className="rc-zoom">
+            <button onClick={()=>setZoom(z=>Math.max(50,z-25))}><Ic name="minus" size={15}/></button>
+            <span className="val">{zoom}%</span>
+            <button onClick={()=>setZoom(z=>Math.min(200,z+25))}><Ic name="plus" size={15}/></button>
+          </div>
+        </div>
+
+        <div className="rc-right">
+          <div className="rc-ph">
+            <h2><Ic name="lasso" size={18} style={{color:"var(--brand-600)"}}/> Region takeoff</h2>
+            <p>Draw an area. Plotline counts the items, clips the area materials to the exact overlap (sq ft), totals the walls (ln ft), and measures the region — live.</p>
+          </div>
+
+          <div className="rc-region">
+            <div className="rc-rcell"><div className="k"><Ic name="square-dashed" size={13}/> Region area</div>
+              <div className={"v"+(hasRegion?"":" empty")}>{hasRegion?fSq(regionSqft):"0"} <span className="u">sq ft</span></div></div>
+            <div className="rc-rcell"><div className="k"><Ic name="spline" size={13}/> Perimeter</div>
+              <div className={"v"+(hasRegion?"":" empty")}>{hasRegion?fLn(regionPerim):"0"} <span className="u">ln ft</span></div></div>
+          </div>
+
+          <div className="rc-list">
+            {groups.map(([label,cats])=>(
+              <div key={label}>
+                <div className="rc-glab">{label}</div>
+                {cats.map(c=>{ const off=!active.has(c.id); const r=res[c.id]; const zero=!r.count; let val;
+                  if(c.kind==="point") val=<>{r.count}<small> / {totalOf(c.id)}</small></>;
+                  else if(c.kind==="area") val=<>{fSq(r.sqft)}<small> sq ft{r.count?` · ${r.count}`:""}</small></>;
+                  else val=<>{fLn(r.lnft)}<small> ln ft{r.count?` · ${r.count}`:""}</small></>;
+                  return (
+                    <div className="rc-row" key={c.id} data-off={off} data-zero={zero&&!off} onClick={()=>toggle(c.id)}>
+                      <span className="rc-check">{!off && <Ic name="check" size={13}/>}</span>
+                      <span className={"rc-sw"+(c.kind==="linear"?" linear":"")} style={{background:catColor(c.id)}}/>
+                      <span className="rc-nm">{c.name}</span>
+                      <span className="rc-val">{val}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+
+          <div className="rc-foot">
+            <Button variant="secondary" fullWidth iconLeft={<Ic name="sparkles" size={15}/>} onClick={trySample}>Try a sample region</Button>
+            <Button variant="ghost" iconLeft={<Ic name="eraser" size={15}/>} onClick={reset}>Clear</Button>
+          </div>
+        </div>
+      </div>
+
+      <Dialog open={!!scaleDlg} onClose={cancelScale} title="Set the sheet scale"
+        description="Enter the real-world distance between the two points you clicked. Everything on the plan will be measured from this."
+        width={420}
+        footer={<><Button variant="ghost" onClick={cancelScale}>Cancel</Button>
+          <Button variant="primary" iconLeft={<Ic name="ruler" size={15}/>} onClick={confirmScale}>Set scale</Button></>}>
+        <div style={{display:"flex",gap:12,alignItems:"flex-end",paddingBottom:6}}>
+          <div style={{flex:1}}><Input label="Known distance" numeric value={scaleVal} onChange={e=>setScaleVal(e.target.value)} /></div>
+          <div style={{width:120}}><Select label="Unit" value={scaleUnit} onChange={e=>setScaleUnit(e.target.value)}
+            options={[{value:"ft",label:"feet"},{value:"in",label:"inches"},{value:"yd",label:"yards"},{value:"m",label:"meters"}]} /></div>
+        </div>
+        {scaleDlg && <p style={{margin:"4px 0 0",fontSize:13,color:"var(--text-muted)",fontFamily:"var(--font-mono)"}}>
+          Measured on sheet: {Math.round(scaleDlg.px)} px → 1 ft ≈ {(scaleDlg.px/((parseFloat(scaleVal)||1)*(UNIT_FT[scaleUnit]||1))).toFixed(1)} px</p>}
+      </Dialog>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

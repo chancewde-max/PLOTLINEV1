@@ -1,0 +1,42 @@
+<!-- @dsCard group="Colors" viewport="700x170" name="Semantic & Surfaces" subtitle="Status colors and the surface/text aliases components consume" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<link rel="stylesheet" href="../styles.css"/>
+<style>
+  html,body{margin:0;background:var(--surface-card);font-family:var(--font-sans);color:var(--text-body);}
+  .wrap{padding:22px;display:flex;flex-direction:column;gap:18px;}
+  .grp{display:flex;gap:10px;flex-wrap:wrap;}
+  .pill{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;border:1px solid var(--border-default);font-size:13px;}
+  .dot{width:14px;height:14px;border-radius:4px;}
+  .lab{font-family:var(--font-mono);font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--text-subtle);}
+  .surf{display:flex;gap:0;border:1px solid var(--border-default);border-radius:8px;overflow:hidden;}
+  .surf > div{flex:1;height:48px;display:flex;align-items:flex-end;padding:6px 8px;font-family:var(--font-mono);font-size:9px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div>
+    <div class="lab" style="margin-bottom:8px">Status</div>
+    <div class="grp">
+      <span class="pill"><span class="dot" style="background:var(--success-500)"></span>Success</span>
+      <span class="pill"><span class="dot" style="background:var(--warning-500)"></span>Warning</span>
+      <span class="pill"><span class="dot" style="background:var(--danger-500)"></span>Danger</span>
+      <span class="pill"><span class="dot" style="background:var(--info-500)"></span>Info</span>
+    </div>
+  </div>
+  <div>
+    <div class="lab" style="margin-bottom:8px">Surfaces (light → inverse)</div>
+    <div class="surf">
+      <div style="background:var(--bg-app);color:var(--text-muted)">app</div>
+      <div style="background:var(--bg-canvas);color:var(--text-muted)">canvas</div>
+      <div style="background:var(--surface-paper);color:var(--text-muted)">paper</div>
+      <div style="background:var(--surface-card);color:var(--text-muted);border-left:1px solid var(--border-subtle)">card</div>
+      <div style="background:var(--surface-muted);color:var(--text-muted)">muted</div>
+      <div style="background:var(--surface-inverse);color:var(--text-inverse)">inverse</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

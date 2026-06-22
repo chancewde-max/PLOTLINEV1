@@ -1,0 +1,179 @@
+/* ============================================================
+   Colors — Plotline
+   Base scales first, then semantic aliases. Consume the SEMANTIC
+   tokens (--text-*, --surface-*, --border-*, --action-*) in
+   components; reach for raw scale steps only when nothing fits.
+   ============================================================ */
+
+:root {
+  /* ---- Brand: pine / emerald green ---------------------- */
+  --brand-50:  #eef7f2;
+  --brand-100: #d6ece0;
+  --brand-200: #aedac4;
+  --brand-300: #7fc3a3;
+  --brand-400: #4da77f;
+  --brand-500: #258c62;
+  --brand-600: #157a52; /* primary action */
+  --brand-700: #0f6243;
+  --brand-800: #0c4e36;
+  --brand-900: #0a3f2c;
+
+  /* ---- Slate: cool, faintly green-tinted neutrals ------- */
+  --slate-0:   #ffffff;
+  --slate-25:  #fbfcfc;
+  --slate-50:  #f4f6f6;
+  --slate-100: #eaeeed;
+  --slate-200: #dbe1e0;
+  --slate-300: #c2cbc9;
+  --slate-400: #97a3a1;
+  --slate-500: #6b7775;
+  --slate-600: #4d5856;
+  --slate-700: #39423f;
+  --slate-800: #28302e;
+  --slate-900: #1a201e;
+  --slate-950: #0e1311;
+
+  /* ---- Paper (the plan sheet itself) -------------------- */
+  --paper-0:   #faf8f2; /* warm sheet white */
+  --paper-line:#e7e3d6; /* faint sheet grid */
+  --paper-edge:#ddd8c8; /* sheet border */
+
+  /* ---- Takeoff categorical (measurement-type colors) ----
+     Each measurement type gets its own hue, the way real
+     takeoff tools color-code area / linear / count layers. */
+  --takeoff-area:    #2e9e4f; /* fills, regions  (grass green) */
+  --takeoff-linear:  #e0700a; /* lines, edging   (amber)       */
+  --takeoff-count:   #2563eb; /* counts, symbols (blue)        */
+  --takeoff-volume:  #7c3aed; /* volumes, depth  (violet)      */
+  --takeoff-region:  #db2777; /* sub-regions     (magenta)     */
+  --takeoff-slope:   #0891b2; /* slopes, grade   (cyan)        */
+
+  /* tinted backgrounds for each (12% over white) */
+  --takeoff-area-bg:   #e7f4ea;
+  --takeoff-linear-bg: #fcefe1;
+  --takeoff-count-bg:  #e4ecfd;
+  --takeoff-volume-bg: #efe8fd;
+  --takeoff-region-bg: #fce4ef;
+  --takeoff-slope-bg:  #e1f1f5;
+
+  /* ---- Material categories (real takeoff line items) ----
+     Plotline counts/measures these by kind:
+       • point  → tallied (trees, shrubs, limestone blocks, irrigation)
+       • area   → square footage (sod, rock, hydroseed)
+       • linear → linear feet (limestone walls)
+     Each owns a distinct hue so a mixed plan stays readable. */
+  --mat-tree:        #166534; /* point  · dark green   */
+  --mat-shrub:       #be185d; /* point  · rose         */
+  --mat-irrigation:  #2563eb; /* point  · blue (water) */
+  --mat-lime-block:  #b45309; /* point  · amber-brown  */
+  --mat-sod:         #65a30d; /* area   · lime/grass   */
+  --mat-rock:        #64748b; /* area   · slate gray   */
+  --mat-hydroseed:   #0d9488; /* area   · teal         */
+  --mat-lime-wall:   #78350f; /* linear · dark brown   */
+
+  /* ---- Semantic status ---------------------------------- */
+  --success-500: #15803d;
+  --success-bg:  #e7f4ea;
+  --warning-500: #d97706;
+  --warning-bg:  #fdf0db;
+  --danger-500:  #dc2626;
+  --danger-bg:   #fdeaea;
+  --info-500:    #2563eb;
+  --info-bg:     #e4ecfd;
+
+  /* ========================================================
+     SEMANTIC ALIASES — use these in components
+     ======================================================== */
+
+  /* Backgrounds & surfaces */
+  --bg-app:          var(--slate-50);   /* app shell behind panels */
+  --bg-canvas:       #e4e8e7;           /* plan workspace (paper pops on it) */
+  --surface-card:    var(--slate-0);
+  --surface-raised:  var(--slate-0);
+  --surface-sunken:  var(--slate-50);
+  --surface-muted:   var(--slate-100);
+  --surface-paper:   var(--paper-0);
+  --surface-inverse: var(--slate-900);  /* dark chrome / toolbars */
+  --surface-overlay: rgba(14, 19, 17, 0.55); /* modal scrim */
+
+  /* Borders */
+  --border-subtle:   var(--slate-100);
+  --border-default:  var(--slate-200);
+  --border-strong:   var(--slate-300);
+  --border-inverse:  var(--slate-700);
+  --border-focus:    var(--brand-500);
+
+  /* Text */
+  --text-strong:   var(--slate-900);
+  --text-body:     var(--slate-700);
+  --text-muted:    var(--slate-500);
+  --text-subtle:   var(--slate-400);
+  --text-inverse:  var(--slate-0);
+  --text-brand:    var(--brand-600);
+  --text-on-brand: var(--slate-0);
+
+  /* Actions — primary (brand) */
+  --action-primary:        var(--brand-600);
+  --action-primary-hover:  var(--brand-700);
+  --action-primary-active: var(--brand-800);
+  --action-primary-fg:     var(--slate-0);
+
+  /* Actions — neutral / secondary */
+  --action-neutral:        var(--slate-0);
+  --action-neutral-hover:  var(--slate-50);
+  --action-neutral-active: var(--slate-100);
+  --action-neutral-fg:     var(--slate-800);
+
+  /* Actions — destructive */
+  --action-danger:        var(--danger-500);
+  --action-danger-hover:  #b91c1c;
+  --action-danger-fg:     var(--slate-0);
+
+  /* Focus ring */
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--brand-500) 35%, transparent);
+}
+
+/* ============================================================
+   Dark theme — apply with data-theme="dark" on a wrapper (or
+   <html>). Chrome (panels, canvas, text) goes dark; the plan
+   SHEET intentionally stays warm/light paper, the way pro plan
+   viewers keep the drawing legible. Brand/takeoff/material hues
+   are unchanged so markups read the same in either theme.
+   ============================================================ */
+[data-theme="dark"] {
+  --bg-app:          #0f1513;
+  --bg-canvas:       #0a0f0d;   /* very dark so the light sheet pops */
+  --surface-card:    #171d1b;
+  --surface-raised:  #1c2421;
+  --surface-sunken:  #111715;
+  --surface-muted:   #262e2b;
+  --surface-inverse: #f1f4f3;   /* flips: dark-on-light chips/tooltips */
+  --surface-overlay: rgba(0, 0, 0, 0.62);
+
+  --border-subtle:   #222a27;
+  --border-default:  #2d3633;
+  --border-strong:   #3c4641;
+  --border-inverse:  #c2cbc9;
+
+  --text-strong:   #f1f4f3;
+  --text-body:     #c7cfcc;
+  --text-muted:    #8c9692;
+  --text-subtle:   #6a7470;
+  --text-inverse:  #0e1311;
+
+  /* neutral/secondary buttons become dark surfaces */
+  --action-neutral:        #1c2421;
+  --action-neutral-hover:  #262e2b;
+  --action-neutral-active: #2d3633;
+  --action-neutral-fg:     #f1f4f3;
+
+  /* blueprint grid lines visible on the dark canvas */
+  --grid-line:  color-mix(in srgb, #7f8d89 26%, transparent);
+  --grid-major: color-mix(in srgb, #7f8d89 42%, transparent);
+
+  /* shadows lean darker on dark surfaces */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.4), 0 2px 6px rgba(0,0,0,0.35);
+  --shadow-md: 0 2px 4px rgba(0,0,0,0.4), 0 6px 16px rgba(0,0,0,0.45);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.5), 0 2px 6px rgba(0,0,0,0.4);
+  --shadow-xl: 0 18px 48px rgba(0,0,0,0.6), 0 6px 14px rgba(0,0,0,0.4);
+}

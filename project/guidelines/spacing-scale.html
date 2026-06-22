@@ -1,0 +1,29 @@
+<!-- @dsCard group="Spacing" viewport="700x230" name="Spacing Scale" subtitle="4px base grid, named --space-1 … --space-15" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<link rel="stylesheet" href="../styles.css"/>
+<style>
+  html,body{margin:0;background:var(--surface-card);font-family:var(--font-sans);}
+  .wrap{padding:22px;display:flex;flex-direction:column;gap:7px;}
+  .row{display:flex;align-items:center;gap:14px;}
+  .bar{height:14px;background:var(--brand-500);border-radius:3px;}
+  .tag{font-family:var(--font-mono);font-size:11px;color:var(--text-strong);width:80px;flex:0 0 auto;}
+  .px{font-family:var(--font-mono);font-size:10px;color:var(--text-muted);}
+</style>
+</head>
+<body>
+<div class="wrap" id="r"></div>
+<script>
+  const cs=getComputedStyle(document.documentElement);
+  const steps=[2,3,4,5,6,7,8,9,10,11,12];
+  const r=document.getElementById('r');
+  steps.forEach(s=>{
+    const v=cs.getPropertyValue('--space-'+s).trim();
+    r.insertAdjacentHTML('beforeend',
+      `<div class="row"><span class="tag">space-${s}</span><span class="bar" style="width:${v}"></span><span class="px">${v}</span></div>`);
+  });
+</script>
+</body>
+</html>

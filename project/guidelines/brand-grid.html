@@ -1,0 +1,41 @@
+<!-- @dsCard group="Brand" viewport="700x200" name="Blueprint Grid Motif" subtitle="The canvas texture & empty-state background" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<link rel="stylesheet" href="../styles.css"/>
+<style>
+  html,body{margin:0;font-family:var(--font-sans);}
+  .canvas{
+    height:200px; position:relative; background:var(--bg-canvas);
+    background-image:var(--grid-blueprint);
+    background-size:var(--grid-size) var(--grid-size);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .sheet{
+    width:230px;height:150px;background:var(--surface-paper);
+    border:1px solid var(--paper-edge); border-radius:4px;
+    box-shadow:var(--sheet-shadow);
+    background-image:linear-gradient(var(--paper-line) 1px,transparent 1px),linear-gradient(90deg,var(--paper-line) 1px,transparent 1px);
+    background-size:16px 16px;
+    position:relative;
+  }
+  .poly{position:absolute;inset:0;}
+  .cap{position:absolute;left:14px;bottom:12px;font-family:var(--font-mono);font-size:10px;color:var(--text-muted);background:rgba(255,255,255,.7);padding:3px 7px;border-radius:4px;}
+</style>
+</head>
+<body>
+<div class="canvas">
+  <div class="sheet">
+    <svg class="poly" viewBox="0 0 230 150" fill="none">
+      <polygon points="40,30 150,40 170,110 55,118" fill="rgba(46,158,79,.16)" stroke="var(--takeoff-area)" stroke-width="2"/>
+      <circle cx="40" cy="30" r="3.5" fill="#fff" stroke="var(--takeoff-area)" stroke-width="2"/>
+      <circle cx="150" cy="40" r="3.5" fill="#fff" stroke="var(--takeoff-area)" stroke-width="2"/>
+      <circle cx="170" cy="110" r="3.5" fill="#fff" stroke="var(--takeoff-area)" stroke-width="2"/>
+      <circle cx="55" cy="118" r="3.5" fill="#fff" stroke="var(--takeoff-area)" stroke-width="2"/>
+    </svg>
+  </div>
+  <div class="cap">paper sheet on blueprint canvas · area markup</div>
+</div>
+</body>
+</html>

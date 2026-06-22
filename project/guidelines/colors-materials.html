@@ -1,0 +1,46 @@
+<!-- @dsCard group="Colors" viewport="700x200" name="Material Categories" subtitle="Counted, area & linear takeoff line items — each its own hue" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<link rel="stylesheet" href="../styles.css"/>
+<style>
+  html,body{margin:0;background:var(--surface-card);font-family:var(--font-sans);color:var(--text-body);}
+  .wrap{padding:20px;display:flex;flex-direction:column;gap:14px;}
+  .grp{display:flex;flex-direction:column;gap:8px;}
+  .lab{font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-subtle);}
+  .row{display:flex;gap:10px;flex-wrap:wrap;}
+  .cell{display:flex;align-items:center;gap:9px;padding:7px 11px;border:1px solid var(--border-default);border-radius:8px;}
+  .sw{width:16px;height:16px;border-radius:4px;flex:0 0 auto;}
+  .n{font-size:13px;font-weight:500;color:var(--text-strong);}
+  .k{font-family:var(--font-mono);font-size:9px;color:var(--text-subtle);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="grp">
+    <span class="lab">Counted · tallied as quantities</span>
+    <div class="row">
+      <span class="cell"><span class="sw" style="background:var(--mat-tree)"></span><span class="n">Trees</span></span>
+      <span class="cell"><span class="sw" style="background:var(--mat-shrub)"></span><span class="n">Shrubs</span></span>
+      <span class="cell"><span class="sw" style="background:var(--mat-lime-block)"></span><span class="n">Limestone blocks</span></span>
+      <span class="cell"><span class="sw" style="background:var(--mat-irrigation)"></span><span class="n">Irrigation items</span></span>
+    </div>
+  </div>
+  <div class="grp">
+    <span class="lab">Area · square footage</span>
+    <div class="row">
+      <span class="cell"><span class="sw" style="background:var(--mat-sod)"></span><span class="n">Sod areas</span> <span class="k">sq ft</span></span>
+      <span class="cell"><span class="sw" style="background:var(--mat-rock)"></span><span class="n">Rock areas</span> <span class="k">sq ft</span></span>
+      <span class="cell"><span class="sw" style="background:var(--mat-hydroseed)"></span><span class="n">Hydroseed areas</span> <span class="k">sq ft</span></span>
+    </div>
+  </div>
+  <div class="grp">
+    <span class="lab">Linear · linear feet</span>
+    <div class="row">
+      <span class="cell"><span class="sw" style="background:var(--mat-lime-wall)"></span><span class="n">Limestone walls</span> <span class="k">ln ft</span></span>
+    </div>
+  </div>
+</div>
+</body>
+</html>

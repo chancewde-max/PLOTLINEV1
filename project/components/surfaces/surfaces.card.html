@@ -1,0 +1,59 @@
+<!-- @dsCard group="Components" viewport="700x340" name="Cards & Tabs" subtitle="Surface containers with headers; underline & pill tabs" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<link rel="stylesheet" href="../../styles.css"/>
+<style>
+  html,body{margin:0;background:var(--bg-app);font-family:var(--font-sans);color:var(--text-body);}
+  .wrap{padding:24px;display:flex;flex-direction:column;gap:20px;}
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  .kv{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border-subtle);font-size:14px;}
+  .kv:last-child{border-bottom:none;}
+  .kv b{font-family:var(--font-mono);color:var(--text-strong);font-weight:600;}
+</style>
+</head>
+<body>
+<div id="root" class="wrap"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<script type="text/babel">
+const { Card, Tabs, Button, Tag, Badge } = window.PlotlineDesignSystem_0cdb69;
+function Demo(){
+  const [tab,setTab]=React.useState("layers");
+  return (
+    <React.Fragment>
+      <div style={{display:"flex",gap:18,flexWrap:"wrap"}}>
+        <Tabs variant="underline" value={tab} onChange={setTab}
+          items={[{value:"layers",label:"Layers",count:6},{value:"sheets",label:"Sheets",count:3},{value:"notes",label:"Notes"}]} />
+        <Tabs variant="pill" defaultValue="area"
+          items={[{value:"area",label:"Area"},{value:"linear",label:"Linear"},{value:"count",label:"Count"}]} />
+      </div>
+      <div className="cards">
+        <Card title="Estimate summary" subtitle="Maple Grove · 3 sheets"
+          actions={<Button size="sm" variant="ghost">Export</Button>}>
+          <div className="kv"><span>Sod &amp; turf</span><b>12,480 sq ft</b></div>
+          <div className="kv"><span>Steel edging</span><b>840 ln ft</b></div>
+          <div className="kv"><span>Shade trees</span><b>14 ea</b></div>
+          <div className="kv"><span>Estimated total</span><b>$48,210</b></div>
+        </Card>
+        <Card title="Rear lawn — Sheet L-2" subtitle="Last edited 2h ago" interactive
+          actions={<Badge variant="success" dot>Synced</Badge>}>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            <Tag color="area" tinted>Sod</Tag>
+            <Tag color="linear" tinted>Edging</Tag>
+            <Tag color="count" tinted>Trees</Tag>
+            <Tag color="volume" tinted>Mulch</Tag>
+          </div>
+          <p style={{margin:"14px 0 0",fontSize:13,color:"var(--text-muted)"}}>Interactive card — hover to lift.</p>
+        </Card>
+      </div>
+    </React.Fragment>
+  );
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<Demo/>);
+</script>
+</body>
+</html>

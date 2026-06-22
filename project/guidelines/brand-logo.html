@@ -1,0 +1,45 @@
+<!-- @dsCard group="Brand" viewport="700x220" name="Logo & Wordmark" subtitle="Mark, lockup, and reversed/on-dark usage" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<link rel="stylesheet" href="../styles.css"/>
+<style>
+  html,body{margin:0;background:var(--surface-card);font-family:var(--font-display);}
+  .wrap{padding:26px;display:flex;align-items:center;gap:40px;flex-wrap:wrap;}
+  .lockup{display:flex;align-items:center;gap:12px;}
+  .lockup img{width:40px;height:40px;display:block;}
+  .word{font-size:27px;font-weight:700;letter-spacing:-0.03em;color:var(--text-strong);}
+  .word .dot{color:var(--brand-600);}
+  .ondark{display:flex;align-items:center;gap:12px;background:var(--surface-inverse);padding:16px 22px;border-radius:12px;}
+  .ondark .word{color:#fff;}
+  .ondark .mono{color:var(--brand-300);}
+  .lab{font-family:var(--font-mono);font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--text-subtle);margin-bottom:12px;}
+  .col{display:flex;flex-direction:column;}
+  .markonly{width:56px;height:56px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="col">
+    <div class="lab">Primary lockup</div>
+    <div class="lockup">
+      <img src="../assets/plotline-mark.svg" alt="Plotline"/>
+      <span class="word">Plotline<span class="dot">.</span></span>
+    </div>
+  </div>
+  <div class="col">
+    <div class="lab">Mark</div>
+    <img class="markonly" src="../assets/plotline-mark.svg" alt="Plotline mark"/>
+  </div>
+  <div class="col">
+    <div class="lab">On dark</div>
+    <div class="ondark">
+      <span style="color:var(--brand-300);display:inline-flex;width:34px;height:34px"></span>
+      <img src="../assets/plotline-mark.svg" alt="" style="width:34px;height:34px"/>
+      <span class="word">Plotline<span style="color:var(--brand-300)">.</span></span>
+    </div>
+  </div>
+</div>
+</body>
+</html>

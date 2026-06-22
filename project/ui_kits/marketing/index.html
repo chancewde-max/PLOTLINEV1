@@ -1,0 +1,242 @@
+<!-- @dsCard group="Marketing" viewport="1280x820" name="Plotline — Landing Page" subtitle="Hero, value props, workflow & CTA for the marketing site" -->
+<!-- @startingPoint section="Marketing" subtitle="Marketing landing page hero + sections" viewport="1280x900" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Plotline — Estimate straight from the plans</title>
+<link rel="stylesheet" href="../../styles.css"/>
+<style>
+  *{box-sizing:border-box;}
+  html,body{margin:0;background:var(--surface-card);font-family:var(--font-sans);color:var(--text-body);}
+  a{color:inherit;text-decoration:none;}
+  .mk{max-width:1180px;margin:0 auto;padding:0 32px;}
+
+  /* Nav */
+  .nav{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--surface-card) 88%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--border-subtle);}
+  .nav-in{display:flex;align-items:center;gap:28px;height:64px;}
+  .brand{display:flex;align-items:center;gap:10px;}
+  .brand img{width:30px;height:30px;}
+  .brand b{font-family:var(--font-display);font-weight:700;font-size:20px;letter-spacing:-0.02em;color:var(--text-strong);}
+  .brand .dot{color:var(--brand-600);}
+  .nav-links{display:flex;gap:4px;margin-left:8px;}
+  .nav-links a{font-size:14px;font-weight:600;color:var(--text-muted);padding:7px 12px;border-radius:var(--radius-sm);}
+  .nav-links a:hover{color:var(--text-strong);background:var(--surface-muted);}
+  .nav-right{margin-left:auto;display:flex;align-items:center;gap:12px;}
+
+  /* Hero */
+  .hero{position:relative;padding:84px 0 72px;background:
+     radial-gradient(1100px 420px at 78% -8%, var(--brand-50), transparent 70%);
+     overflow:hidden;}
+  .hero-grid{display:grid;grid-template-columns:1.05fr 1fr;gap:56px;align-items:center;}
+  .eyebrow{display:inline-flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--brand-700);background:var(--brand-50);border:1px solid var(--brand-200);padding:6px 12px;border-radius:var(--radius-pill);margin-bottom:22px;}
+  h1{font-family:var(--font-display);font-size:58px;line-height:1.04;letter-spacing:-0.03em;font-weight:700;color:var(--text-strong);margin:0 0 20px;}
+  h1 .hl{color:var(--brand-600);}
+  .lede{font-size:19px;line-height:1.6;color:var(--text-muted);margin:0 0 28px;max-width:30em;}
+  .hero-cta{display:flex;align-items:center;gap:14px;}
+  .hero-note{margin-top:16px;font-size:13px;color:var(--text-subtle);display:flex;align-items:center;gap:8px;}
+
+  /* Hero visual: paper sheet on blueprint */
+  .shot{position:relative;aspect-ratio:4/3.1;border-radius:var(--radius-xl);background:var(--bg-canvas);background-image:var(--grid-blueprint);background-size:var(--grid-size) var(--grid-size);border:1px solid var(--border-default);box-shadow:var(--shadow-xl);overflow:hidden;}
+  .shot-sheet{position:absolute;inset:34px;background:var(--surface-paper);border:1px solid var(--paper-edge);border-radius:4px;box-shadow:var(--sheet-shadow);background-image:linear-gradient(var(--paper-line) 1px,transparent 1px),linear-gradient(90deg,var(--paper-line) 1px,transparent 1px);background-size:20px 20px;}
+  .shot-callout{position:absolute;font-family:var(--font-mono);font-size:12px;font-weight:600;padding:4px 9px;border-radius:var(--radius-sm);box-shadow:var(--shadow-sm);}
+  .shot-toolbar{position:absolute;left:14px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:6px;background:var(--surface-card);border:1px solid var(--border-default);border-radius:var(--radius-md);padding:6px;box-shadow:var(--shadow-md);}
+  .shot-toolbar .t{width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:var(--radius-sm);color:var(--text-muted);}
+  .shot-toolbar .t.on{background:var(--brand-600);color:#fff;}
+
+  /* Logos strip */
+  .logos{padding:30px 0;border-top:1px solid var(--border-subtle);border-bottom:1px solid var(--border-subtle);}
+  .logos .mk{display:flex;align-items:center;gap:40px;flex-wrap:wrap;justify-content:center;}
+  .logos span{font-family:var(--font-display);font-weight:700;font-size:19px;color:var(--text-subtle);letter-spacing:-0.01em;opacity:.75;}
+  .logos .lab{font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-subtle);opacity:1;font-weight:500;}
+
+  /* Section */
+  section.block{padding:84px 0;}
+  .sec-head{max-width:620px;margin:0 auto 52px;text-align:center;}
+  .sec-head .eyebrow{margin-bottom:16px;}
+  .sec-head h2{font-family:var(--font-display);font-size:38px;letter-spacing:-0.02em;font-weight:600;color:var(--text-strong);margin:0 0 12px;}
+  .sec-head p{font-size:17px;line-height:1.6;color:var(--text-muted);margin:0;}
+
+  .features{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;}
+  .feat{background:var(--surface-card);border:1px solid var(--border-default);border-radius:var(--radius-lg);padding:26px;box-shadow:var(--shadow-xs);}
+  .feat .ic{width:42px;height:42px;display:flex;align-items:center;justify-content:center;border-radius:var(--radius-md);margin-bottom:16px;}
+  .feat h3{font-family:var(--font-display);font-size:19px;font-weight:600;color:var(--text-strong);margin:0 0 8px;letter-spacing:-0.01em;}
+  .feat p{font-size:14.5px;line-height:1.6;color:var(--text-muted);margin:0;}
+
+  /* Steps */
+  .steps{background:var(--bg-app);}
+  .steps-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:28px;counter-reset:s;}
+  .step{position:relative;}
+  .step .n{font-family:var(--font-mono);font-size:13px;font-weight:700;color:var(--brand-600);background:var(--brand-50);border:1px solid var(--brand-200);width:34px;height:34px;border-radius:var(--radius-pill);display:flex;align-items:center;justify-content:center;margin-bottom:16px;}
+  .step h3{font-family:var(--font-display);font-size:20px;font-weight:600;color:var(--text-strong);margin:0 0 8px;}
+  .step p{font-size:14.5px;line-height:1.6;color:var(--text-muted);margin:0;}
+
+  /* Stats band */
+  .band{background:var(--surface-inverse);color:#fff;border-radius:var(--radius-2xl);padding:48px;display:grid;grid-template-columns:repeat(3,1fr);gap:28px;}
+  .band .v{font-family:var(--font-mono);font-size:46px;font-weight:600;letter-spacing:-0.02em;color:#fff;}
+  .band .v em{color:var(--brand-300);font-style:normal;}
+  .band .k{font-size:15px;color:var(--slate-300);margin-top:6px;}
+
+  /* CTA */
+  .cta{text-align:center;padding:88px 0;}
+  .cta h2{font-family:var(--font-display);font-size:44px;letter-spacing:-0.025em;font-weight:700;color:var(--text-strong);margin:0 0 14px;}
+  .cta p{font-size:18px;color:var(--text-muted);margin:0 0 28px;}
+  .cta-row{display:flex;gap:14px;justify-content:center;}
+
+  /* Footer */
+  footer{border-top:1px solid var(--border-subtle);padding:40px 0;}
+  footer .mk{display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap;}
+  footer .copy{font-size:13px;color:var(--text-subtle);}
+  footer .fl{display:flex;gap:22px;}
+  footer .fl a{font-size:13px;color:var(--text-muted);font-weight:500;}
+  footer .fl a:hover{color:var(--text-strong);}
+</style>
+</head>
+<body>
+<div id="nav"></div>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/lucide@0.456.0/dist/umd/lucide.min.js"></script>
+<script src="../../assets/icons.js"></script>
+<script src="../../_ds_bundle.js"></script>
+
+<script type="text/babel">
+const { Button, Badge } = window.PlotlineDesignSystem_0cdb69;
+function Ic({name,size=18,style}){ const r=React.useRef(null);
+  React.useEffect(()=>{ if(r.current){r.current.innerHTML="";const n=window.plIconSVG(name,{size});if(n)r.current.appendChild(n);} });
+  return <span ref={r} style={{display:"inline-flex",width:size,height:size,...style}}/>; }
+
+function Nav(){
+  return (
+    <div className="nav"><div className="mk nav-in">
+      <div className="brand"><img src="../../assets/plotline-mark.svg" alt=""/><b>Plotline<span className="dot">.</span></b></div>
+      <div className="nav-links"><a>Product</a><a>Takeoff</a><a>Pricing</a><a>Customers</a><a>Docs</a></div>
+      <div className="nav-right">
+        <Button variant="ghost" size="sm">Sign in</Button>
+        <Button variant="primary" size="sm">Start free trial</Button>
+      </div>
+    </div></div>
+  );
+}
+
+function Hero(){
+  return (
+    <div className="hero"><div className="mk hero-grid">
+      <div>
+        <span className="eyebrow"><Ic name="ruler" size={14}/> Plan markup &amp; takeoff</span>
+        <h1>Estimate straight<br/>from the <span className="hl">plans</span>.</h1>
+        <p className="lede">Open a sheet, trace what you're bidding, and watch quantities flow into a live estimate. Plotline turns plan markup and takeoff into one fast, accurate workflow.</p>
+        <div className="hero-cta">
+          <Button variant="primary" size="lg" iconRight={<Ic name="arrow-right" size={17}/>}>Start free trial</Button>
+          <Button variant="secondary" size="lg" iconLeft={<Ic name="play" size={16}/>}>Watch 2-min demo</Button>
+        </div>
+        <div className="hero-note"><Ic name="check" size={15} style={{color:"var(--brand-600)"}}/> No credit card · Unlimited sheets on trial</div>
+      </div>
+      <div className="shot">
+        <div className="shot-sheet">
+          <svg viewBox="0 0 420 330" style={{position:"absolute",inset:0,width:"100%",height:"100%"}} preserveAspectRatio="none">
+            <polygon points="70,70 250,60 280,200 90,220" fill="rgba(46,158,79,.16)" stroke="var(--takeoff-area)" strokeWidth="2.5"/>
+            <polyline points="70,70 250,60 280,200 90,220 70,70" fill="none" stroke="var(--takeoff-linear)" strokeWidth="2" strokeDasharray="0"/>
+            {[[120,110],[200,95],[160,170]].map(([x,y],i)=><g key={i}><circle cx={x} cy={y} r="7" fill="#fff" stroke="var(--takeoff-count)" strokeWidth="2.5"/><circle cx={x} cy={y} r="2.5" fill="var(--takeoff-count)"/></g>)}
+            {[70,250,280,90].map((x,i)=>{const ys=[70,60,200,220];return <rect key={i} x={x-4} y={ys[i]-4} width="8" height="8" fill="#fff" stroke="var(--takeoff-area)" strokeWidth="2"/>;})}
+          </svg>
+          <div className="shot-callout" style={{left:"34%",top:"42%",transform:"translate(-50%,-50%)",background:"var(--takeoff-area)",color:"#fff"}}>4,820 sq ft</div>
+          <div className="shot-callout" style={{right:"10%",bottom:"14%",background:"var(--takeoff-count-bg)",color:"var(--takeoff-count)"}}>9 trees</div>
+        </div>
+        <div className="shot-toolbar">
+          <div className="t"><Ic name="hand" size={17}/></div>
+          <div className="t on"><Ic name="square-dashed" size={17}/></div>
+          <div className="t"><Ic name="spline" size={17}/></div>
+          <div className="t"><Ic name="locate" size={17}/></div>
+        </div>
+      </div>
+    </div></div>
+  );
+}
+
+function Logos(){
+  return <div className="logos"><div className="mk">
+    <span className="lab">Trusted by crews at</span>
+    <span>Hilltop</span><span>GreenAxis</span><span>Oakmont</span><span>Vantage</span><span>Beacon</span>
+  </div></div>;
+}
+
+const FEATURES=[
+  ["square-dashed","var(--takeoff-area)","var(--takeoff-area-bg)","Measure anything","Area, linear, count, and volume tools snap to the sheet grid. Set a scale once and every markup is dimensioned automatically."],
+  ["layers","var(--takeoff-count)","var(--takeoff-count-bg)","Organized by category","Every measurement is color-coded by type and grouped into layers you can toggle, lock, and price independently."],
+  ["calculator","var(--takeoff-linear)","var(--takeoff-linear-bg)","Live estimate","Quantities flow straight into a running estimate. Attach unit prices from your pricebook and export a clean proposal."],
+  ["users","var(--takeoff-volume)","var(--takeoff-volume-bg)","Built for the crew","Share a project, leave notes on the plan, and keep everyone on the same sheet — changes sync in real time."],
+  ["file-down","var(--brand-600)","var(--brand-50)","Export-ready","One click to an itemized PDF, a branded proposal, or a CSV of quantities for your accounting system."],
+  ["history","var(--takeoff-slope)","var(--takeoff-slope-bg)","Nothing lost","Every revision is versioned. Compare bids, restore a markup, and see exactly what changed between sheets."],
+];
+
+function Features(){
+  return <section className="block"><div className="mk">
+    <div className="sec-head">
+      <span className="eyebrow">Everything in one workspace</span>
+      <h2>From plan sheet to priced bid</h2>
+      <p>Plotline replaces the printout, the scale ruler, and the spreadsheet with a single workspace built for estimators.</p>
+    </div>
+    <div className="features">
+      {FEATURES.map(([ic,c,bg,h,p],i)=>(
+        <div className="feat" key={i}>
+          <div className="ic" style={{background:bg,color:c}}><Ic name={ic} size={21}/></div>
+          <h3>{h}</h3><p>{p}</p>
+        </div>
+      ))}
+    </div>
+  </div></section>;
+}
+
+function Steps(){
+  return <section className="block steps"><div className="mk">
+    <div className="sec-head">
+      <span className="eyebrow">How it works</span>
+      <h2>Three steps to an estimate</h2>
+    </div>
+    <div className="steps-grid">
+      <div className="step"><div className="n">1</div><h3>Upload your sheets</h3><p>Drop in a PDF set or a single plan. Plotline keeps every sheet in one project, with versions tracked.</p></div>
+      <div className="step"><div className="n">2</div><h3>Set scale &amp; trace</h3><p>Calibrate the scale once, then pick a tool and trace what you're bidding. Quantities calculate as you go.</p></div>
+      <div className="step"><div className="n">3</div><h3>Price &amp; send</h3><p>Apply unit prices, review the live estimate, and export a proposal your client can sign.</p></div>
+    </div>
+  </div></section>;
+}
+
+function Band(){
+  return <section className="block"><div className="mk"><div className="band">
+    <div><div className="v"><em>3×</em></div><div className="k">faster takeoffs than paper &amp; ruler</div></div>
+    <div><div className="v">98%</div><div className="k">quantity accuracy vs. manual counts</div></div>
+    <div><div className="v">12k+</div><div className="k">sheets measured every week</div></div>
+  </div></div></section>;
+}
+
+function CTA(){
+  return <section className="cta"><div className="mk">
+    <h2>Win the bid before lunch.</h2>
+    <p>Start measuring in minutes. Your first project is free.</p>
+    <div className="cta-row">
+      <Button variant="primary" size="lg" iconRight={<Ic name="arrow-right" size={17}/>}>Start free trial</Button>
+      <Button variant="secondary" size="lg">Book a demo</Button>
+    </div>
+  </div></section>;
+}
+
+function Footer(){
+  return <footer><div className="mk">
+    <div className="brand"><img src="../../assets/plotline-mark.svg" alt="" style={{width:24,height:24}}/><b style={{fontSize:16}}>Plotline<span className="dot">.</span></b></div>
+    <div className="fl"><a>Product</a><a>Pricing</a><a>Customers</a><a>Docs</a><a>Privacy</a></div>
+    <div className="copy">© 2026 Plotline. Estimate straight from the plans.</div>
+  </div></footer>;
+}
+
+ReactDOM.createRoot(document.getElementById("nav")).render(<Nav/>);
+ReactDOM.createRoot(document.getElementById("root")).render(
+  <React.Fragment><Hero/><Logos/><Features/><Steps/><Band/><CTA/><Footer/></React.Fragment>
+);
+</script>
+</body>
+</html>

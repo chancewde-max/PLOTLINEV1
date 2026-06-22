@@ -1,0 +1,11 @@
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Plotline">
+  <rect x="3" y="3" width="42" height="42" rx="11" fill="#157a52"></rect>
+  
+  <path d="M33 9.5 H15.5 A2.5 2.5 0 0 0 13 12 V36 A2.5 2.5 0 0 0 15.5 38.5 H32.5 A2.5 2.5 0 0 0 35 36 V11.5 Z" fill="#ffffff" fill-opacity="0.10"></path>
+  
+  <path d="M16 31 L23 21 L29 27 L34 15" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></path>
+  
+  <circle cx="16" cy="31" r="2.6" fill="#157a52" stroke="#ffffff" stroke-width="2.2"></circle>
+  <circle cx="23" cy="21" r="2.6" fill="#157a52" stroke="#ffffff" stroke-width="2.2"></circle>
+  <circle cx="34" cy="15" r="2.6" fill="#157a52" stroke="#ffffff" stroke-width="2.2"></circle>
+</svg>

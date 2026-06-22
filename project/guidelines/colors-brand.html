@@ -1,0 +1,32 @@
+<!-- @dsCard group="Colors" viewport="700x150" name="Brand — Pine Green" subtitle="Primary action color & full scale" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<link rel="stylesheet" href="../styles.css"/>
+<style>
+  html,body{margin:0;background:var(--surface-card);font-family:var(--font-sans);}
+  .row{display:flex;padding:20px;gap:0;}
+  .sw{flex:1;display:flex;flex-direction:column;}
+  .chip{height:64px;border-radius:8px 8px 0 0;}
+  .meta{padding:8px 4px 0;}
+  .step{font-family:var(--font-mono);font-size:11px;color:var(--text-strong);font-weight:600;}
+  .hex{font-family:var(--font-mono);font-size:10px;color:var(--text-muted);text-transform:uppercase;}
+  .star{display:inline-block;font-size:9px;color:var(--brand-600);margin-left:3px;}
+</style>
+</head>
+<body>
+<div class="row" id="r"></div>
+<script>
+  const steps=[50,100,200,300,400,500,600,700,800,900];
+  const r=document.getElementById('r');
+  steps.forEach(s=>{
+    const v=getComputedStyle(document.documentElement).getPropertyValue('--brand-'+s).trim();
+    const primary = s===600 ? '<span class="star">● primary</span>' : '';
+    r.insertAdjacentHTML('beforeend',
+      `<div class="sw"><div class="chip" style="background:${v}"></div>
+       <div class="meta"><div class="step">${s}${primary}</div><div class="hex">${v}</div></div></div>`);
+  });
+</script>
+</body>
+</html>

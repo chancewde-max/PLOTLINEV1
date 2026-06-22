@@ -1,0 +1,78 @@
+<!-- @dsCard group="App" viewport="1280x760" name="Plotline App — Takeoff Workspace" subtitle="Plan viewer, tool rail, layers & live estimate" -->
+<!-- @startingPoint section="App" subtitle="Plan markup + takeoff workspace" viewport="1280x800" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Plotline — Takeoff Workspace</title>
+<link rel="stylesheet" href="../../styles.css"/>
+<style>
+  html,body{margin:0;height:100%;background:var(--bg-app);}
+  #root{height:100%;}
+  .toast-stack{position:fixed;right:20px;bottom:20px;z-index:200;display:flex;flex-direction:column;gap:10px;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/lucide@0.456.0/dist/umd/lucide.min.js"></script>
+<script src="../../assets/icons.js"></script>
+<script src="../../_ds_bundle.js"></script>
+
+<script type="text/babel" src="common.jsx"></script>
+<script type="text/babel" src="Projects.jsx"></script>
+<script type="text/babel" src="Workspace.jsx"></script>
+
+<script type="text/babel">
+const { Dialog, Toast, Button, Select, Checkbox } = window.PlotlineDesignSystem_0cdb69;
+
+function App(){
+  const [view,setView]=React.useState("projects"); // projects | workspace
+  const [exportOpen,setExportOpen]=React.useState(false);
+  const [toast,setToast]=React.useState(null);
+
+  const doExport=()=>{ setExportOpen(false); setToast({variant:"success",title:"Estimate exported",message:"Maple Grove Estates — saved to Downloads as PDF."});
+    setTimeout(()=>setToast(null),4200); };
+
+  return (
+    <React.Fragment>
+      {view==="projects"
+        ? <window.Projects onOpen={()=>setView("workspace")}/>
+        : <window.Workspace onExport={()=>setExportOpen(true)} />}
+
+      {view==="workspace" ? (
+        <button onClick={()=>setView("projects")} title="Back to projects"
+          style={{position:"fixed",left:64,top:60,zIndex:50,display:"inline-flex",alignItems:"center",gap:6,
+            height:30,padding:"0 11px",background:"var(--surface-card)",border:"1px solid var(--border-default)",
+            borderRadius:"var(--radius-md)",boxShadow:"var(--shadow-xs)",font:"600 12px var(--font-sans)",
+            color:"var(--text-body)",cursor:"pointer"}}>
+          <KitIcon name="arrow-left" size={14}/> Projects
+        </button>
+      ) : null}
+
+      <Dialog open={exportOpen} onClose={()=>setExportOpen(false)} title="Export estimate"
+        description="Maple Grove Estates · 4 categories · $13,181 subtotal"
+        footer={<><Button variant="ghost" onClick={()=>setExportOpen(false)}>Cancel</Button>
+          <Button variant="primary" iconLeft={<KitIcon name="file-down" size={16}/>} onClick={doExport}>Export PDF</Button></>}>
+        <div style={{display:"flex",flexDirection:"column",gap:16,paddingBottom:8}}>
+          <Select label="Format" options={["PDF — itemized estimate","PDF — proposal w/ cover","CSV — quantities only","Excel workbook"]}/>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            <Checkbox label="Include sheet thumbnails" defaultChecked/>
+            <Checkbox label="Show unit prices" defaultChecked/>
+            <Checkbox label="Group by sheet"/>
+          </div>
+        </div>
+      </Dialog>
+
+      {toast ? <div className="toast-stack"><Toast {...toast} onClose={()=>setToast(null)}/></div> : null}
+    </React.Fragment>
+  );
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
