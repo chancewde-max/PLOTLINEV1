@@ -390,6 +390,28 @@
   background: var(--surface-paper); color: var(--text-strong);
 }
 
+/* Arc mode badge */
+.arcBadge {
+  position: absolute;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--brand-600);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  letter-spacing: .06em;
+  box-shadow: var(--shadow-sm);
+  z-index: 5;
+  pointer-events: none;
+}
+
 /* ---- Toast ---- */
 .toast {
   position: fixed;

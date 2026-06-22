@@ -4,7 +4,7 @@ import {
   Minus, Plus, Hand, SquareDashed, Spline, MapPin,
   Ruler, Lasso, Eye, EyeOff, Check, TriangleAlert, Sun, Moon,
   Settings2, FileDown, Share2, ChevronRight, Eraser, Sparkles,
-  X as XIcon, Map, Pencil, Trash2
+  X as XIcon, Map, Pencil, Trash2, MousePointer2,
 } from 'lucide-react'
 import { Button } from '../components/ui/Button.jsx'
 import { Badge } from '../components/ui/Badge.jsx'
@@ -14,18 +14,20 @@ import { Select } from '../components/ui/Select.jsx'
 import { Checkbox } from '../components/ui/Checkbox.jsx'
 import { Tabs } from '../components/ui/Tabs.jsx'
 import { Tooltip } from '../components/ui/Tooltip.jsx'
-import { PROJECTS, SHEETS, CATS, CAT_COLOR, SHEET_W, SHEET_H } from '../data/sampleData.js'
+import { useAppData } from '../data/useAppData.jsx'
+import { CATS, CAT_COLOR, SHEET_W, SHEET_H } from '../data/sampleData.js'
 import { inside, polyAreaPx, perimPx, centroid, clipPx2, dist } from '../workspace/geometry.js'
 import s from './SheetPage.module.css'
 
 const TOOLS = [
-  { id: 'pan',    label: 'Pan',          Icon: Hand,         k: 'H' },
-  { id: 'region', label: 'Region count', Icon: Lasso,        k: 'R' },
-  { id: 'measure',label: 'Measure',      Icon: Ruler,        k: 'M' },
+  { id: 'select', label: 'Select',       Icon: MousePointer2, k: 'V' },
+  { id: 'pan',    label: 'Pan',          Icon: Hand,          k: 'H' },
+  { id: 'region', label: 'Region count', Icon: Lasso,         k: 'R' },
+  { id: 'measure',label: 'Measure',      Icon: Ruler,         k: 'M' },
   'sep',
-  { id: 'area',   label: 'Area',         Icon: SquareDashed, k: 'A' },
-  { id: 'linear', label: 'Linear',       Icon: Spline,       k: 'L' },
-  { id: 'count',  label: 'Count',        Icon: MapPin,       k: 'C' },
+  { id: 'area',   label: 'Area',         Icon: SquareDashed,  k: 'A' },
+  { id: 'linear', label: 'Linear',       Icon: Spline,        k: 'L' },
+  { id: 'count',  label: 'Count',        Icon: MapPin,        k: 'C' },
 ]
 
 const ACCENTS = {
@@ -45,13 +47,62 @@ const NEAR = 16
 const FIT = 0.72
 const FOLDER_PALETTE = ['#157a52','#2563eb','#7c3aed','#d97706','#dc2626','#0891b2']
 
-const AREA_CATS  = CATS.filter(c => c.kind === 'area')
-const COUNT_CATS = CATS.filter(c => c.kind === 'point')
+const AREA_CATS   = CATS.filter(c => c.kind === 'area')
+const COUNT_CATS  = CATS.filter(c => c.kind === 'point')
+const LINEAR_CATS = CATS.filter(c => c.kind === 'linear')
+
+function singularize(name) {
+  return name.replace(/s\s*$/, '').trim()
+}
+
+function buildAreaPath(poly, arcSegs = {}) {
+  if (!poly || poly.length < 2) return ''
+  let d = `M ${poly[0].x} ${poly[0].y}`
+  for (let i = 1; i < poly.length; i++) {
+    const S = poly[i - 1], E = poly[i]
+    if (arcSegs[i - 1]) {
+      const T = arcSegs[i - 1]
+      const cx = 2 * T.x - 0.5 * S.x - 0.5 * E.x
+      const cy = 2 * T.y - 0.5 * S.y - 0.5 * E.y
+      d += ` Q ${cx} ${cy} ${E.x} ${E.y}`
+    } else {
+      d += ` L ${E.x} ${E.y}`
+    }
+  }
+  const last = poly[poly.length - 1], first = poly[0]
+  const closeIdx = poly.length - 1
+  if (arcSegs[closeIdx]) {
+    const T = arcSegs[closeIdx]
+    const cx = 2 * T.x - 0.5 * last.x - 0.5 * first.x
+    const cy = 2 * T.y - 0.5 * last.y - 0.5 * first.y
+    d += ` Q ${cx} ${cy} ${first.x} ${first.y}`
+  }
+  return d + ' Z'
+}
+
+function buildLinePath(pts, arcSegs = {}) {
+  if (!pts || pts.length < 2) return ''
+  let d = `M ${pts[0].x} ${pts[0].y}`
+  for (let i = 1; i < pts.length; i++) {
+    const S = pts[i - 1], E = pts[i]
+    if (arcSegs[i - 1]) {
+      const T = arcSegs[i - 1]
+      const cx = 2 * T.x - 0.5 * S.x - 0.5 * E.x
+      const cy = 2 * T.y - 0.5 * S.y - 0.5 * E.y
+      d += ` Q ${cx} ${cy} ${E.x} ${E.y}`
+    } else {
+      d += ` L ${E.x} ${E.y}`
+    }
+  }
+  return d
+}
 
 export default function SheetPage() {
   const { projectId, sheetId } = useParams()
   const navigate = useNavigate()
+  const { projects, sheets } = useAppData()
 
+  // ---- UI state ----
   const [theme, setTheme]       = useState('light')
   const [accent, setAccent]     = useState('pine')
   const [fs, setFs]             = useState(1)
@@ -63,6 +114,7 @@ export default function SheetPage() {
   const [exportOpen, setExportOpen] = useState(false)
   const [toast, setToast]       = useState(null)
 
+  // ---- Scale ----
   const [pxPerFt, setPxPerFt]   = useState(DEFAULT_PXFT)
   const [calib, setCalib]       = useState(null)
   const [scalePts, setScalePts]     = useState([])
@@ -70,6 +122,7 @@ export default function SheetPage() {
   const [scaleVal, setScaleVal]     = useState('40')
   const [scaleUnit, setScaleUnit]   = useState('ft')
 
+  // ---- Region tool ----
   const [regionVerts, setRegionVerts]   = useState([])
   const [regionClosed, setRegionClosed] = useState(null)
   const [regionCursor, setRegionCursor] = useState(null)
@@ -79,45 +132,103 @@ export default function SheetPage() {
   const [renamingId, setRenamingId] = useState(null)
   const [renameVal, setRenameVal]   = useState('')
 
+  // ---- Measure tool ----
   const [measurePts, setMeasurePts]     = useState([])
   const [measureDone, setMeasureDone]   = useState(false)
   const [measureCursor, setMeasureCursor] = useState(null)
 
+  // ---- Area tool ----
   const [areaVerts, setAreaVerts]   = useState([])
   const [areaCursor, setAreaCursor] = useState(null)
   const [areaType, setAreaType]     = useState(AREA_CATS[0]?.id || 'sod')
+  const [addedAreas, setAddedAreas] = useState([])
 
+  // ---- Linear tool ----
+  const [linearVerts, setLinearVerts]   = useState([])
+  const [linearCursor, setLinearCursor] = useState(null)
+  const [linearType, setLinearType]     = useState(LINEAR_CATS[0]?.id || 'lime-wall')
+  const [addedLines, setAddedLines]     = useState([])
+
+  // ---- Arc mode (shared for area + linear) ----
+  const [arcMode, setArcMode]               = useState(false)
+  const [pendingArcThrough, setPendingArcThrough] = useState(null)
+  const arcSegsRef = useRef({})         // for current area drawing
+  const linearArcSegsRef = useRef({})  // for current linear drawing
+
+  // ---- Count tool ----
   const [addCountType, setAddCountType] = useState(COUNT_CATS[0]?.id || 'tree')
-  const [addedAreas,  setAddedAreas]  = useState([])
-  const [addedPoints, setAddedPoints] = useState([])
+  const [addedPoints, setAddedPoints]   = useState([])
 
-  const svgRef = useRef(null)
+  // ---- Selection tool ----
+  const [selectedId, setSelectedId]     = useState(null)
+  const [selectedKind, setSelectedKind] = useState(null)
+  const isDraggingRef    = useRef(false)
+  const dragStartRef     = useRef(null)
+  const origDragRef      = useRef(null)
+  const dragVertIdxRef   = useRef(null)
+  const dragAreaIdRef    = useRef(null)
 
-  const project = PROJECTS[projectId]
-  const sheet   = SHEETS[sheetId]
+  // ---- Name counters ----
+  const nameCountRef = useRef({})
+
+  // ---- Refs ----
+  const svgRef    = useRef(null)
+  const canvasRef = useRef(null)
+
+  const project = projects[projectId]
+  const sheet   = sheets[sheetId]
+
+  // ---- Scroll to zoom ----
+  useEffect(() => {
+    const el = canvasRef.current
+    if (!el) return
+    const onWheel = (e) => {
+      e.preventDefault()
+      setZoom(z => Math.max(25, Math.min(400, z + (e.deltaY < 0 ? 10 : -10))))
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [])
 
   // Sync active folder's poly whenever regionClosed changes
   useEffect(() => {
     setFolders(prev => prev.map(f => f.id === activeFolderId ? { ...f, poly: regionClosed } : f))
   }, [regionClosed, activeFolderId])
 
+  // ---- Keyboard shortcuts ----
   useEffect(() => {
     if (!project || !sheet) return
     const onKey = (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
       const key = e.key.toUpperCase()
+      if (key === 'V') setActiveTool('select')
       if (key === 'H') setActiveTool('pan')
       if (key === 'R') setActiveTool('region')
       if (key === 'M') setActiveTool('measure')
-      if (key === 'A') setActiveTool('area')
       if (key === 'L') setActiveTool('linear')
       if (key === 'C') setActiveTool('count')
+      if (key === 'A') {
+        // If drawing area or linear: toggle arc mode; otherwise switch to area tool
+        if ((activeTool === 'area' && areaVerts.length > 0) ||
+            (activeTool === 'linear' && linearVerts.length > 0)) {
+          setArcMode(v => {
+            if (v) setPendingArcThrough(null)
+            return !v
+          })
+        } else {
+          setActiveTool('area')
+        }
+      }
       if (key === 'ESCAPE') {
         setRegionVerts([]); setRegionClosed(null); setRegionCursor(null)
         setScalePts([]); setScaleDlg(null)
         setMeasurePts([]); setMeasureDone(false); setMeasureCursor(null)
         setAreaVerts([]); setAreaCursor(null)
+        setLinearVerts([]); setLinearCursor(null)
+        setArcMode(false); setPendingArcThrough(null)
+        arcSegsRef.current = {}; linearArcSegsRef.current = {}
         setSettings(false)
+        setSelectedId(null); setSelectedKind(null)
       }
     }
     const onEnter = (e) => {
@@ -131,10 +242,8 @@ export default function SheetPage() {
       if (activeTool === 'measure' && !measureDone && measurePts.length >= 2) {
         setMeasureDone(true); setMeasureCursor(null)
       }
-      if (activeTool === 'area' && areaVerts.length >= 3) {
-        setAddedAreas(prev => [...prev, { id: `ua-${Date.now()}`, type: areaType, poly: areaVerts }])
-        setAreaVerts([]); setAreaCursor(null)
-      }
+      if (activeTool === 'area' && areaVerts.length >= 3) finishArea()
+      if (activeTool === 'linear' && linearVerts.length >= 2) finishLine()
     }
     window.addEventListener('keydown', onKey)
     window.addEventListener('keydown', onEnter)
@@ -142,14 +251,23 @@ export default function SheetPage() {
       window.removeEventListener('keydown', onKey)
       window.removeEventListener('keydown', onEnter)
     }
-  }, [project, sheet, activeTool, regionVerts, measureDone, measurePts, areaVerts, areaType])
+  }, [project, sheet, activeTool, regionVerts, measureDone, measurePts, areaVerts, areaType, linearVerts, linearType, arcMode])
 
   if (!project || !sheet) {
     return <div style={{ padding: 40, color: 'var(--text-muted)' }}>Sheet not found.</div>
   }
 
-  const allAreas  = [...sheet.areas,  ...addedAreas]
-  const allPoints = [...sheet.points, ...addedPoints]
+  // ---- Helpers ----
+  const genName = (catId) => {
+    const cat = CATS.find(c => c.id === catId)
+    if (!cat) return catId
+    nameCountRef.current[catId] = (nameCountRef.current[catId] || 0) + 1
+    return `${singularize(cat.name)} ${nameCountRef.current[catId]}`
+  }
+
+  const allAreas  = [...(sheet.areas  || []), ...addedAreas]
+  const allPoints = [...(sheet.points || []), ...addedPoints]
+  const allLines  = [...(sheet.lines  || []), ...addedLines]
 
   const toSheet = (e) => {
     const svg = svgRef.current
@@ -161,22 +279,153 @@ export default function SheetPage() {
     return pt.matrixTransform(m.inverse())
   }
 
+  const finishArea = () => {
+    if (areaVerts.length < 3) return
+    setAddedAreas(prev => [...prev, {
+      id: `ua-${Date.now()}`,
+      type: areaType,
+      name: genName(areaType),
+      poly: [...areaVerts],
+      arcSegs: { ...arcSegsRef.current },
+    }])
+    setAreaVerts([]); setAreaCursor(null)
+    setArcMode(false); setPendingArcThrough(null)
+    arcSegsRef.current = {}
+  }
+
+  const finishLine = () => {
+    if (linearVerts.length < 2) return
+    setAddedLines(prev => [...prev, {
+      id: `ul-${Date.now()}`,
+      type: linearType,
+      name: genName(linearType),
+      pts: [...linearVerts],
+      arcSegs: { ...linearArcSegsRef.current },
+    }])
+    setLinearVerts([]); setLinearCursor(null)
+    setArcMode(false); setPendingArcThrough(null)
+    linearArcSegsRef.current = {}
+  }
+
+  // ---- Event handlers ----
+  const onMouseDown = (e) => {
+    if (activeTool !== 'select') return
+    const p = toSheet(e)
+    // Check added points first
+    for (let i = addedPoints.length - 1; i >= 0; i--) {
+      const pt = addedPoints[i]
+      if (dist(p, { x: pt.x, y: pt.y }) < 10) {
+        setSelectedId(pt.id); setSelectedKind('point')
+        isDraggingRef.current = true
+        dragStartRef.current = p
+        origDragRef.current = { x: pt.x, y: pt.y }
+        return
+      }
+    }
+    // Check added area vertices, then interiors
+    for (let i = addedAreas.length - 1; i >= 0; i--) {
+      const a = addedAreas[i]
+      for (let j = 0; j < a.poly.length; j++) {
+        if (dist(p, a.poly[j]) < 8) {
+          setSelectedId(a.id); setSelectedKind('area')
+          isDraggingRef.current = true
+          dragStartRef.current = p
+          origDragRef.current = a.poly[j]
+          dragVertIdxRef.current = j
+          dragAreaIdRef.current = a.id
+          return
+        }
+      }
+      if (inside(p, a.poly)) {
+        setSelectedId(a.id); setSelectedKind('area')
+        isDraggingRef.current = true
+        dragStartRef.current = p
+        origDragRef.current = a.poly.map(v => ({ ...v }))
+        dragVertIdxRef.current = null
+        dragAreaIdRef.current = a.id
+        return
+      }
+    }
+    // Check added lines
+    for (let i = addedLines.length - 1; i >= 0; i--) {
+      const l = addedLines[i]
+      for (let j = 0; j < l.pts.length; j++) {
+        if (dist(p, l.pts[j]) < 10) {
+          setSelectedId(l.id); setSelectedKind('line')
+          isDraggingRef.current = true
+          dragStartRef.current = p
+          origDragRef.current = l.pts[j]
+          dragVertIdxRef.current = j
+          dragAreaIdRef.current = l.id
+          return
+        }
+      }
+    }
+    setSelectedId(null); setSelectedKind(null)
+  }
+
   const onMouseMove = (e) => {
     const p = toSheet(e)
     if (activeTool === 'region' && !regionClosed) setRegionCursor(p)
     if (activeTool === 'measure' && !measureDone && measurePts.length > 0) setMeasureCursor(p)
     if (activeTool === 'scale') setRegionCursor(p)
-    if (activeTool === 'area' && areaVerts.length > 0) setAreaCursor(p)
+    if (activeTool === 'area' && (areaVerts.length > 0 || pendingArcThrough)) setAreaCursor(p)
+    if (activeTool === 'linear' && (linearVerts.length > 0 || pendingArcThrough)) setLinearCursor(p)
+
+    if (activeTool === 'select' && isDraggingRef.current && dragStartRef.current) {
+      const dx = p.x - dragStartRef.current.x
+      const dy = p.y - dragStartRef.current.y
+      if (selectedKind === 'point') {
+        const orig = origDragRef.current
+        setAddedPoints(prev => prev.map(pt =>
+          pt.id === selectedId ? { ...pt, x: orig.x + dx, y: orig.y + dy } : pt
+        ))
+      } else if (selectedKind === 'area') {
+        if (dragVertIdxRef.current !== null) {
+          // Move single vertex
+          const orig = origDragRef.current
+          setAddedAreas(prev => prev.map(a =>
+            a.id === dragAreaIdRef.current
+              ? { ...a, poly: a.poly.map((v, i) => i === dragVertIdxRef.current ? { x: orig.x + dx, y: orig.y + dy } : v) }
+              : a
+          ))
+        } else {
+          // Move whole area
+          const origPoly = origDragRef.current
+          setAddedAreas(prev => prev.map(a =>
+            a.id === dragAreaIdRef.current
+              ? { ...a, poly: origPoly.map(v => ({ x: v.x + dx, y: v.y + dy })) }
+              : a
+          ))
+        }
+      } else if (selectedKind === 'line') {
+        const orig = origDragRef.current
+        setAddedLines(prev => prev.map(l =>
+          l.id === dragAreaIdRef.current
+            ? { ...l, pts: l.pts.map((v, i) => i === dragVertIdxRef.current ? { x: orig.x + dx, y: orig.y + dy } : v) }
+            : l
+        ))
+      }
+    }
+  }
+
+  const onMouseUp = () => {
+    isDraggingRef.current = false
+    dragVertIdxRef.current = null
+    dragAreaIdRef.current = null
   }
 
   const onClick = (e) => {
+    if (isDraggingRef.current) return
     const p = toSheet(e)
+
     if (activeTool === 'scale') {
       const np = [...scalePts, p]
       if (np.length >= 2) { setScaleDlg({ px: dist(np[0], np[1]) }); setScalePts(np.slice(0, 2)) }
       else setScalePts(np)
       return
     }
+
     if (activeTool === 'region' && !regionClosed) {
       if (regionVerts.length >= 3 && dist(p, regionVerts[0]) < NEAR) {
         setRegionClosed(regionVerts); setRegionCursor(null)
@@ -185,32 +434,83 @@ export default function SheetPage() {
       }
       return
     }
+
     if (activeTool === 'measure' && !measureDone) {
       setMeasurePts(pts => [...pts, p]); return
     }
+
     if (activeTool === 'area') {
-      if (areaVerts.length >= 3 && dist(p, areaVerts[0]) < NEAR) {
-        setAddedAreas(prev => [...prev, { id: `ua-${Date.now()}`, type: areaType, poly: areaVerts }])
-        setAreaVerts([]); setAreaCursor(null)
-      } else {
-        setAreaVerts(v => [...v, p])
+      // Close on near first vertex
+      if (areaVerts.length >= 3 && dist(p, areaVerts[0]) < NEAR && !pendingArcThrough) {
+        finishArea(); return
       }
-      return
+      // Arc: collect through-point
+      if (arcMode && !pendingArcThrough && areaVerts.length > 0) {
+        setPendingArcThrough(p); return
+      }
+      // Arc: set endpoint after through-point
+      if (pendingArcThrough && areaVerts.length > 0) {
+        arcSegsRef.current[areaVerts.length - 1] = pendingArcThrough
+        setPendingArcThrough(null); setArcMode(false)
+        if (areaVerts.length >= 2 && dist(p, areaVerts[0]) < NEAR) { finishArea(); return }
+        setAreaVerts(v => [...v, p]); return
+      }
+      setAreaVerts(v => [...v, p]); return
     }
+
+    if (activeTool === 'linear') {
+      if (arcMode && !pendingArcThrough && linearVerts.length > 0) {
+        setPendingArcThrough(p); return
+      }
+      if (pendingArcThrough && linearVerts.length > 0) {
+        linearArcSegsRef.current[linearVerts.length - 1] = pendingArcThrough
+        setPendingArcThrough(null); setArcMode(false)
+        setLinearVerts(v => [...v, p]); return
+      }
+      setLinearVerts(v => [...v, p]); return
+    }
+
     if (activeTool === 'count') {
-      setAddedPoints(prev => [...prev, { id: `up-${Date.now()}`, type: addCountType, x: p.x, y: p.y }])
+      setAddedPoints(prev => [...prev, {
+        id: `up-${Date.now()}`,
+        type: addCountType,
+        name: genName(addCountType),
+        x: p.x, y: p.y,
+      }])
     }
   }
 
-  const onDblClick = () => {
+  const onDblClick = (e) => {
     if (activeTool === 'region' && !regionClosed && regionVerts.length >= 3) {
       setRegionClosed(regionVerts); setRegionCursor(null)
     }
     if (activeTool === 'measure' && !measureDone && measurePts.length >= 2) {
       setMeasureDone(true); setMeasureCursor(null)
     }
+    if (activeTool === 'linear' && linearVerts.length >= 2) finishLine()
   }
 
+  // ---- Selection callbacks ----
+  const renameSelected = (id, kind, newName) => {
+    if (kind === 'area') setAddedAreas(prev => prev.map(a => a.id === id ? { ...a, name: newName } : a))
+    else if (kind === 'point') setAddedPoints(prev => prev.map(p => p.id === id ? { ...p, name: newName } : p))
+    else if (kind === 'line') setAddedLines(prev => prev.map(l => l.id === id ? { ...l, name: newName } : l))
+  }
+  const deleteSelected = (id, kind) => {
+    if (kind === 'area') setAddedAreas(prev => prev.filter(a => a.id !== id))
+    else if (kind === 'point') setAddedPoints(prev => prev.filter(p => p.id !== id))
+    else if (kind === 'line') setAddedLines(prev => prev.filter(l => l.id !== id))
+    setSelectedId(null); setSelectedKind(null)
+  }
+
+  // ---- Tool activation from panel ----
+  const activateType = (kind, typeId) => {
+    if (kind === 'point') { setAddCountType(typeId); setActiveTool('count') }
+    else if (kind === 'area') { setAreaType(typeId); setActiveTool('area') }
+    else if (kind === 'linear') { setLinearType(typeId); setActiveTool('linear') }
+  }
+
+  // ---- Geometry ----
   const regionPoly = regionClosed || regionVerts
   const hasRegion  = regionPoly.length >= 3
   const isDrawingRegion = activeTool === 'region' && !regionClosed
@@ -243,7 +543,7 @@ export default function SheetPage() {
       const cp = clipPx2(a.poly, regionPoly, clipStep)
       if (cp.px2 > 0) { regionRes[a.type].count++; regionRes[a.type].sqft += sqft(cp.px2); areaClip[a.id] = cp }
     })
-    sheet.lines.forEach(l => {
+    allLines.forEach(l => {
       const lc = centroid(l.pts)
       if (catActive.has(l.type) && inside(lc, regionPoly)) {
         regionRes[l.type].count++; regionRes[l.type].lnft += lnft(perimPx(l.pts)); inLines[l.id] = true
@@ -264,11 +564,64 @@ export default function SheetPage() {
   }
   const measureTotalFt = measureSegments.reduce((sum, seg) => sum + seg.ft, 0)
 
-  const areaPreview = areaVerts.length > 0 ? [...areaVerts, ...(areaCursor ? [areaCursor] : [])] : []
+  // Area preview path builder
+  const buildAreaPreviewPath = () => {
+    if (areaVerts.length === 0) return ''
+    let d = `M ${areaVerts[0].x} ${areaVerts[0].y}`
+    for (let i = 1; i < areaVerts.length; i++) {
+      const S = areaVerts[i-1], E = areaVerts[i]
+      if (arcSegsRef.current[i-1]) {
+        const T = arcSegsRef.current[i-1]
+        const cx = 2*T.x - 0.5*S.x - 0.5*E.x
+        const cy = 2*T.y - 0.5*S.y - 0.5*E.y
+        d += ` Q ${cx} ${cy} ${E.x} ${E.y}`
+      } else {
+        d += ` L ${E.x} ${E.y}`
+      }
+    }
+    if (areaCursor) {
+      const lastV = areaVerts[areaVerts.length - 1]
+      if (pendingArcThrough) {
+        const cx = 2*pendingArcThrough.x - 0.5*lastV.x - 0.5*areaCursor.x
+        const cy = 2*pendingArcThrough.y - 0.5*lastV.y - 0.5*areaCursor.y
+        d += ` Q ${cx} ${cy} ${areaCursor.x} ${areaCursor.y}`
+      } else {
+        d += ` L ${areaCursor.x} ${areaCursor.y}`
+      }
+    }
+    return d
+  }
+
+  const buildLinearPreviewPath = () => {
+    if (linearVerts.length === 0) return ''
+    let d = `M ${linearVerts[0].x} ${linearVerts[0].y}`
+    for (let i = 1; i < linearVerts.length; i++) {
+      const S = linearVerts[i-1], E = linearVerts[i]
+      if (linearArcSegsRef.current[i-1]) {
+        const T = linearArcSegsRef.current[i-1]
+        const cx = 2*T.x - 0.5*S.x - 0.5*E.x
+        const cy = 2*T.y - 0.5*S.y - 0.5*E.y
+        d += ` Q ${cx} ${cy} ${E.x} ${E.y}`
+      } else {
+        d += ` L ${E.x} ${E.y}`
+      }
+    }
+    if (linearCursor) {
+      const lastV = linearVerts[linearVerts.length - 1]
+      if (pendingArcThrough) {
+        const cx = 2*pendingArcThrough.x - 0.5*lastV.x - 0.5*linearCursor.x
+        const cy = 2*pendingArcThrough.y - 0.5*lastV.y - 0.5*linearCursor.y
+        d += ` Q ${cx} ${cy} ${linearCursor.x} ${linearCursor.y}`
+      } else {
+        d += ` L ${linearCursor.x} ${linearCursor.y}`
+      }
+    }
+    return d
+  }
 
   const layerItems = [
-    ...allAreas.map(a => ({ id: a.id, type: a.type, kind: 'area',   label: CATS.find(c => c.id === a.type)?.name || a.type })),
-    ...sheet.lines.map(l => ({ id: l.id, type: l.type, kind: 'linear', label: CATS.find(c => c.id === l.type)?.name || l.type })),
+    ...allAreas.map(a => ({ id: a.id, type: a.type, kind: 'area',   label: a.name || CATS.find(c => c.id === a.type)?.name || a.type })),
+    ...allLines.map(l => ({ id: l.id, type: l.type, kind: 'linear', label: l.name || CATS.find(c => c.id === l.type)?.name || l.type })),
   ]
 
   const toggleCat   = (id) => setCatActive(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
@@ -303,7 +656,6 @@ export default function SheetPage() {
     setRegionClosed(target?.poly || null)
     setRegionVerts([]); setRegionCursor(null)
   }
-
   const addFolder = () => {
     const id = `f${Date.now()}`
     const color = FOLDER_PALETTE[folders.length % FOLDER_PALETTE.length]
@@ -311,7 +663,6 @@ export default function SheetPage() {
     setActiveFolderId(id)
     setRegionClosed(null); setRegionVerts([]); setRegionCursor(null)
   }
-
   const deleteFolder = (folderId) => {
     if (folders.length <= 1) return
     const remaining = folders.filter(f => f.id !== folderId)
@@ -323,16 +674,19 @@ export default function SheetPage() {
       setRegionVerts([]); setRegionCursor(null)
     }
   }
-
   const startRename = (folder) => { setRenamingId(folder.id); setRenameVal(folder.name) }
-
   const commitRename = () => {
     if (renameVal.trim()) setFolders(prev => prev.map(f => f.id === renamingId ? { ...f, name: renameVal.trim() } : f))
     setRenamingId(null)
   }
 
+  const selectedArea  = selectedKind === 'area'  ? addedAreas.find(a => a.id === selectedId) : null
+  const selectedPoint = selectedKind === 'point' ? addedPoints.find(p => p.id === selectedId) : null
+  const selectedLine  = selectedKind === 'line'  ? addedLines.find(l => l.id === selectedId) : null
+
   const canvasCursor = activeTool === 'pan' ? 'grab'
-    : ['region','measure','scale','area','count'].includes(activeTool) ? 'crosshair'
+    : activeTool === 'select' ? (isDraggingRef.current ? 'grabbing' : 'default')
+    : ['region','measure','scale','area','linear','count'].includes(activeTool) ? 'crosshair'
     : 'default'
 
   return (
@@ -352,9 +706,9 @@ export default function SheetPage() {
         </div>
         <div className={s.topRight}>
           <div className={s.zoomCtrl}>
-            <button className={s.zoomBtn} onClick={() => setZoom(z => Math.max(50, z - 25))}><Minus size={14} /></button>
+            <button className={s.zoomBtn} onClick={() => setZoom(z => Math.max(25, z - 25))}><Minus size={14} /></button>
             <span className={s.zoomVal}>{zoom}%</span>
-            <button className={s.zoomBtn} onClick={() => setZoom(z => Math.min(200, z + 25))}><Plus size={14} /></button>
+            <button className={s.zoomBtn} onClick={() => setZoom(z => Math.min(400, z + 25))}><Plus size={14} /></button>
           </div>
           <Badge variant="success" dot>Synced</Badge>
           <button className={s.iconBtn} data-on={settings} onClick={() => setSettings(v => !v)}>
@@ -429,12 +783,17 @@ export default function SheetPage() {
             <Tabs variant="pill" value={leftPanel} onChange={setLeftPanel}
               items={[
                 { value: 'layers', label: 'Layers', count: layerItems.length },
-                { value: 'sheets', label: 'Sheets', count: project.sheetIds.length },
+                { value: 'sheets', label: 'Sheets', count: (project.sheetIds || []).length },
               ]}
             />
           </div>
           {leftPanel === 'layers' ? (
             <div className={s.scroll}>
+              {layerItems.length === 0 && (
+                <div style={{ padding: '24px 8px', textAlign: 'center', color: 'var(--text-subtle)', fontSize: 12 }}>
+                  No layers yet
+                </div>
+              )}
               {layerItems.map(item => (
                 <div key={item.id} className={s.layerRow}>
                   <button className={s.eyeBtn} onClick={() => toggleLayer(item.id)}>
@@ -448,8 +807,8 @@ export default function SheetPage() {
             </div>
           ) : (
             <div className={s.scroll}>
-              {project.sheetIds.map(sid => {
-                const sh = SHEETS[sid]
+              {(project.sheetIds || []).map(sid => {
+                const sh = sheets[sid]
                 if (!sh) return null
                 return (
                   <div key={sid}
@@ -467,12 +826,16 @@ export default function SheetPage() {
           )}
         </div>
 
-        <main className={s.canvas}>
+        <main className={s.canvas} ref={canvasRef}>
           <div className={s.hint}>
             {activeTool === 'scale' ? (
               scalePts.length === 0
                 ? <><Ruler size={14} /><span><b>Set scale</b> — click the first end of a known distance</span></>
                 : <><Ruler size={14} /><span>Now click the <b>other end</b> of that distance</span></>
+            ) : activeTool === 'select' ? (
+              selectedId
+                ? <><MousePointer2 size={14} /><span>Drag to move · drag vertex to reshape · <kbd>Esc</kbd> to deselect</span></>
+                : <><MousePointer2 size={14} /><span>Click an item to select it. Drag vertices to reshape areas.</span></>
             ) : activeTool === 'region' ? (
               isDrawingRegion
                 ? regionVerts.length === 0
@@ -488,15 +851,27 @@ export default function SheetPage() {
                   ? <><Ruler size={14} /><span><b>Click</b> to start measuring. Double-click or <kbd>Enter</kbd> to finish.</span></>
                   : <><Ruler size={14} /><span>Click to add points · <kbd>Enter</kbd> to finish</span></>
             ) : activeTool === 'area' ? (
-              areaVerts.length === 0
-                ? <><SquareDashed size={14} /><span><b>Click</b> to start drawing — select type in the right panel</span></>
-                : <><SquareDashed size={14} /><span>Keep clicking · click first point or <kbd>Enter</kbd> to close</span></>
+              arcMode && pendingArcThrough
+                ? <><SquareDashed size={14} /><span>Arc: now click the <b>endpoint</b> of the arc</span></>
+                : arcMode
+                ? <><SquareDashed size={14} /><span>Arc mode — click the <b>through-point</b> of the curve · <kbd>A</kbd> to cancel</span></>
+                : areaVerts.length === 0
+                  ? <><SquareDashed size={14} /><span><b>Click</b> to start drawing — <kbd>A</kbd> for arc segment</span></>
+                  : <><SquareDashed size={14} /><span>Keep clicking · <kbd>A</kbd> for arc · click first point or <kbd>Enter</kbd> to close</span></>
+            ) : activeTool === 'linear' ? (
+              arcMode && pendingArcThrough
+                ? <><Spline size={14} /><span>Arc: now click the <b>endpoint</b> of the arc</span></>
+                : arcMode
+                ? <><Spline size={14} /><span>Arc mode — click the <b>through-point</b> · <kbd>A</kbd> to cancel</span></>
+                : linearVerts.length === 0
+                  ? <><Spline size={14} /><span><b>Click</b> to start drawing a line · <kbd>A</kbd> for arc segment</span></>
+                  : <><Spline size={14} /><span>Keep clicking · <kbd>A</kbd> for arc · double-click or <kbd>Enter</kbd> to finish</span></>
             ) : activeTool === 'count' ? (
               <><MapPin size={14} /><span><b>Click</b> to place a {COUNT_CATS.find(c => c.id === addCountType)?.name || addCountType} — change type in the right panel</span></>
             ) : activeTool === 'pan' ? (
               <><Hand size={14} /><span>Drag to pan · scroll to zoom</span></>
             ) : (
-              <><SquareDashed size={14} /><span><b>{TOOLS.find(t => t !== 'sep' && t.id === activeTool)?.label}</b> — coming soon</span></>
+              <><SquareDashed size={14} /><span><b>{TOOLS.find(t => t !== 'sep' && t.id === activeTool)?.label}</b></span></>
             )}
           </div>
 
@@ -505,7 +880,11 @@ export default function SheetPage() {
               <svg ref={svgRef} className={s.svg} width={SHEET_W} height={SHEET_H}
                 viewBox={`0 0 ${SHEET_W} ${SHEET_H}`}
                 style={{ cursor: canvasCursor }}
-                onMouseMove={onMouseMove} onClick={onClick} onDoubleClick={onDblClick}>
+                onMouseDown={onMouseDown}
+                onMouseMove={onMouseMove}
+                onMouseUp={onMouseUp}
+                onClick={onClick}
+                onDoubleClick={onDblClick}>
                 <defs>
                   {previewPoly.length >= 3 && (
                     <clipPath id="region-clip">
@@ -522,8 +901,8 @@ export default function SheetPage() {
                     stroke={f.color} strokeWidth="1.5" strokeDasharray="5 3" />
                 ))}
 
-                {/* Base area features */}
-                {allAreas.map(a => {
+                {/* Base area features (sample data) */}
+                {(sheet.areas || []).map(a => {
                   if (hidden[a.id]) return null
                   const inRegionMode = activeTool === 'region' && hasRegion
                   return (
@@ -538,20 +917,43 @@ export default function SheetPage() {
                   )
                 })}
 
+                {/* Added areas (may have arc segs) */}
+                {addedAreas.map(a => {
+                  if (hidden[a.id]) return null
+                  const inRegionMode = activeTool === 'region' && hasRegion
+                  const isSelected = selectedId === a.id
+                  const hasArcs = a.arcSegs && Object.keys(a.arcSegs).length > 0
+                  const fillOp = catActive.has(a.type) ? (inRegionMode ? 0.07 : 0.22) : 0.04
+                  const strokeOp = catActive.has(a.type) ? (inRegionMode ? 0.35 : 0.9) : 0.25
+                  const sharedProps = {
+                    fill: CAT_COLOR[a.type], fillOpacity: fillOp,
+                    stroke: isSelected ? '#000' : CAT_COLOR[a.type],
+                    strokeOpacity: strokeOp, strokeWidth: isSelected ? '2.5' : '1.5',
+                    strokeDasharray: isSelected ? '0' : undefined,
+                  }
+                  return hasArcs
+                    ? <path key={a.id} d={buildAreaPath(a.poly, a.arcSegs)} {...sharedProps} />
+                    : <polygon key={a.id} points={a.poly.map(p => `${p.x},${p.y}`).join(' ')} {...sharedProps} />
+                })}
+
                 {/* Clipped area bright overlay */}
                 {activeTool === 'region' && previewPoly.length >= 3 && (
                   <g clipPath="url(#region-clip)">
-                    {allAreas.filter(a => catActive.has(a.type) && !hidden[a.id]).map(a => (
-                      <polygon key={a.id}
-                        points={a.poly.map(p => `${p.x},${p.y}`).join(' ')}
-                        fill={CAT_COLOR[a.type]} fillOpacity="0.34"
-                        stroke={CAT_COLOR[a.type]} strokeWidth="2" />
-                    ))}
+                    {allAreas.filter(a => catActive.has(a.type) && !hidden[a.id]).map(a => {
+                      const hasArcs = a.arcSegs && Object.keys(a.arcSegs).length > 0
+                      return hasArcs
+                        ? <path key={a.id} d={buildAreaPath(a.poly, a.arcSegs)}
+                            fill={CAT_COLOR[a.type]} fillOpacity="0.34"
+                            stroke={CAT_COLOR[a.type]} strokeWidth="2" />
+                        : <polygon key={a.id} points={a.poly.map(p => `${p.x},${p.y}`).join(' ')}
+                            fill={CAT_COLOR[a.type]} fillOpacity="0.34"
+                            stroke={CAT_COLOR[a.type]} strokeWidth="2" />
+                    })}
                   </g>
                 )}
 
-                {/* Linear features */}
-                {sheet.lines.map(l => {
+                {/* Base linear features */}
+                {(sheet.lines || []).map(l => {
                   if (hidden[l.id]) return null
                   const isIn = inLines[l.id]
                   const dim = (activeTool === 'region' && hasRegion && !isIn) || !catActive.has(l.type)
@@ -564,20 +966,48 @@ export default function SheetPage() {
                   )
                 })}
 
+                {/* Added linear features */}
+                {addedLines.map(l => {
+                  if (hidden[l.id]) return null
+                  const isIn = inLines[l.id]
+                  const isSelected = selectedId === l.id
+                  const dim = (activeTool === 'region' && hasRegion && !isIn) || !catActive.has(l.type)
+                  const hasArcs = l.arcSegs && Object.keys(l.arcSegs).length > 0
+                  const pathD = hasArcs ? buildLinePath(l.pts, l.arcSegs) : null
+                  const sharedProps = {
+                    fill: 'none', stroke: CAT_COLOR[l.type],
+                    strokeOpacity: dim ? 0.3 : 1,
+                    strokeWidth: isSelected ? 6 : (isIn ? 6 : 4),
+                    strokeLinecap: 'round', strokeLinejoin: 'round',
+                    strokeDasharray: isSelected ? '8 4' : undefined,
+                  }
+                  return hasArcs
+                    ? <path key={l.id} d={pathD} {...sharedProps} />
+                    : <polyline key={l.id} points={l.pts.map(p => `${p.x},${p.y}`).join(' ')} {...sharedProps} />
+                })}
+
                 {/* Point items */}
                 {allPoints.map(p => {
                   const isIn = inPoints[p.id]
+                  const isSelected = selectedId === p.id
                   const dim = (activeTool === 'region' && hasRegion && !isIn) || !catActive.has(p.type)
                   const col = CAT_COLOR[p.type]
                   return (
                     <g key={p.id} opacity={dim ? 0.26 : 1}>
-                      {isIn && <circle cx={p.x} cy={p.y} r="12" fill={col} opacity="0.18" />}
-                      <circle cx={p.x} cy={p.y} r={isIn ? 7 : 5.5}
-                        fill={isIn ? col : '#fff'} stroke={col} strokeWidth={isIn ? 2.5 : 2} />
-                      {isIn && <circle cx={p.x} cy={p.y} r="2.2" fill="#fff" />}
+                      {(isIn || isSelected) && <circle cx={p.x} cy={p.y} r="12" fill={col} opacity="0.18" />}
+                      <circle cx={p.x} cy={p.y} r={isIn || isSelected ? 7 : 5.5}
+                        fill={(isIn || isSelected) ? col : '#fff'} stroke={isSelected ? '#000' : col}
+                        strokeWidth={(isIn || isSelected) ? 2.5 : 2} />
+                      {(isIn || isSelected) && <circle cx={p.x} cy={p.y} r="2.2" fill="#fff" />}
                     </g>
                   )
                 })}
+
+                {/* Selection vertex handles for selected area */}
+                {activeTool === 'select' && selectedArea && selectedArea.poly.map((v, i) => (
+                  <rect key={i} x={v.x - 5} y={v.y - 5} width="10" height="10"
+                    fill="#fff" stroke="#000" strokeWidth="2" style={{ cursor: 'move' }} />
+                ))}
 
                 {/* Region outline */}
                 {activeTool === 'region' && previewPoly.length >= 2 && (
@@ -599,18 +1029,53 @@ export default function SheetPage() {
                 ))}
 
                 {/* Area drawing overlay */}
-                {activeTool === 'area' && areaPreview.length >= 2 && (
-                  <polygon
-                    points={areaPreview.map(p => `${p.x},${p.y}`).join(' ')}
-                    fill={CAT_COLOR[areaType] || '#888'} fillOpacity="0.15"
-                    stroke={CAT_COLOR[areaType] || '#888'} strokeWidth="2"
-                    strokeDasharray="6 4" strokeLinejoin="round" />
-                )}
+                {activeTool === 'area' && areaVerts.length >= 1 && (() => {
+                  const pathD = buildAreaPreviewPath()
+                  return (
+                    <>
+                      <path d={pathD}
+                        fill={CAT_COLOR[areaType] || '#888'} fillOpacity="0.15"
+                        stroke={CAT_COLOR[areaType] || '#888'} strokeWidth="2"
+                        strokeDasharray="6 4" strokeLinejoin="round" />
+                      {pendingArcThrough && (
+                        <circle cx={pendingArcThrough.x} cy={pendingArcThrough.y} r="6"
+                          fill={CAT_COLOR[areaType] || '#888'} opacity="0.8" />
+                      )}
+                      {arcMode && !pendingArcThrough && areaCursor && (
+                        <circle cx={areaCursor.x} cy={areaCursor.y} r="5"
+                          fill="none" stroke={CAT_COLOR[areaType] || '#888'} strokeWidth="2" strokeDasharray="3 2" />
+                      )}
+                    </>
+                  )
+                })()}
                 {activeTool === 'area' && areaVerts.map((v, i) => (
                   <circle key={i} cx={v.x} cy={v.y}
                     r={i === 0 && areaVerts.length >= 3 ? 7 : 4}
                     fill={i === 0 && areaVerts.length >= 3 ? '#fff' : (CAT_COLOR[areaType] || '#888')}
                     stroke={CAT_COLOR[areaType] || '#888'} strokeWidth="2" />
+                ))}
+
+                {/* Linear drawing overlay */}
+                {activeTool === 'linear' && linearVerts.length >= 1 && (() => {
+                  const pathD = buildLinearPreviewPath()
+                  return (
+                    <>
+                      <path d={pathD}
+                        fill="none"
+                        stroke={CAT_COLOR[linearType] || '#888'} strokeWidth="3"
+                        strokeDasharray="6 4" strokeLinecap="round" strokeLinejoin="round" />
+                      {pendingArcThrough && (
+                        <circle cx={pendingArcThrough.x} cy={pendingArcThrough.y} r="6"
+                          fill={CAT_COLOR[linearType] || '#888'} opacity="0.8" />
+                      )}
+                    </>
+                  )
+                })()}
+                {activeTool === 'linear' && linearVerts.map((v, i) => (
+                  <g key={i}>
+                    <line x1={v.x} y1={v.y - 7} x2={v.x} y2={v.y + 7} stroke={CAT_COLOR[linearType] || '#888'} strokeWidth="2" />
+                    <circle cx={v.x} cy={v.y} r="4" fill={CAT_COLOR[linearType] || '#888'} />
+                  </g>
                 ))}
 
                 {/* Measure tool */}
@@ -665,6 +1130,28 @@ export default function SheetPage() {
                 )
               })}
 
+              {/* Item name labels for added items */}
+              {(activeTool === 'select' || activeTool === 'area' || activeTool === 'count' || activeTool === 'linear') && addedPoints.map(p => (
+                <div key={p.id + '-lbl'} style={{
+                  position: 'absolute',
+                  left: `${(p.x/SHEET_W)*100}%`,
+                  top: `${(p.y/SHEET_H)*100}%`,
+                  transform: 'translate(-50%, -120%)',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 9,
+                  fontWeight: 600,
+                  padding: '1px 5px',
+                  borderRadius: 3,
+                  background: 'color-mix(in srgb, var(--surface-card) 90%, transparent)',
+                  color: CAT_COLOR[p.type],
+                  pointerEvents: 'none',
+                  whiteSpace: 'nowrap',
+                  border: `1px solid ${CAT_COLOR[p.type]}40`,
+                }}>
+                  {p.name}
+                </div>
+              ))}
+
               <div className={s.titleBlock}>
                 <div className={s.tbRow}><b>{sheet.name.toUpperCase()}</b></div>
                 <div className={s.tbRow}>{project.name}</div>
@@ -692,20 +1179,34 @@ export default function SheetPage() {
             )
           })()}
 
+          {(arcMode && (activeTool === 'area' || activeTool === 'linear')) && (
+            <div className={s.arcBadge}>
+              ⌒ ARC MODE
+            </div>
+          )}
+
           <div className={`${s.scaleChip} ${calib ? '' : s.scaleWarn}`}>
             {calib ? <Ruler size={13} /> : <TriangleAlert size={13} />}
             <span>{calib ? `Scale set · ${calib.feet} ${calib.unit} = ${Math.round(calib.px)} px` : 'Default scale — click "Set scale" to calibrate'}</span>
           </div>
 
           <div className={s.zoomPanel}>
-            <button className={s.zoomPanBtn} onClick={() => setZoom(z => Math.max(50, z - 25))}><Minus size={14} /></button>
+            <button className={s.zoomPanBtn} onClick={() => setZoom(z => Math.max(25, z - 25))}><Minus size={14} /></button>
             <span className={s.zoomPanVal}>{zoom}%</span>
-            <button className={s.zoomPanBtn} onClick={() => setZoom(z => Math.min(200, z + 25))}><Plus size={14} /></button>
+            <button className={s.zoomPanBtn} onClick={() => setZoom(z => Math.min(400, z + 25))}><Plus size={14} /></button>
           </div>
         </main>
 
         <aside className={s.rightPanel}>
-          {activeTool === 'region' ? (
+          {activeTool === 'select' ? (
+            <SelectPanel
+              selectedArea={selectedArea} selectedPoint={selectedPoint} selectedLine={selectedLine}
+              selectedId={selectedId} selectedKind={selectedKind}
+              onRename={renameSelected} onDelete={deleteSelected}
+              onDeselect={() => { setSelectedId(null); setSelectedKind(null) }}
+              sqft={sqft} fSq={fSq} fLn={fLn} lnft={lnft}
+              fs={fs} />
+          ) : activeTool === 'region' ? (
             <RegionPanel
               hasRegion={hasRegion} regionSqft={regionSqft} regionPerim={regionPerim}
               totalPointCount={totalPointCount} catActive={catActive} regionRes={regionRes}
@@ -727,12 +1228,16 @@ export default function SheetPage() {
             <AreaPanel areaType={areaType} onSetAreaType={setAreaType}
               addedAreas={addedAreas} sqft={sqft} fSq={fSq}
               onClearAdded={() => setAddedAreas([])} fs={fs} />
+          ) : activeTool === 'linear' ? (
+            <LinearPanel linearType={linearType} onSetLinearType={setLinearType}
+              addedLines={addedLines} lnft={lnft} fLn={fLn}
+              onClearAdded={() => setAddedLines([])} fs={fs} />
           ) : activeTool === 'count' ? (
             <CountPanel countType={addCountType} onSetCountType={setAddCountType}
               addedPoints={addedPoints} onClearAdded={() => setAddedPoints([])} fs={fs} />
           ) : (
-            <DefaultPanel sheet={sheet} allAreas={allAreas} allPoints={allPoints}
-              onExport={() => setExportOpen(true)} fs={fs} />
+            <DefaultPanel sheet={sheet} allAreas={allAreas} allPoints={allPoints} allLines={allLines}
+              onActivate={activateType} onExport={() => setExportOpen(true)} fs={fs} />
           )}
         </aside>
       </div>
@@ -792,6 +1297,117 @@ export default function SheetPage() {
   )
 }
 
+// ---- Select panel ----------------------------------------------------------
+function SelectPanel({ selectedArea, selectedPoint, selectedLine, selectedId, selectedKind, onRename, onDelete, onDeselect, sqft, fSq, fLn, lnft, fs }) {
+  const [editName, setEditName] = useState('')
+  const [editing, setEditing] = useState(false)
+  const item = selectedArea || selectedPoint || selectedLine
+  const cat = item ? CATS.find(c => c.id === item.type) : null
+
+  useEffect(() => {
+    if (item) { setEditName(item.name || ''); setEditing(false) }
+  }, [selectedId])
+
+  if (!item) {
+    return (
+      <>
+        <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid var(--border-subtle)' }}>
+          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: `calc(18px * ${fs})`, fontWeight: 600, color: 'var(--text-strong)', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <MousePointer2 size={18} style={{ color: 'var(--brand-600)' }} /> Select
+          </h2>
+          <p style={{ margin: '4px 0 0', fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)' }}>
+            Click any item you drew to select and move it.
+          </p>
+        </div>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, gap: 8, color: 'var(--text-subtle)' }}>
+          <MousePointer2 size={32} style={{ opacity: 0.25 }} />
+          <span style={{ fontSize: `calc(13px * ${fs})` }}>Nothing selected</span>
+        </div>
+      </>
+    )
+  }
+
+  const commitName = () => {
+    if (editName.trim()) onRename(selectedId, selectedKind, editName.trim())
+    setEditing(false)
+  }
+
+  return (
+    <>
+      <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid var(--border-subtle)' }}>
+        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: `calc(18px * ${fs})`, fontWeight: 600, color: 'var(--text-strong)', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <MousePointer2 size={18} style={{ color: 'var(--brand-600)' }} /> Selected item
+        </h2>
+      </div>
+
+      <div style={{ padding: '16px 18px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{
+            width: selectedKind === 'line' ? 20 : 14,
+            height: selectedKind === 'line' ? 4 : 14,
+            borderRadius: selectedKind === 'line' ? 2 : 3,
+            background: CAT_COLOR[item.type],
+            flexShrink: 0,
+          }} />
+          <span style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)', fontWeight: 500 }}>
+            {cat?.name || item.type}
+          </span>
+          <span style={{ marginLeft: 'auto', fontSize: `calc(11px * ${fs})`, fontFamily: 'var(--font-mono)', color: 'var(--text-subtle)', background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)', borderRadius: 4, padding: '1px 6px' }}>
+            {selectedKind === 'area' ? 'area' : selectedKind === 'line' ? 'linear' : 'item'}
+          </span>
+        </div>
+
+        <div>
+          <div style={{ fontSize: `calc(11px * ${fs})`, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 6 }}>Name</div>
+          {editing ? (
+            <input
+              value={editName}
+              autoFocus
+              onChange={e => setEditName(e.target.value)}
+              onBlur={commitName}
+              onKeyDown={e => { if (e.key === 'Enter') commitName(); if (e.key === 'Escape') { setEditName(item.name || ''); setEditing(false) } }}
+              style={{ width: '100%', fontFamily: 'var(--font-sans)', fontSize: `calc(14px * ${fs})`, fontWeight: 600, border: 'none', outline: '1.5px solid var(--brand-600)', borderRadius: 6, padding: '6px 10px', background: 'var(--surface-paper)', color: 'var(--text-strong)', boxSizing: 'border-box' }}
+            />
+          ) : (
+            <div onClick={() => setEditing(true)}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'text', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border-default)', background: 'var(--surface-sunken)' }}>
+              <span style={{ flex: 1, fontSize: `calc(14px * ${fs})`, fontWeight: 600, color: 'var(--text-strong)' }}>{item.name || '—'}</span>
+              <Pencil size={13} style={{ color: 'var(--text-subtle)', flexShrink: 0 }} />
+            </div>
+          )}
+        </div>
+
+        {selectedKind === 'area' && selectedArea?.poly && (
+          <div style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+            {fSq(sqft(polyAreaPx(selectedArea.poly)))} ft² · {selectedArea.poly.length} vertices
+          </div>
+        )}
+        {selectedKind === 'point' && selectedPoint && (
+          <div style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+            x: {Math.round(selectedPoint.x)} · y: {Math.round(selectedPoint.y)}
+          </div>
+        )}
+        {selectedKind === 'line' && selectedLine?.pts && (
+          <div style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+            {fLn(lnft(perimPx(selectedLine.pts)))} ln ft · {selectedLine.pts.length} points
+          </div>
+        )}
+      </div>
+
+      <div style={{ flex: 1 }} />
+
+      <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <Button variant="ghost" fullWidth onClick={onDeselect}>Deselect</Button>
+        <Button variant="ghost" fullWidth iconLeft={<Trash2 size={14} />}
+          onClick={() => onDelete(selectedId, selectedKind)}
+          style={{ color: 'var(--error-500)' }}>
+          Delete item
+        </Button>
+      </div>
+    </>
+  )
+}
+
 // ---- Region panel with breakout folders ------------------------------------
 function RegionPanel({ hasRegion, regionSqft, regionPerim, totalPointCount, catActive, regionRes, allPoints, allAreas, sheet, fSq, fLn, sqft, onToggleCat, onReset, onSample, fs, folders, activeFolderId, renamingId, renameVal, onSwitchFolder, onAddFolder, onDeleteFolder, onStartRename, onRenameChange, onCommitRename }) {
   const totalOf = (id) => {
@@ -799,7 +1415,7 @@ function RegionPanel({ hasRegion, regionSqft, regionPerim, totalPointCount, catA
     if (!cat) return 0
     if (cat.kind === 'point') return allPoints.filter(p => p.type === id).length
     if (cat.kind === 'area')  return allAreas.filter(a => a.type === id).length
-    return sheet.lines.filter(l => l.type === id).length
+    return (sheet.lines || []).filter(l => l.type === id).length
   }
 
   const groups = [
@@ -819,7 +1435,6 @@ function RegionPanel({ hasRegion, regionSqft, regionPerim, totalPointCount, catA
         </p>
       </div>
 
-      {/* Breakout folders */}
       <div style={{ borderBottom: '1px solid var(--border-subtle)' }}>
         <div style={{ display: 'flex', alignItems: 'center', padding: '10px 16px 4px' }}>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(10px * ${fs})`, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-subtle)', fontWeight: 600, flex: 1 }}>Breakouts</span>
@@ -915,11 +1530,11 @@ function AreaPanel({ areaType, onSetAreaType, addedAreas, sqft, fSq, onClearAdde
   return (
     <>
       <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid var(--border-subtle)' }}>
-        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: `calc(18px * ${fs})`, fontWeight: 600, color: 'var(--text-strong)', margin: '0 0 3px', display: 'flex', alignItems: 'center', gap: 8, letterSpacing: '-0.01em' }}>
+        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: `calc(18px * ${fs})`, fontWeight: 600, color: 'var(--text-strong)', margin: '0 0 3px', display: 'flex', alignItems: 'center', gap: 8 }}>
           <SquareDashed size={18} style={{ color: 'var(--brand-600)', flexShrink: 0 }} /> Draw area
         </h2>
         <p style={{ margin: 0, fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-          Select type, then click vertices on the plan. Click first point or <b>Enter</b> to close.
+          Click to place vertices · <b>A</b> for arc segment · click first point or <b>Enter</b> to close.
         </p>
       </div>
 
@@ -945,14 +1560,14 @@ function AreaPanel({ areaType, onSetAreaType, addedAreas, sqft, fSq, onClearAdde
         ) : (
           <>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(10px * ${fs})`, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-subtle)', padding: '8px 8px 4px' }}>
-              Added this session · {addedAreas.length}
+              Added · {addedAreas.length}
             </div>
-            {addedAreas.map((a, i) => {
+            {addedAreas.map(a => {
               const cat = CATS.find(c => c.id === a.type)
               return (
                 <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 10px', borderRadius: 'var(--radius-md)' }}>
                   <span style={{ width: 13, height: 13, borderRadius: 3, background: CAT_COLOR[a.type], flexShrink: 0 }} />
-                  <span style={{ flex: 1, fontSize: `calc(13px * ${fs})`, color: 'var(--text-strong)', fontWeight: 500 }}>{cat?.name || a.type}</span>
+                  <span style={{ flex: 1, fontSize: `calc(13px * ${fs})`, color: 'var(--text-strong)', fontWeight: 500 }}>{a.name || cat?.name || a.type}</span>
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)' }}>
                     {fSq(sqft(polyAreaPx(a.poly)))} ft²
                   </span>
@@ -972,6 +1587,68 @@ function AreaPanel({ areaType, onSetAreaType, addedAreas, sqft, fSq, onClearAdde
   )
 }
 
+// ---- Linear draw panel -----------------------------------------------------
+function LinearPanel({ linearType, onSetLinearType, addedLines, lnft, fLn, onClearAdded, fs }) {
+  return (
+    <>
+      <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid var(--border-subtle)' }}>
+        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: `calc(18px * ${fs})`, fontWeight: 600, color: 'var(--text-strong)', margin: '0 0 3px', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Spline size={18} style={{ color: 'var(--brand-600)', flexShrink: 0 }} /> Draw linear
+        </h2>
+        <p style={{ margin: 0, fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+          Click to place points · <b>A</b> for arc segment · double-click or <b>Enter</b> to finish.
+        </p>
+      </div>
+
+      <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border-subtle)' }}>
+        <div style={{ fontSize: `calc(11px * ${fs})`, color: 'var(--text-muted)', marginBottom: 8, fontWeight: 600 }}>Line type</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          {LINEAR_CATS.map(c => (
+            <button key={c.id} onClick={() => onSetLinearType(c.id)}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 'var(--radius-md)', border: `1.5px solid ${linearType === c.id ? CAT_COLOR[c.id] : 'transparent'}`, background: linearType === c.id ? `${CAT_COLOR[c.id]}1a` : 'transparent', cursor: 'pointer', textAlign: 'left' }}>
+              <span style={{ width: 20, height: 4, borderRadius: 2, background: CAT_COLOR[c.id], flexShrink: 0 }} />
+              <span style={{ fontSize: `calc(13px * ${fs})`, fontWeight: 500, color: 'var(--text-strong)', flex: 1 }}>{c.name}</span>
+              {linearType === c.id && <Check size={13} style={{ color: CAT_COLOR[c.id] }} />}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ flex: '1 1 auto', overflow: 'auto', padding: '8px 12px 12px' }}>
+        {addedLines.length === 0 ? (
+          <div style={{ padding: '28px 8px', textAlign: 'center', color: 'var(--text-subtle)', fontSize: `calc(13px * ${fs})` }}>
+            No lines added yet — draw on the plan.
+          </div>
+        ) : (
+          <>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(10px * ${fs})`, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-subtle)', padding: '8px 8px 4px' }}>
+              Added · {addedLines.length}
+            </div>
+            {addedLines.map(l => {
+              const cat = CATS.find(c => c.id === l.type)
+              return (
+                <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 10px', borderRadius: 'var(--radius-md)' }}>
+                  <span style={{ width: 20, height: 4, borderRadius: 2, background: CAT_COLOR[l.type], flexShrink: 0 }} />
+                  <span style={{ flex: 1, fontSize: `calc(13px * ${fs})`, color: 'var(--text-strong)', fontWeight: 500 }}>{l.name || cat?.name || l.type}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)' }}>
+                    {fLn(lnft(perimPx(l.pts)))} ft
+                  </span>
+                </div>
+              )
+            })}
+          </>
+        )}
+      </div>
+
+      {addedLines.length > 0 && (
+        <div style={{ padding: '12px 14px', borderTop: '1px solid var(--border-subtle)' }}>
+          <Button variant="ghost" fullWidth iconLeft={<Eraser size={14} />} onClick={onClearAdded}>Clear added lines</Button>
+        </div>
+      )}
+    </>
+  )
+}
+
 // ---- Count placement panel -------------------------------------------------
 function CountPanel({ countType, onSetCountType, addedPoints, onClearAdded, fs }) {
   const byType = {}
@@ -981,7 +1658,7 @@ function CountPanel({ countType, onSetCountType, addedPoints, onClearAdded, fs }
   return (
     <>
       <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid var(--border-subtle)' }}>
-        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: `calc(18px * ${fs})`, fontWeight: 600, color: 'var(--text-strong)', margin: '0 0 3px', display: 'flex', alignItems: 'center', gap: 8, letterSpacing: '-0.01em' }}>
+        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: `calc(18px * ${fs})`, fontWeight: 600, color: 'var(--text-strong)', margin: '0 0 3px', display: 'flex', alignItems: 'center', gap: 8 }}>
           <MapPin size={18} style={{ color: 'var(--brand-600)', flexShrink: 0 }} /> Place items
         </h2>
         <p style={{ margin: 0, fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)', lineHeight: 1.5 }}>
@@ -1044,7 +1721,7 @@ function MeasurePanel({ segments, totalFt, fLn, onReset, fs }) {
   return (
     <>
       <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid var(--border-subtle)' }}>
-        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: `calc(18px * ${fs})`, fontWeight: 600, color: 'var(--text-strong)', margin: '0 0 3px', display: 'flex', alignItems: 'center', gap: 8, letterSpacing: '-0.01em' }}>
+        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: `calc(18px * ${fs})`, fontWeight: 600, color: 'var(--text-strong)', margin: '0 0 3px', display: 'flex', alignItems: 'center', gap: 8 }}>
           <Ruler size={18} style={{ color: 'var(--brand-600)', flexShrink: 0 }} /> Measure
         </h2>
         <p style={{ margin: 0, fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)', lineHeight: 1.5 }}>
@@ -1078,27 +1755,32 @@ function MeasurePanel({ segments, totalFt, fLn, onReset, fs }) {
   )
 }
 
-// ---- Default panel ---------------------------------------------------------
-function DefaultPanel({ sheet, allAreas, allPoints, onExport, fs }) {
+// ---- Default panel (click to activate) ------------------------------------
+function DefaultPanel({ sheet, allAreas, allPoints, allLines, onActivate, onExport, fs }) {
   return (
     <>
       <div style={{ padding: 'var(--space-6)', borderBottom: '1px solid var(--border-subtle)' }}>
         <div style={{ fontFamily: 'var(--font-display)', fontSize: `calc(16px * ${fs})`, fontWeight: 600, color: 'var(--text-strong)' }}>Items on sheet</div>
-        <div style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)', marginTop: 2 }}>Use the Region tool to count items</div>
+        <div style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)', marginTop: 2 }}>Click a type to start drawing with it</div>
       </div>
       <div style={{ flex: '1 1 auto', overflow: 'auto', padding: '8px 12px 12px' }}>
         {CATS.map(cat => {
           const items = cat.kind === 'point' ? allPoints.filter(p => p.type === cat.id)
             : cat.kind === 'area' ? allAreas.filter(a => a.type === cat.id)
-            : sheet.lines.filter(l => l.type === cat.id)
+            : allLines.filter(l => l.type === cat.id)
           if (items.length === 0) return null
           return (
-            <div key={cat.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', borderRadius: 'var(--radius-md)' }}>
+            <div key={cat.id}
+              onClick={() => onActivate(cat.kind, cat.id)}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', borderRadius: 'var(--radius-md)', cursor: 'pointer', transition: 'background var(--dur-fast)' }}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-sunken)'}
+              onMouseLeave={e => e.currentTarget.style.background = ''}>
               <span style={{ width: 12, height: cat.kind === 'linear' ? 4 : 12, borderRadius: cat.kind === 'linear' ? 2 : 3, background: CAT_COLOR[cat.id], flexShrink: 0 }} />
               <span style={{ flex: 1, fontSize: `calc(13.5px * ${fs})`, color: 'var(--text-strong)', fontWeight: 500 }}>{cat.name}</span>
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(13px * ${fs})`, fontWeight: 600, color: 'var(--text-muted)' }}>
                 {items.length} {cat.kind === 'area' ? 'area'+(items.length!==1?'s':'') : cat.kind === 'linear' ? 'wall'+(items.length!==1?'s':'') : 'ea'}
               </span>
+              <ChevronRight size={13} style={{ color: 'var(--text-subtle)', flexShrink: 0 }} />
             </div>
           )
         })}

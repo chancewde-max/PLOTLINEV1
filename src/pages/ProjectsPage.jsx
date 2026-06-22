@@ -1,11 +1,14 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Plus, Map, TrendingUp } from 'lucide-react'
+import { Search, Plus, Map } from 'lucide-react'
 import { Button } from '../components/ui/Button.jsx'
 import { Badge } from '../components/ui/Badge.jsx'
 import { Avatar } from '../components/ui/Avatar.jsx'
 import { Input } from '../components/ui/Input.jsx'
-import { PROJECTS, STATUS_LABEL, STATUS_VARIANT } from '../data/sampleData.js'
+import { Dialog } from '../components/ui/Dialog.jsx'
+import { Select } from '../components/ui/Select.jsx'
+import { useAppData } from '../data/useAppData.jsx'
+import { STATUS_LABEL, STATUS_VARIANT } from '../data/sampleData.js'
 import s from './ProjectsPage.module.css'
 
 const PREVIEW_POLY = {
@@ -26,19 +29,43 @@ const PREVIEW_COLOR = {
   'proj-5': 'var(--takeoff-region)',
 }
 
+const EMPTY_FORM = { name: '', client: '', address: '', status: 'draft' }
+
 export default function ProjectsPage() {
   const navigate = useNavigate()
+  const { projects: allProjects, addProject } = useAppData()
   const [search, setSearch] = useState('')
+  const [dlgOpen, setDlgOpen] = useState(false)
+  const [form, setForm] = useState(EMPTY_FORM)
 
-  const projects = Object.values(PROJECTS).filter(p =>
+  const projectList = Object.values(allProjects).filter(p =>
     p.name.toLowerCase().includes(search.toLowerCase()) ||
-    p.client.toLowerCase().includes(search.toLowerCase())
+    (p.client || '').toLowerCase().includes(search.toLowerCase())
   )
 
-  const totalPipeline = Object.values(PROJECTS).reduce((s, p) => s + (p.status !== 'archived' ? p.bidValue : 0), 0)
-  const openBids = Object.values(PROJECTS).filter(p => p.status === 'bid_sent').length
-  const wonCount = Object.values(PROJECTS).filter(p => p.status === 'won').length
-  const totalSheets = Object.values(PROJECTS).reduce((s, p) => s + p.sheetIds.length, 0)
+  const totalPipeline = Object.values(allProjects).reduce((s, p) => s + (p.status !== 'archived' ? (p.bidValue || 0) : 0), 0)
+  const openBids = Object.values(allProjects).filter(p => p.status === 'bid_sent').length
+  const wonCount = Object.values(allProjects).filter(p => p.status === 'won').length
+  const totalSheets = Object.values(allProjects).reduce((s, p) => s + (p.sheetIds?.length || 0), 0)
+
+  const openDlg = () => { setForm(EMPTY_FORM); setDlgOpen(true) }
+
+  const createProject = () => {
+    if (!form.name.trim()) return
+    const id = `proj-${Date.now()}`
+    addProject({
+      id,
+      name: form.name.trim(),
+      client: form.client.trim(),
+      address: form.address.trim(),
+      status: form.status,
+      bidValue: 0,
+      createdAt: new Date().toISOString().slice(0, 10),
+      sheetIds: [],
+    })
+    setDlgOpen(false)
+    navigate(`/project/${id}`)
+  }
 
   return (
     <div className={s.root}>
@@ -71,9 +98,9 @@ export default function ProjectsPage() {
         <div className={s.head}>
           <div>
             <h1 className={s.title}>Projects</h1>
-            <p className={s.sub}>{Object.keys(PROJECTS).length} projects · {openBids} bids out</p>
+            <p className={s.sub}>{Object.keys(allProjects).length} projects · {openBids} bids out</p>
           </div>
-          <Button variant="primary" iconLeft={<Plus size={16} />}>New project</Button>
+          <Button variant="primary" iconLeft={<Plus size={16} />} onClick={openDlg}>New project</Button>
         </div>
 
         <div className={s.stats}>
@@ -96,7 +123,7 @@ export default function ProjectsPage() {
         </div>
 
         <div className={s.grid}>
-          {projects.map(project => (
+          {projectList.map(project => (
             <div
               key={project.id}
               className={s.card}
@@ -107,9 +134,9 @@ export default function ProjectsPage() {
                   {PREVIEW_POLY[project.id] && (
                     <polygon
                       points={PREVIEW_POLY[project.id]}
-                      fill={PREVIEW_COLOR[project.id]}
+                      fill={PREVIEW_COLOR[project.id] || 'var(--takeoff-area)'}
                       fillOpacity="0.16"
-                      stroke={PREVIEW_COLOR[project.id]}
+                      stroke={PREVIEW_COLOR[project.id] || 'var(--takeoff-area)'}
                       strokeWidth="2.5"
                     />
                   )}
@@ -117,36 +144,73 @@ export default function ProjectsPage() {
                     <polyline
                       points={PREVIEW_LINE[project.id]}
                       fill="none"
-                      stroke={PREVIEW_COLOR[project.id]}
+                      stroke={PREVIEW_COLOR[project.id] || 'var(--takeoff-linear)'}
                       strokeWidth="3"
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     />
                   )}
+                  {!PREVIEW_POLY[project.id] && !PREVIEW_LINE[project.id] && (
+                    <rect x="40" y="40" width="140" height="80" rx="6"
+                      fill="var(--takeoff-area)" fillOpacity="0.1"
+                      stroke="var(--takeoff-area)" strokeWidth="2" strokeDasharray="6 4" />
+                  )}
                 </svg>
                 <span className={s.statusBadge}>
-                  <Badge variant={STATUS_VARIANT[project.status]} dot={project.status === 'bid_sent'}>
-                    {STATUS_LABEL[project.status]}
+                  <Badge variant={STATUS_VARIANT[project.status] || 'neutral'} dot={project.status === 'bid_sent'}>
+                    {STATUS_LABEL[project.status] || project.status}
                   </Badge>
                 </span>
               </div>
               <div className={s.cardBody}>
                 <div>
                   <h3 className={s.cardName}>{project.name}</h3>
-                  <div className={s.cardClient}>{project.client}</div>
+                  <div className={s.cardClient}>{project.client || project.address || '—'}</div>
                 </div>
                 <div className={s.cardMeta}>
                   <span className={s.sheetCount}>
                     <Map size={13} />
-                    {project.sheetIds.length} {project.sheetIds.length === 1 ? 'sheet' : 'sheets'}
+                    {(project.sheetIds?.length || 0)} {(project.sheetIds?.length || 0) === 1 ? 'sheet' : 'sheets'}
                   </span>
-                  <span className={s.bidVal}>${project.bidValue.toLocaleString()}</span>
+                  {project.bidValue > 0 && <span className={s.bidVal}>${project.bidValue.toLocaleString()}</span>}
                 </div>
               </div>
             </div>
           ))}
         </div>
       </main>
+
+      <Dialog
+        open={dlgOpen}
+        onClose={() => setDlgOpen(false)}
+        title="New project"
+        description="Create a new construction takeoff project."
+        width={440}
+        footer={<>
+          <Button variant="ghost" onClick={() => setDlgOpen(false)}>Cancel</Button>
+          <Button variant="primary" iconLeft={<Plus size={15} />} onClick={createProject}
+            disabled={!form.name.trim()}>
+            Create project
+          </Button>
+        </>}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, paddingBottom: 6 }}>
+          <Input label="Project name" placeholder="Maple Grove Phase 2…" value={form.name}
+            onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+          <Input label="GC / Client" placeholder="Hilltop Developments…" value={form.client}
+            onChange={e => setForm(f => ({ ...f, client: e.target.value }))} />
+          <Input label="Address" placeholder="123 Main St, Fairview…" value={form.address}
+            onChange={e => setForm(f => ({ ...f, address: e.target.value }))} />
+          <Select label="Status" value={form.status}
+            onChange={e => setForm(f => ({ ...f, status: e.target.value }))}
+            options={[
+              { value: 'draft', label: 'Draft' },
+              { value: 'bid_sent', label: 'Bid sent' },
+              { value: 'won', label: 'Won' },
+              { value: 'archived', label: 'Archived' },
+            ]} />
+        </div>
+      </Dialog>
     </div>
   )
 }
