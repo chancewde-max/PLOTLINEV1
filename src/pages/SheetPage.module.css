@@ -346,6 +346,50 @@
   min-height: 0;
 }
 
+/* ---- Folder rows ---- */
+.folderAddBtn {
+  width: 22px; height: 22px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border-default); border-radius: var(--radius-sm);
+  background: transparent; color: var(--text-muted); cursor: pointer;
+}
+.folderAddBtn:hover { background: var(--surface-muted); color: var(--text-body); }
+
+.folderRow {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 10px; border-radius: var(--radius-md);
+  cursor: pointer; border: 1px solid transparent;
+}
+.folderRow:hover { background: var(--surface-sunken); }
+.folderRow[data-active="true"] {
+  background: color-mix(in srgb, var(--fc, var(--brand-600)) 10%, var(--surface-card));
+  border-color: color-mix(in srgb, var(--fc, var(--brand-600)) 30%, transparent);
+}
+
+.folderDot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.folderName { flex: 1; font-size: 13px; font-weight: 500; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.folderArea { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
+
+.folderActions { display: none; align-items: center; gap: 1px; flex-shrink: 0; }
+.folderRow:hover .folderActions,
+.folderRow[data-active="true"] .folderActions { display: flex; }
+
+.folderActionBtn {
+  width: 20px; height: 20px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; background: transparent; color: var(--text-subtle); cursor: pointer;
+  border-radius: var(--radius-xs);
+}
+.folderActionBtn:hover { background: var(--surface-muted); color: var(--text-body); }
+
+.folderRenameInput {
+  flex: 1; min-width: 0;
+  font-size: 13px; font-family: var(--font-sans);
+  border: none; outline: 1.5px solid var(--brand-600);
+  border-radius: 3px; padding: 1px 5px;
+  background: var(--surface-paper); color: var(--text-strong);
+}
+
 /* ---- Toast ---- */
 .toast {
   position: fixed;
