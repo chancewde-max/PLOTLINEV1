@@ -1,0 +1,28 @@
+.root { position: relative; display: inline-flex; }
+
+.circle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.md .circle { width: 34px; height: 34px; font-size: 13px; }
+.sm .circle { width: 28px; height: 28px; font-size: 11px; }
+.lg .circle { width: 44px; height: 44px; font-size: 17px; }
+
+.ring .circle { box-shadow: 0 0 0 2px var(--surface-card); }
+
+.online {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--success-500);
+  border: 2px solid var(--surface-card);
+}

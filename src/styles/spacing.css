@@ -1,0 +1,49 @@
+/* ============================================================
+   Spacing, radii, sizing — Plotline
+   4px base grid. Small, precise radii (a tool, not a toy).
+   ============================================================ */
+
+:root {
+  /* Spacing scale (4px base) */
+  --space-0:  0;
+  --space-1:  2px;
+  --space-2:  4px;
+  --space-3:  6px;
+  --space-4:  8px;
+  --space-5:  12px;
+  --space-6:  16px;
+  --space-7:  20px;
+  --space-8:  24px;
+  --space-9:  32px;
+  --space-10: 40px;
+  --space-11: 48px;
+  --space-12: 64px;
+  --space-13: 80px;
+  --space-14: 96px;
+  --space-15: 128px;
+
+  /* Radii — crisp, instrument-like */
+  --radius-xs:   3px;
+  --radius-sm:   5px;
+  --radius-md:   7px;
+  --radius-lg:   10px;
+  --radius-xl:   14px;
+  --radius-2xl:  20px;
+  --radius-pill: 999px;
+
+  /* Control heights (toolbar tools, inputs, buttons) */
+  --control-sm: 28px;
+  --control-md: 34px;
+  --control-lg: 42px;
+
+  /* Borders */
+  --border-hairline: 1px;
+  --border-thick:    1.5px;
+
+  /* Layout rails */
+  --rail-left:   56px;  /* tool rail */
+  --panel-left:  264px; /* sheets / layers panel */
+  --panel-right: 320px; /* estimate / properties panel */
+  --topbar:      52px;
+  --container:   1200px;
+}

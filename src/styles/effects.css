@@ -1,0 +1,42 @@
+/* ============================================================
+   Effects — Plotline
+   Shadows, motion, and the blueprint-grid background motif.
+   ============================================================ */
+
+:root {
+  /* Elevation — subtle, crisp, cool-tinted (not muddy black) */
+  --shadow-xs:  0 1px 1px rgba(14, 19, 17, 0.04),
+                0 1px 2px rgba(14, 19, 17, 0.06);
+  --shadow-sm:  0 1px 2px rgba(14, 19, 17, 0.06),
+                0 2px 6px rgba(14, 19, 17, 0.07);
+  --shadow-md:  0 2px 4px rgba(14, 19, 17, 0.06),
+                0 6px 16px rgba(14, 19, 17, 0.10);
+  --shadow-lg:  0 8px 24px rgba(14, 19, 17, 0.12),
+                0 2px 6px rgba(14, 19, 17, 0.08);
+  --shadow-xl:  0 18px 48px rgba(14, 19, 17, 0.18),
+                0 6px 14px rgba(14, 19, 17, 0.10);
+
+  /* Inset for sunken wells / pressed states */
+  --shadow-inset: inset 0 1px 2px rgba(14, 19, 17, 0.08);
+
+  /* Ring used by the brand wordmark + paper sheets */
+  --sheet-shadow: 0 1px 0 rgba(14,19,17,0.04),
+                  0 4px 14px rgba(14,19,17,0.10);
+
+  /* Motion — measured, no bounce. Tools snap; they don't wobble. */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1); /* @kind other */
+  --ease-out:      cubic-bezier(0.16, 1, 0.3, 1); /* @kind other */
+  --ease-in-out:   cubic-bezier(0.45, 0, 0.2, 1); /* @kind other */
+  --dur-fast:   120ms; /* @kind other */
+  --dur-base:   180ms; /* @kind other */
+  --dur-slow:   280ms; /* @kind other */
+
+  /* Blueprint grid — the canvas/empty-state texture motif.
+     Use as: background-image: var(--grid-blueprint); */
+  --grid-line:  color-mix(in srgb, var(--slate-400) 22%, transparent);
+  --grid-major: color-mix(in srgb, var(--slate-400) 38%, transparent);
+  --grid-blueprint:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  --grid-size: 22px;
+}
