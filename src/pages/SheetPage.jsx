@@ -108,10 +108,16 @@ export default function SheetPage() {
   const [fs, setFs]             = useState(1)
   const [settings, setSettings] = useState(false)
   const [zoom, setZoom]         = useState(100)
+  const [panOffset, setPanOffset]   = useState({ x: 0, y: 0 })
+  const [leftPanelW, setLeftPanelW]   = useState(264)
+  const [rightPanelW, setRightPanelW] = useState(320)
   const [activeTool, setActiveTool] = useState('region')
   const [leftPanel, setLeftPanel]   = useState('layers')
   const [hidden, setHidden]     = useState({})
   const [exportOpen, setExportOpen] = useState(false)
+  const [quoteOpen, setQuoteOpen]   = useState(false)
+  const [quoteVendor, setQuoteVendor] = useState('')
+  const [quoteCopied, setQuoteCopied] = useState(false)
   const [toast, setToast]       = useState(null)
 
   // ---- Scale ----
@@ -142,6 +148,9 @@ export default function SheetPage() {
   const [areaCursor, setAreaCursor] = useState(null)
   const [areaType, setAreaType]     = useState(AREA_CATS[0]?.id || 'sod')
   const [addedAreas, setAddedAreas] = useState([])
+  const [areaDepth, setAreaDepth]   = useState('') // inches
+  const [topsoilType, setTopsoilType] = useState('none')
+  const [topsoilCustom, setTopsoilCustom] = useState('')
 
   // ---- Linear tool ----
   const [linearVerts, setLinearVerts]   = useState([])
@@ -182,11 +191,16 @@ export default function SheetPage() {
   // ---- Selection tool ----
   const [selectedId, setSelectedId]     = useState(null)
   const [selectedKind, setSelectedKind] = useState(null)
+  const [selectedIds, setSelectedIds]   = useState([]) // multi-select from box drag
+  const [boxSelect, setBoxSelect]       = useState(null) // { x1,y1,x2,y2 } in sheet coords
   const isDraggingRef    = useRef(false)
   const dragStartRef     = useRef(null)
   const origDragRef      = useRef(null)
   const dragVertIdxRef   = useRef(null)
   const dragAreaIdRef    = useRef(null)
+  const panStartRef      = useRef(null) // for pan tool
+  const panOriginRef     = useRef(null)
+  const isPanningRef     = useRef(false)
 
   // ---- Name counters ----
   const nameCountRef = useRef({})
@@ -198,9 +212,10 @@ export default function SheetPage() {
   const project = projects[projectId]
   const sheet   = sheets[sheetId]
 
-  // ---- Smooth zoom ----
+  // ---- Smooth zoom to cursor ----
   const zoomTargetRef = useRef(100)
   const zoomRafRef = useRef(null)
+  const zoomCurrentRef = useRef(100) // tracks actual zoom for pan calc
   useEffect(() => {
     const el = canvasRef.current
     if (!el) return
@@ -208,11 +223,23 @@ export default function SheetPage() {
       e.preventDefault()
       const delta = e.deltaMode === 1 ? e.deltaY * 20 : e.deltaMode === 2 ? e.deltaY * 300 : e.deltaY
       const factor = Math.pow(0.999, delta)
-      zoomTargetRef.current = Math.max(25, Math.min(400, zoomTargetRef.current * factor))
+      const oldZ = zoomTargetRef.current
+      const newZ = Math.max(25, Math.min(400, oldZ * factor))
+      zoomTargetRef.current = newZ
+      // Zoom to cursor: adjust pan so point under cursor stays fixed
+      const rect = el.getBoundingClientRect()
+      const cx = e.clientX - rect.left - rect.width / 2
+      const cy = e.clientY - rect.top - rect.height / 2
+      const scale = FIT / 100
+      setPanOffset(p => ({
+        x: cx - (cx - p.x) * (newZ / oldZ),
+        y: cy - (cy - p.y) * (newZ / oldZ),
+      }))
       if (!zoomRafRef.current) {
         const animate = () => {
           setZoom(z => {
             const next = z + (zoomTargetRef.current - z) * 0.18
+            zoomCurrentRef.current = next
             if (Math.abs(next - zoomTargetRef.current) < 0.1) { zoomRafRef.current = null; return zoomTargetRef.current }
             zoomRafRef.current = requestAnimationFrame(animate)
             return next
@@ -223,6 +250,13 @@ export default function SheetPage() {
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => { el.removeEventListener('wheel', onWheel); if (zoomRafRef.current) cancelAnimationFrame(zoomRafRef.current) }
+  }, [])
+
+  // Global mouseup to end pan/box-select
+  useEffect(() => {
+    const up = () => { isPanningRef.current = false }
+    window.addEventListener('mouseup', up)
+    return () => window.removeEventListener('mouseup', up)
   }, [])
 
   // Sync active folder's poly whenever regionClosed changes
@@ -386,6 +420,12 @@ export default function SheetPage() {
 
   // ---- Event handlers ----
   const onMouseDown = (e) => {
+    if (activeTool === 'pan') {
+      isPanningRef.current = true
+      panStartRef.current = { x: e.clientX, y: e.clientY }
+      panOriginRef.current = { ...panOffset }
+      return
+    }
     if (activeTool !== 'select') return
     const p = toSheet(e)
     // Check added points first
@@ -438,10 +478,19 @@ export default function SheetPage() {
         }
       }
     }
+    // Start box select on empty space
     setSelectedId(null); setSelectedKind(null)
+    setBoxSelect({ x1: p.x, y1: p.y, x2: p.x, y2: p.y })
   }
 
   const onMouseMove = (e) => {
+    // Pan tool
+    if (activeTool === 'pan' && isPanningRef.current && panStartRef.current) {
+      const dx = e.clientX - panStartRef.current.x
+      const dy = e.clientY - panStartRef.current.y
+      setPanOffset({ x: panOriginRef.current.x + dx, y: panOriginRef.current.y + dy })
+      return
+    }
     const rawP = toSheet(e)
     const prevMove = activeTool === 'area' && areaVerts.length > 0 ? areaVerts[areaVerts.length - 1]
       : activeTool === 'linear' && linearVerts.length > 0 ? linearVerts[linearVerts.length - 1] : null
@@ -452,6 +501,10 @@ export default function SheetPage() {
     if (activeTool === 'area' && (areaVerts.length > 0 || pendingArcThrough)) setAreaCursor(p)
     if (activeTool === 'linear' && (linearVerts.length > 0 || pendingArcThrough)) setLinearCursor(p)
 
+    // Update box select
+    if (activeTool === 'select' && boxSelect && !isDraggingRef.current) {
+      setBoxSelect(b => b ? { ...b, x2: rawP.x, y2: rawP.y } : null)
+    }
     if (activeTool === 'select' && isDraggingRef.current && dragStartRef.current) {
       const dx = p.x - dragStartRef.current.x
       const dy = p.y - dragStartRef.current.y
@@ -492,9 +545,22 @@ export default function SheetPage() {
   }
 
   const onMouseUp = () => {
+    isPanningRef.current = false
     isDraggingRef.current = false
     dragVertIdxRef.current = null
     dragAreaIdRef.current = null
+    // Finalize box select
+    if (boxSelect && activeTool === 'select') {
+      const minX = Math.min(boxSelect.x1, boxSelect.x2), maxX = Math.max(boxSelect.x1, boxSelect.x2)
+      const minY = Math.min(boxSelect.y1, boxSelect.y2), maxY = Math.max(boxSelect.y1, boxSelect.y2)
+      if (maxX - minX > 4 || maxY - minY > 4) {
+        const inBox = (pt) => pt.x >= minX && pt.x <= maxX && pt.y >= minY && pt.y <= maxY
+        const ptIds = addedPoints.filter(p => inBox(p)).map(p => p.id)
+        const areaIds = addedAreas.filter(a => a.poly.some(v => inBox(v))).map(a => a.id)
+        setSelectedIds([...ptIds, ...areaIds])
+      }
+      setBoxSelect(null)
+    }
   }
 
   const onClick = (e) => {
@@ -809,6 +875,7 @@ export default function SheetPage() {
             <Settings2 size={17} />
           </button>
           <Button size="sm" variant="secondary" iconLeft={<Share2 size={14} />}>Share</Button>
+          <Button size="sm" variant="ghost" iconLeft={<Share2 size={14} />} onClick={() => { setQuoteVendor(''); setQuoteCopied(false); setQuoteOpen(true) }}>Quote email</Button>
           <Button size="sm" variant="primary" iconLeft={<FileDown size={14} />} onClick={() => setExportOpen(true)}>Export</Button>
         </div>
       </header>
@@ -898,7 +965,9 @@ export default function SheetPage() {
           </Tooltip>
         </aside>
 
-        <div className={s.leftPanel}>
+        <div className={s.leftPanel} style={{ width: leftPanelW, minWidth: 180, maxWidth: 500 }}>
+          <div className={s.resizeHandle} style={{ right: -3 }}
+            onMouseDown={e => { e.preventDefault(); const startX = e.clientX, startW = leftPanelW; const move = ev => setLeftPanelW(Math.max(180, Math.min(500, startW + ev.clientX - startX))); const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }; window.addEventListener('mousemove', move); window.addEventListener('mouseup', up) }} />
           <div className={s.leftPanelTabs}>
             <Tabs variant="pill" value={leftPanel} onChange={setLeftPanel}
               items={[
@@ -951,7 +1020,9 @@ export default function SheetPage() {
           )}
         </div>
 
-        <main className={s.canvas} ref={canvasRef}>
+        <main className={s.canvas} ref={canvasRef}
+          onMouseMove={activeTool === 'pan' ? onMouseMove : undefined}
+          onMouseUp={activeTool === 'pan' ? onMouseUp : undefined}>
           <div className={s.hint}>
             {activeTool === 'scale' ? (
               scalePts.length === 0
@@ -1000,7 +1071,7 @@ export default function SheetPage() {
             )}
           </div>
 
-          <div className={s.sheetWrap} style={{ transform: `scale(${(zoom / 100) * FIT})` }}>
+          <div className={s.sheetWrap} style={{ transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${(zoom / 100) * FIT})`, transition: isPanningRef.current ? 'none' : undefined }}>
             <div className={s.sheet} style={{ width: SHEET_W, height: SHEET_H }}>
               {sheet.pdfUrl && (
                 <iframe src={`${sheet.pdfUrl}#view=FitH&toolbar=0&navpanes=0`}
@@ -1272,6 +1343,13 @@ export default function SheetPage() {
                     </g>
                   )
                 })()}
+
+                {/* Box select rectangle */}
+                {boxSelect && (
+                  <rect x={Math.min(boxSelect.x1, boxSelect.x2)} y={Math.min(boxSelect.y1, boxSelect.y2)}
+                    width={Math.abs(boxSelect.x2 - boxSelect.x1)} height={Math.abs(boxSelect.y2 - boxSelect.y1)}
+                    fill="var(--brand-500)" fillOpacity="0.08" stroke="var(--brand-500)" strokeWidth="1.5" strokeDasharray="5 3" />
+                )}
               </svg>
 
               {activeTool === 'region' && Object.entries(areaClip).map(([id, cp]) => {
@@ -1352,7 +1430,9 @@ export default function SheetPage() {
           </div>
         </main>
 
-        <aside className={s.rightPanel}>
+        <aside className={s.rightPanel} style={{ width: rightPanelW, minWidth: 240, maxWidth: 600 }}>
+          <div className={s.resizeHandle} style={{ left: -3 }}
+            onMouseDown={e => { e.preventDefault(); const startX = e.clientX, startW = rightPanelW; const move = ev => setRightPanelW(Math.max(240, Math.min(600, startW - (ev.clientX - startX)))); const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }; window.addEventListener('mousemove', move); window.addEventListener('mouseup', up) }} />
           {activeTool === 'select' ? (
             <SelectPanel
               selectedArea={selectedArea} selectedPoint={selectedPoint} selectedLine={selectedLine}
@@ -1382,6 +1462,9 @@ export default function SheetPage() {
           ) : activeTool === 'area' ? (
             <AreaPanel areaType={areaType} onSetAreaType={setAreaType}
               addedAreas={addedAreas} sqft={sqft} fSq={fSq}
+              areaDepth={areaDepth} onSetDepth={setAreaDepth}
+              topsoilType={topsoilType} onSetTopsoil={setTopsoilType}
+              topsoilCustom={topsoilCustom} onSetTopsoilCustom={setTopsoilCustom}
               onClearAdded={() => setAddedAreas([])} fs={fs} />
           ) : activeTool === 'linear' ? (
             <LinearPanel linearType={linearType} onSetLinearType={setLinearType}
@@ -1487,6 +1570,28 @@ export default function SheetPage() {
         </div>
       </Dialog>
 
+      {/* Quote Email Dialog */}
+      <Dialog open={quoteOpen} onClose={() => setQuoteOpen(false)} title="Generate quote email" width={560}
+        footer={<>
+          <Button variant="ghost" onClick={() => setQuoteOpen(false)}>Close</Button>
+          <Button variant="primary" onClick={() => {
+            const txt = generateQuoteEmail(project, sheet, allAreas, allLines, allPoints, quoteVendor, sqft, fSq, lnft, fLn, topsoilType, topsoilCustom, areaDepth)
+            navigator.clipboard.writeText(txt).then(() => setQuoteCopied(true))
+          }}>{quoteCopied ? '✓ Copied!' : 'Copy to clipboard'}</Button>
+        </>}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>Vendor / Supplier name</label>
+            <input value={quoteVendor} onChange={e => { setQuoteVendor(e.target.value); setQuoteCopied(false) }}
+              placeholder="e.g. Green Valley Nursery"
+              style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', fontSize: 13, background: 'var(--surface-card)', color: 'var(--text-strong)', boxSizing: 'border-box' }} />
+          </div>
+          <div style={{ background: 'var(--surface-sunken)', borderRadius: 'var(--radius-md)', padding: '14px 16px', fontSize: 13, color: 'var(--text-body)', fontFamily: 'monospace', whiteSpace: 'pre-wrap', maxHeight: 340, overflowY: 'auto', lineHeight: 1.6 }}>
+            {generateQuoteEmail(project, sheet, allAreas, allLines, allPoints, quoteVendor, sqft, fSq, lnft, fLn, topsoilType, topsoilCustom, areaDepth)}
+          </div>
+        </div>
+      </Dialog>
+
       {toast && (
         <div className={s.toast}>
           <Check size={15} style={{ color: 'var(--success-500)', flexShrink: 0 }} />
@@ -1499,6 +1604,49 @@ export default function SheetPage() {
       )}
     </div>
   )
+}
+
+// ---- Quote email generator -------------------------------------------------
+function generateQuoteEmail(project, sheet, allAreas, allLines, allPoints, vendor, sqft, fSq, lnft, fLn, topsoilType, topsoilCustom, areaDepth) {
+  const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+  const addr = project.address || 'address on file'
+  const vendorName = vendor || '[Vendor Name]'
+  const topsoilLabel = topsoilType === 'custom' ? topsoilCustom || 'custom topsoil' : topsoilType === 'none' ? null : { enriched: 'Enriched topsoil', sandy_loam: 'Sandy loam', '4way': '4-way mix' }[topsoilType]
+  const depthIn = parseFloat(areaDepth) || 0
+
+  const areaLines = allAreas.map(a => {
+    const sf = sqft(polyAreaPx(a.poly))
+    const cy = depthIn > 0 ? ((sf * (depthIn/12))/27).toFixed(1) : null
+    return `  - ${a.name || a.type}: ${fSq(sf)} sq ft${cy ? ` / ${cy} CY` : ''}${depthIn ? ` @ ${depthIn}" depth` : ''}`
+  })
+  const lineLines = allLines.map(l => `  - ${l.name || l.type}: ${fLn(lnft(perimPx(l.pts)))} ln ft`)
+  const ptLines = allPoints.length > 0 ? [`  - ${allPoints.length} item(s): ${allPoints.map(p => p.type).join(', ')}`] : []
+
+  return `Subject: Quote Request – ${project.name} – ${sheet.name}
+
+${today}
+
+To: ${vendorName}
+
+Re: Quote Request for ${project.name}
+Job Site Address: ${addr}
+Sheet: ${sheet.code} – ${sheet.name}
+
+Hello,
+
+We are currently estimating the above project and would like to request a quote for the following materials/services:
+
+SCOPE OF WORK:
+${[...areaLines, ...lineLines, ...ptLines].join('\n') || '  (No items recorded)'}
+${topsoilLabel ? `\nTopsoil type requested: ${topsoilLabel}` : ''}
+${depthIn > 0 ? `Installation depth: ${depthIn} inches` : ''}
+
+Please provide pricing per unit as well as availability. Let us know if you have any questions or need additional information.
+
+Thank you for your time,
+
+${project.client || '[Your Name]'}
+${project.name}`
 }
 
 // ---- Select panel ----------------------------------------------------------
@@ -1730,7 +1878,20 @@ function RegionPanel({ hasRegion, regionSqft, regionPerim, totalPointCount, catA
 }
 
 // ---- Area draw panel -------------------------------------------------------
-function AreaPanel({ areaType, onSetAreaType, addedAreas, sqft, fSq, onClearAdded, fs }) {
+const TOPSOIL_OPTIONS = [
+  { value: 'none', label: 'None' },
+  { value: 'enriched', label: 'Enriched topsoil' },
+  { value: 'sandy_loam', label: 'Sandy loam' },
+  { value: '4way', label: '4 way mix' },
+  { value: 'custom', label: 'Custom…' },
+]
+
+function AreaPanel({ areaType, onSetAreaType, addedAreas, sqft, fSq, onClearAdded, fs,
+  areaDepth, onSetDepth, topsoilType, onSetTopsoil, topsoilCustom, onSetTopsoilCustom }) {
+  const totalSqft = addedAreas.reduce((s, a) => s + sqft(polyAreaPx(a.poly)), 0)
+  const depthIn = parseFloat(areaDepth) || 0
+  const totalCY = depthIn > 0 ? (totalSqft * (depthIn / 12)) / 27 : 0
+
   return (
     <>
       <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid var(--border-subtle)' }}>
@@ -1740,6 +1901,31 @@ function AreaPanel({ areaType, onSetAreaType, addedAreas, sqft, fSq, onClearAdde
         <p style={{ margin: 0, fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)', lineHeight: 1.5 }}>
           Click to place vertices · <b>A</b> for arc segment · click first point or <b>Enter</b> to close.
         </p>
+      </div>
+
+      {/* Depth & Topsoil */}
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <label style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)', fontWeight: 600, minWidth: 52 }}>Depth</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}>
+            <input type="number" min="0" step="0.5" placeholder="0" value={areaDepth}
+              onChange={e => onSetDepth(e.target.value)}
+              style={{ width: 64, padding: '5px 8px', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', fontSize: `calc(13px * ${fs})`, background: 'var(--surface-card)', color: 'var(--text-strong)' }} />
+            <span style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)' }}>inches</span>
+            {totalCY > 0 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(12px * ${fs})`, fontWeight: 700, color: 'var(--brand-600)', marginLeft: 'auto' }}>{totalCY.toFixed(1)} CY</span>}
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <label style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)', fontWeight: 600, minWidth: 52 }}>Topsoil</label>
+          <select value={topsoilType} onChange={e => onSetTopsoil(e.target.value)}
+            style={{ flex: 1, padding: '5px 8px', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', fontSize: `calc(13px * ${fs})`, background: 'var(--surface-card)', color: 'var(--text-strong)' }}>
+            {TOPSOIL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </div>
+        {topsoilType === 'custom' && (
+          <input placeholder="Describe topsoil type…" value={topsoilCustom} onChange={e => onSetTopsoilCustom(e.target.value)}
+            style={{ padding: '5px 8px', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', fontSize: `calc(13px * ${fs})`, background: 'var(--surface-card)', color: 'var(--text-strong)' }} />
+        )}
       </div>
 
       <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border-subtle)' }}>
@@ -1774,6 +1960,7 @@ function AreaPanel({ areaType, onSetAreaType, addedAreas, sqft, fSq, onClearAdde
                   <span style={{ flex: 1, fontSize: `calc(13px * ${fs})`, color: 'var(--text-strong)', fontWeight: 500 }}>{a.name || cat?.name || a.type}</span>
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)' }}>
                     {fSq(sqft(polyAreaPx(a.poly)))} ft²
+                    {depthIn > 0 && <span style={{ color: 'var(--brand-600)', display: 'block', fontSize: `calc(11px * ${fs})` }}>{((sqft(polyAreaPx(a.poly)) * (depthIn/12))/27).toFixed(1)} CY</span>}
                   </span>
                 </div>
               )
