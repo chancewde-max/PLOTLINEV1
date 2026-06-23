@@ -4,7 +4,7 @@ import {
   Minus, Plus, Hand, SquareDashed, Spline, MapPin,
   Ruler, Lasso, Eye, EyeOff, Check, TriangleAlert, Sun, Moon,
   Settings2, FileDown, Share2, ChevronRight, Eraser, Sparkles,
-  X as XIcon, Map, Pencil, Trash2, MousePointer2,
+  X as XIcon, Map, Pencil, Trash2, MousePointer2, Layers,
 } from 'lucide-react'
 import { Button } from '../components/ui/Button.jsx'
 import { Badge } from '../components/ui/Badge.jsx'
@@ -164,6 +164,14 @@ export default function SheetPage() {
   // ---- Snapping ----
   const [snapEnabled, setSnapEnabled]   = useState(false)
   const [orthoEnabled, setOrthoEnabled] = useState(false)
+
+  // ---- Page overlay ----
+  const [overlaySheetId, setOverlaySheetId] = useState(null)  // which sheet to overlay
+  const [overlayOpacity, setOverlayOpacity] = useState(0.4)
+  const [overlayOffset, setOverlayOffset]   = useState({ x: 0, y: 0 })
+  const [overlayScale, setOverlayScale]     = useState(1)
+  const [overlayDlg, setOverlayDlg]         = useState(false)
+  const overlayDragRef = useRef(null)
 
   // ---- Undo stack ----
   const undoStackRef = useRef([])
@@ -883,6 +891,11 @@ export default function SheetPage() {
               <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '-0.02em' }}>ORTH</span>
             </button>
           </Tooltip>
+          <Tooltip label="Page overlay" side="right">
+            <button className={s.tool} data-on={!!overlaySheetId} onClick={() => setOverlayDlg(true)} aria-label="Page overlay">
+              <Layers size={18} />
+            </button>
+          </Tooltip>
         </aside>
 
         <div className={s.leftPanel}>
@@ -1008,6 +1021,32 @@ export default function SheetPage() {
                     </clipPath>
                   )}
                 </defs>
+
+                {/* Page overlay */}
+                {overlaySheetId && (() => {
+                  const ovSheet = sheets[overlaySheetId]
+                  if (!ovSheet) return null
+                  return (
+                    <g transform={`translate(${overlayOffset.x},${overlayOffset.y}) scale(${overlayScale})`}
+                      opacity={overlayOpacity} style={{ cursor: 'move' }}
+                      onMouseDown={e => { e.stopPropagation(); overlayDragRef.current = { startX: e.clientX - overlayOffset.x, startY: e.clientY - overlayOffset.y } }}
+                      onMouseMove={e => { if (overlayDragRef.current) setOverlayOffset({ x: e.clientX - overlayDragRef.current.startX, y: e.clientY - overlayDragRef.current.startY }) }}
+                      onMouseUp={() => { overlayDragRef.current = null }}>
+                      {(ovSheet.areas || []).map(a => (
+                        <polygon key={a.id} points={a.poly.map(p => `${p.x},${p.y}`).join(' ')}
+                          fill={CAT_COLOR[a.type]} fillOpacity="0.3" stroke={CAT_COLOR[a.type]} strokeWidth="1.5" />
+                      ))}
+                      {(ovSheet.lines || []).map(l => (
+                        <polyline key={l.id} points={l.pts.map(p => `${p.x},${p.y}`).join(' ')}
+                          fill="none" stroke={CAT_COLOR[l.type]} strokeWidth="2" strokeLinecap="round" />
+                      ))}
+                      {(ovSheet.points || []).map(p => (
+                        <circle key={p.id} cx={p.x} cy={p.y} r="5"
+                          fill="white" stroke={CAT_COLOR[p.type]} strokeWidth="1.5" />
+                      ))}
+                    </g>
+                  )
+                })()}
 
                 {/* Ghost polygons for non-active folders */}
                 {activeTool === 'region' && folders.filter(f => f.id !== activeFolderId && f.poly).map(f => (
@@ -1397,6 +1436,53 @@ export default function SheetPage() {
             <Checkbox label="Include sheet thumbnails" defaultChecked />
             <Checkbox label="Show unit prices" defaultChecked />
             <Checkbox label="Group by sheet" />
+          </div>
+        </div>
+      </Dialog>
+
+      {/* Page Overlay Dialog */}
+      <Dialog open={overlayDlg} onClose={() => setOverlayDlg(false)} title="Page overlay"
+        description="Overlay another sheet transparently for comparison." width={420}
+        footer={<>
+          <Button variant="ghost" onClick={() => { setOverlaySheetId(null); setOverlayDlg(false) }}>Clear overlay</Button>
+          <Button variant="primary" onClick={() => setOverlayDlg(false)}>Done</Button>
+        </>}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>Select sheet to overlay</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 180, overflowY: 'auto' }}>
+              {(project.sheetIds || []).filter(id => id !== sheetId).map(id => {
+                const sh = sheets[id]
+                if (!sh) return null
+                return (
+                  <button key={id} onClick={() => setOverlaySheetId(id)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 'var(--radius-md)', border: `1.5px solid ${overlaySheetId === id ? 'var(--brand-500)' : 'var(--border-subtle)'}`, background: overlaySheetId === id ? 'var(--brand-50)' : 'transparent', cursor: 'pointer', textAlign: 'left' }}>
+                    <Map size={14} style={{ color: 'var(--text-muted)' }} />
+                    <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: 'var(--text-strong)' }}>{sh.name}</span>
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{sh.code}</span>
+                    {overlaySheetId === id && <Check size={13} style={{ color: 'var(--brand-600)' }} />}
+                  </button>
+                )
+              })}
+              {(project.sheetIds || []).filter(id => id !== sheetId).length === 0 && (
+                <p style={{ color: 'var(--text-muted)', fontSize: 13, textAlign: 'center', padding: '12px 0' }}>No other sheets in this project.</p>
+              )}
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>Opacity: {Math.round(overlayOpacity * 100)}%</div>
+            <input type="range" min="0.1" max="1" step="0.05" value={overlayOpacity}
+              onChange={e => setOverlayOpacity(parseFloat(e.target.value))}
+              style={{ width: '100%', accentColor: 'var(--brand-600)' }} />
+          </div>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>Scale: {Math.round(overlayScale * 100)}%</div>
+            <input type="range" min="0.5" max="2" step="0.05" value={overlayScale}
+              onChange={e => setOverlayScale(parseFloat(e.target.value))}
+              style={{ width: '100%', accentColor: 'var(--brand-600)' }} />
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span>Drag the overlay on the canvas to reposition it.</span>
           </div>
         </div>
       </Dialog>
