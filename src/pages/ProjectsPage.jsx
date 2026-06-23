@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Plus, Map } from 'lucide-react'
+import { Search, Plus, Map, Sun, Moon, Settings } from 'lucide-react'
 import { Button } from '../components/ui/Button.jsx'
 import { Badge } from '../components/ui/Badge.jsx'
 import { Avatar } from '../components/ui/Avatar.jsx'
@@ -8,8 +8,17 @@ import { Input } from '../components/ui/Input.jsx'
 import { Dialog } from '../components/ui/Dialog.jsx'
 import { Select } from '../components/ui/Select.jsx'
 import { useAppData } from '../data/useAppData.jsx'
+import { useSettings } from '../data/useSettings.jsx'
 import { STATUS_LABEL, STATUS_VARIANT } from '../data/sampleData.js'
 import s from './ProjectsPage.module.css'
+
+const ACCENTS = [
+  { id: 'green',  label: 'Green',  color: '#258c62' },
+  { id: 'blue',   label: 'Blue',   color: '#2563eb' },
+  { id: 'violet', label: 'Violet', color: '#7c3aed' },
+  { id: 'rose',   label: 'Rose',   color: '#e11d48' },
+  { id: 'amber',  label: 'Amber',  color: '#d97706' },
+]
 
 const PREVIEW_POLY = {
   'proj-1': '30,70 150,55 175,120 45,135',
@@ -34,9 +43,11 @@ const EMPTY_FORM = { name: '', client: '', address: '', status: 'draft' }
 export default function ProjectsPage() {
   const navigate = useNavigate()
   const { projects: allProjects, addProject } = useAppData()
+  const { theme, setTheme, accent, setAccent } = useSettings()
   const [search, setSearch] = useState('')
   const [dlgOpen, setDlgOpen] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
+  const [activeTab, setActiveTab] = useState('projects')
 
   const projectList = Object.values(allProjects).filter(p =>
     p.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -68,17 +79,18 @@ export default function ProjectsPage() {
   }
 
   return (
-    <div className={s.root}>
+    <div className={s.root} data-theme={theme}>
       <header className={s.top}>
         <div className={s.brand}>
           <img src="/plotline-mark.svg" alt="Plotline" className={s.logo} />
           <b className={s.wordmark}>Plotline<span className={s.dot}>.</span></b>
         </div>
         <nav className={s.nav}>
-          <a className={s.navLink} data-on="true">Projects</a>
+          <a className={s.navLink} data-on={activeTab === 'projects' ? 'true' : undefined} onClick={() => setActiveTab('projects')} style={{ cursor: 'pointer' }}>Projects</a>
           <a className={s.navLink}>Templates</a>
           <a className={s.navLink}>Pricebook</a>
           <a className={s.navLink}>Team</a>
+          <a className={s.navLink} data-on={activeTab === 'settings' ? 'true' : undefined} onClick={() => setActiveTab('settings')} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><Settings size={13} /> Settings</a>
         </nav>
         <div className={s.topRight}>
           <div style={{ width: 240 }}>
@@ -95,6 +107,36 @@ export default function ProjectsPage() {
       </header>
 
       <main className={s.main}>
+        {activeTab === 'settings' ? (
+          <div style={{ maxWidth: 520, paddingTop: 8 }}>
+            <h1 className={s.title} style={{ marginBottom: 4 }}>Settings</h1>
+            <p className={s.sub} style={{ marginBottom: 32 }}>Appearance preferences saved to this browser.</p>
+
+            <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 12, padding: 24, marginBottom: 20 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-strong)', marginBottom: 16 }}>Theme</div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                {[{ id: 'light', Icon: Sun, label: 'Light' }, { id: 'dark', Icon: Moon, label: 'Dark' }].map(({ id, Icon, label }) => (
+                  <button key={id} onClick={() => setTheme(id)}
+                    style={{ flex: 1, padding: '14px 0', borderRadius: 10, border: `2px solid ${theme === id ? 'var(--brand-600)' : 'var(--border-default)'}`, background: theme === id ? 'var(--brand-50)' : 'var(--surface-paper)', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, color: theme === id ? 'var(--brand-600)' : 'var(--text-muted)', fontWeight: 600, fontSize: 13 }}>
+                    <Icon size={20} />
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 12, padding: 24 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-strong)', marginBottom: 16 }}>Accent color</div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                {ACCENTS.map(a => (
+                  <button key={a.id} onClick={() => setAccent(a.id)} title={a.label}
+                    style={{ width: 40, height: 40, borderRadius: '50%', background: a.color, border: `3px solid ${accent === a.id ? 'var(--text-strong)' : 'transparent'}`, cursor: 'pointer', outline: accent === a.id ? `2px solid ${a.color}` : 'none', outlineOffset: 2 }} />
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : (
+        <>
         <div className={s.head}>
           <div>
             <h1 className={s.title}>Projects</h1>
@@ -178,6 +220,8 @@ export default function ProjectsPage() {
             </div>
           ))}
         </div>
+        </>
+        )}
       </main>
 
       <Dialog

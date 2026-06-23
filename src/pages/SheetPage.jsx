@@ -15,6 +15,7 @@ import { Checkbox } from '../components/ui/Checkbox.jsx'
 import { Tabs } from '../components/ui/Tabs.jsx'
 import { Tooltip } from '../components/ui/Tooltip.jsx'
 import { useAppData } from '../data/useAppData.jsx'
+import { useSettings } from '../data/useSettings.jsx'
 import { CATS, CAT_COLOR, SHEET_W, SHEET_H } from '../data/sampleData.js'
 import { inside, polyAreaPx, perimPx, centroid, clipPx2, dist } from '../workspace/geometry.js'
 import s from './SheetPage.module.css'
@@ -106,10 +107,9 @@ export default function SheetPage() {
   const { projectId, sheetId } = useParams()
   const navigate = useNavigate()
   const { projects, sheets, updateSheet } = useAppData()
+  const { theme, setTheme, accent, setAccent } = useSettings()
 
   // ---- UI state ----
-  const [theme, setTheme]       = useState('light')
-  const [accent, setAccent]     = useState('pine')
   const [fs, setFs]             = useState(1)
   const [settings, setSettings] = useState(false)
   const [zoom, setZoom]         = useState(100)
