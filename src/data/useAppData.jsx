@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react'
 import { PROJECTS as D_PROJECTS, SHEETS as D_SHEETS } from './sampleData.js'
 
 const Ctx = createContext(null)
-const VER = '3'
+const VER = '4'
 
 function load() {
   try {
