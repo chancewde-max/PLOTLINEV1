@@ -11,7 +11,8 @@ export default function PdfCanvas({ url, width, height }) {
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    if (!url) return
+    // blob: URLs don't survive page reloads — skip them to avoid pdfjs errors
+    if (!url || url.startsWith('blob:')) return
     let cancelled = false
 
     const render = async () => {

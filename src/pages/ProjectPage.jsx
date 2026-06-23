@@ -96,20 +96,32 @@ export default function ProjectPage() {
   const createSheet = () => {
     if (!form.name.trim()) return
     const id = `sheet-${Date.now()}`
-    const pdfUrl = pdfFile ? URL.createObjectURL(pdfFile) : null
-    addSheet(projectId, {
-      id,
-      projectId,
-      name: form.name.trim(),
-      code: form.code.trim() || `S-${(project.sheetIds?.length || 0) + 1}`,
-      pxPerFt: null,
-      pdfUrl,
-      areas: [],
-      lines: [],
-      points: [],
-    })
+    if (pdfFile) {
+      const reader = new FileReader()
+      reader.onload = (ev) => {
+        addSheet(projectId, {
+          id, projectId,
+          name: form.name.trim(),
+          code: form.code.trim() || `S-${(project.sheetIds?.length || 0) + 1}`,
+          pxPerFt: null,
+          pdfUrl: ev.target.result,
+          areas: [], lines: [], points: [],
+        })
+        navigate(`/project/${projectId}/sheet/${id}`)
+      }
+      reader.readAsDataURL(pdfFile)
+    } else {
+      addSheet(projectId, {
+        id, projectId,
+        name: form.name.trim(),
+        code: form.code.trim() || `S-${(project.sheetIds?.length || 0) + 1}`,
+        pxPerFt: null,
+        pdfUrl: null,
+        areas: [], lines: [], points: [],
+      })
+      navigate(`/project/${projectId}/sheet/${id}`)
+    }
     setDlgOpen(false)
-    navigate(`/project/${projectId}/sheet/${id}`)
   }
 
   return (
