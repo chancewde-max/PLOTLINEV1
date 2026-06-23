@@ -105,7 +105,7 @@ function buildLinePath(pts, arcSegs = {}) {
 export default function SheetPage() {
   const { projectId, sheetId } = useParams()
   const navigate = useNavigate()
-  const { projects, sheets } = useAppData()
+  const { projects, sheets, updateSheet } = useAppData()
 
   // ---- UI state ----
   const [theme, setTheme]       = useState('light')
@@ -152,7 +152,7 @@ export default function SheetPage() {
   const [areaVerts, setAreaVerts]   = useState([])
   const [areaCursor, setAreaCursor] = useState(null)
   const [areaType, setAreaType]     = useState(AREA_CATS[0]?.id || 'sod')
-  const [addedAreas, setAddedAreas] = useState([])
+  const [addedAreas, setAddedAreas] = useState(() => sheets[sheetId]?.savedAreas || [])
   const [areaDepth, setAreaDepth]   = useState('') // inches
   const [topsoilType, setTopsoilType] = useState('none')
   const [topsoilCustom, setTopsoilCustom] = useState('')
@@ -161,7 +161,7 @@ export default function SheetPage() {
   const [linearVerts, setLinearVerts]   = useState([])
   const [linearCursor, setLinearCursor] = useState(null)
   const [linearType, setLinearType]     = useState(LINEAR_CATS[0]?.id || 'lime-wall')
-  const [addedLines, setAddedLines]     = useState([])
+  const [addedLines, setAddedLines]     = useState(() => sheets[sheetId]?.savedLines || [])
 
   // ---- Arc mode (shared for area + linear) ----
   const [arcMode, setArcMode]               = useState(false)
@@ -171,17 +171,22 @@ export default function SheetPage() {
 
   // ---- Count tool ----
   const [addCountType, setAddCountType] = useState(COUNT_CATS[0]?.id || 'tree')
-  const [countGroups, setCountGroups]   = useState([])  // { id, name, color, type, points[] }
+  const [countGroups, setCountGroups]   = useState(() => sheets[sheetId]?.savedCountGroups || [])
   const [activeCountGroupId, setActiveCountGroupId] = useState(null)
   const countGroupNumRef = useRef(0)
+  // ---- Linear groups (like count groups) ----
+  const [linearGroups, setLinearGroups] = useState(() => sheets[sheetId]?.savedLinearGroups || [])
+  const [activeLinearGroupId, setActiveLinearGroupId] = useState(null)
+  const linearGroupNumRef = useRef(0)
   // ---- Area groups ----
-  const [areaGroups, setAreaGroups]     = useState([])  // { id, name, color, type, areas[] }
+  const [areaGroups, setAreaGroups]     = useState(() => sheets[sheetId]?.savedAreaGroups || [])
   const [activeAreaGroupId, setActiveAreaGroupId] = useState(null)
   const areaGroupNumRef = useRef(0)
-  // ---- New count/area dialog ----
-  const [newCountDlg, setNewCountDlg]   = useState(false)  // 'count' | 'area' | false
+  // ---- New count/area/linear dialog ----
+  const [newCountDlg, setNewCountDlg]   = useState(false)  // 'count' | 'area' | 'linear' | false
   const [newItemName, setNewItemName]   = useState('')
   const [newItemColor, setNewItemColor] = useState('#258c62')
+  const [newItemShape, setNewItemShape] = useState('circle')
 
   // ---- Snapping ----
   const [snapEnabled, setSnapEnabled]   = useState(false)
@@ -251,7 +256,7 @@ export default function SheetPage() {
       if (!zoomRafRef.current) {
         const animate = () => {
           setZoom(z => {
-            const next = z + (zoomTargetRef.current - z) * 0.18
+            const next = z + (zoomTargetRef.current - z) * 0.45
             zoomCurrentRef.current = next
             if (Math.abs(next - zoomTargetRef.current) < 0.1) { zoomRafRef.current = null; return zoomTargetRef.current }
             zoomRafRef.current = requestAnimationFrame(animate)
@@ -272,6 +277,13 @@ export default function SheetPage() {
     return () => window.removeEventListener('mouseup', up)
   }, [])
 
+  // Persist drawing data after every change
+  useEffect(() => { if (sheetId) updateSheet(sheetId, { savedCountGroups: countGroups }) }, [countGroups])
+  useEffect(() => { if (sheetId) updateSheet(sheetId, { savedLinearGroups: linearGroups }) }, [linearGroups])
+  useEffect(() => { if (sheetId) updateSheet(sheetId, { savedAreaGroups: areaGroups }) }, [areaGroups])
+  useEffect(() => { if (sheetId) updateSheet(sheetId, { savedAreas: addedAreas }) }, [addedAreas])
+  useEffect(() => { if (sheetId) updateSheet(sheetId, { savedLines: addedLines }) }, [addedLines])
+
   // Sync active folder's poly whenever regionClosed changes
   useEffect(() => {
     setFolders(prev => prev.map(f => f.id === activeFolderId ? { ...f, poly: regionClosed } : f))
@@ -287,7 +299,11 @@ export default function SheetPage() {
       if (key === 'H') setActiveTool('pan')
       if (key === 'R') setActiveTool('region')
       if (key === 'M') setActiveTool('measure')
-      if (key === 'L') setActiveTool('linear')
+      if (key === 'L') {
+        setNewItemName(`Linear ${linearGroupNumRef.current + 1}`)
+        setNewItemColor(randColor()); setNewItemShape('circle')
+        setNewCountDlg('linear')
+      }
       if (key === 'C') {
         setNewItemName(`Count ${countGroupNumRef.current + 1}`)
         setNewItemColor(randColor())
@@ -405,8 +421,10 @@ export default function SheetPage() {
       undoStackRef.current = [...undoStackRef.current.slice(-19), { type: 'area', state: prev }]
       return [...prev, {
         id: `ua-${Date.now()}`,
+        groupId: activeAreaGroupId || null,
         type: areaType,
-        name: genName(areaType),
+        name: areaGroups.find(g => g.id === activeAreaGroupId)?.name || genName(areaType),
+        color: areaGroups.find(g => g.id === activeAreaGroupId)?.color || null,
         poly: [...areaVerts],
         arcSegs: { ...arcSegsRef.current },
       }]
@@ -422,8 +440,10 @@ export default function SheetPage() {
       undoStackRef.current = [...undoStackRef.current.slice(-19), { type: 'line', state: prev }]
       return [...prev, {
         id: `ul-${Date.now()}`,
+        groupId: activeLinearGroupId || null,
         type: linearType,
-        name: genName(linearType),
+        name: linearGroups.find(g => g.id === activeLinearGroupId)?.name || genName(linearType),
+        color: linearGroups.find(g => g.id === activeLinearGroupId)?.color || null,
         pts: [...linearVerts],
         arcSegs: { ...linearArcSegsRef.current },
       }]
@@ -866,16 +886,22 @@ export default function SheetPage() {
     : 'default'
 
   const confirmNewItem = () => {
-    const name = newItemName.trim() || (newCountDlg === 'count' ? `Count ${countGroupNumRef.current + 1}` : `Area ${areaGroupNumRef.current + 1}`)
+    const name = newItemName.trim() || `${newCountDlg === 'count' ? 'Count' : newCountDlg === 'linear' ? 'Linear' : 'Area'} ${(newCountDlg === 'count' ? countGroupNumRef : newCountDlg === 'linear' ? linearGroupNumRef : areaGroupNumRef).current + 1}`
     if (newCountDlg === 'count') {
       countGroupNumRef.current++
-      const newGroup = { id: `cg-${Date.now()}`, name, color: newItemColor, type: addCountType, points: [] }
+      const newGroup = { id: `cg-${Date.now()}`, name, color: newItemColor, shape: newItemShape, points: [] }
       setCountGroups(prev => [...prev, newGroup])
       setActiveCountGroupId(newGroup.id)
       setActiveTool('count')
+    } else if (newCountDlg === 'linear') {
+      linearGroupNumRef.current++
+      const newGroup = { id: `lg-${Date.now()}`, name, color: newItemColor, lines: [] }
+      setLinearGroups(prev => [...prev, newGroup])
+      setActiveLinearGroupId(newGroup.id)
+      setActiveTool('linear')
     } else {
       areaGroupNumRef.current++
-      const newGroup = { id: `ag-${Date.now()}`, name, color: newItemColor, type: areaType, areas: [] }
+      const newGroup = { id: `ag-${Date.now()}`, name, color: newItemColor, areas: [] }
       setAreaGroups(prev => [...prev, newGroup])
       setActiveAreaGroupId(newGroup.id)
       setActiveTool('area')
@@ -1180,11 +1206,12 @@ export default function SheetPage() {
                   const inRegionMode = activeTool === 'region' && hasRegion
                   const isSelected = selectedId === a.id
                   const hasArcs = a.arcSegs && Object.keys(a.arcSegs).length > 0
-                  const fillOp = catActive.has(a.type) ? (inRegionMode ? 0.07 : 0.22) : 0.04
-                  const strokeOp = catActive.has(a.type) ? (inRegionMode ? 0.35 : 0.9) : 0.25
+                  const areaColor = a.color || CAT_COLOR[a.type]
+                  const fillOp = inRegionMode ? 0.07 : 0.22
+                  const strokeOp = inRegionMode ? 0.35 : 0.9
                   const sharedProps = {
-                    fill: CAT_COLOR[a.type], fillOpacity: fillOp,
-                    stroke: isSelected ? '#000' : CAT_COLOR[a.type],
+                    fill: areaColor, fillOpacity: fillOp,
+                    stroke: isSelected ? '#000' : areaColor,
                     strokeOpacity: strokeOp, strokeWidth: isSelected ? '2.5' : '1.5',
                     strokeDasharray: isSelected ? '0' : undefined,
                   }
@@ -1229,10 +1256,11 @@ export default function SheetPage() {
                   const isIn = inLines[l.id]
                   const isSelected = selectedId === l.id
                   const dim = (activeTool === 'region' && hasRegion && !isIn) || !catActive.has(l.type)
+                  const lineColor = l.color || CAT_COLOR[l.type]
                   const hasArcs = l.arcSegs && Object.keys(l.arcSegs).length > 0
                   const pathD = hasArcs ? buildLinePath(l.pts, l.arcSegs) : null
                   const sharedProps = {
-                    fill: 'none', stroke: CAT_COLOR[l.type],
+                    fill: 'none', stroke: lineColor,
                     strokeOpacity: dim ? 0.3 : 1,
                     strokeWidth: isSelected ? 6 : (isIn ? 6 : 4),
                     strokeLinecap: 'round', strokeLinejoin: 'round',
@@ -1394,27 +1422,28 @@ export default function SheetPage() {
                 )
               })}
 
-              {/* Item name labels for added items */}
-              {(activeTool === 'select' || activeTool === 'area' || activeTool === 'count' || activeTool === 'linear') && addedPoints.map(p => (
-                <div key={p.id + '-lbl'} style={{
-                  position: 'absolute',
-                  left: `${(p.x/SHEET_W)*100}%`,
-                  top: `${(p.y/SHEET_H)*100}%`,
-                  transform: 'translate(-50%, -120%)',
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: 9,
-                  fontWeight: 600,
-                  padding: '1px 5px',
-                  borderRadius: 3,
-                  background: 'color-mix(in srgb, var(--surface-card) 90%, transparent)',
-                  color: CAT_COLOR[p.type],
-                  pointerEvents: 'none',
-                  whiteSpace: 'nowrap',
-                  border: `1px solid ${CAT_COLOR[p.type]}40`,
-                }}>
-                  {p.name}
-                </div>
-              ))}
+              {/* Count group dots - colored by group */}
+              {countGroups.map(g =>
+                g.points.map(p => {
+                  const isSelected = selectedId === p.id
+                  return (
+                    <div key={p.id + '-dot'} style={{
+                      position: 'absolute',
+                      left: `${(p.x/SHEET_W)*100}%`,
+                      top: `${(p.y/SHEET_H)*100}%`,
+                      transform: 'translate(-50%, -50%)',
+                      width: isSelected ? 14 : 10,
+                      height: isSelected ? 14 : 10,
+                      borderRadius: g.shape === 'square' ? 2 : g.shape === 'diamond' ? 0 : '50%',
+                      background: g.color,
+                      border: isSelected ? '2.5px solid #000' : `2px solid ${g.color}`,
+                      pointerEvents: 'none',
+                      rotate: g.shape === 'diamond' ? '45deg' : undefined,
+                      boxShadow: '0 0 0 1.5px #fff',
+                    }} />
+                  )
+                })
+              )}
 
               <div className={s.titleBlock}>
                 <div className={s.tbRow}><b>{sheet.name.toUpperCase()}</b></div>
@@ -1468,15 +1497,19 @@ export default function SheetPage() {
           <ConditionsPanel
             countGroups={countGroups} activeCountGroupId={activeCountGroupId}
             onSetActiveCountGroup={id => { setActiveCountGroupId(id); setActiveTool('count') }}
+            linearGroups={linearGroups} activeLinearGroupId={activeLinearGroupId}
+            onSetActiveLinearGroup={id => { setActiveLinearGroupId(id); setActiveTool('linear') }}
             areaGroups={areaGroups} activeAreaGroupId={activeAreaGroupId}
             onSetActiveAreaGroup={id => { setActiveAreaGroupId(id); setActiveTool('area') }}
             addedAreas={addedAreas} addedPoints={addedPoints} addedLines={addedLines}
             sqft={sqft} fSq={fSq} lnft={lnft} fLn={fLn}
             areaDepth={areaDepth} topsoilType={topsoilType} topsoilCustom={topsoilCustom}
-            onNewCount={() => { setNewItemName(`Count ${countGroupNumRef.current + 1}`); setNewItemColor(randColor()); setNewCountDlg('count') }}
-            onNewArea={() => { setNewItemName(`Area ${areaGroupNumRef.current + 1}`); setNewItemColor(randColor()); setNewCountDlg('area') }}
+            onNewCount={() => { setNewItemName(`Count ${countGroupNumRef.current + 1}`); setNewItemColor(randColor()); setNewItemShape('circle'); setNewCountDlg('count') }}
+            onNewArea={() => { setNewItemName(`Area ${areaGroupNumRef.current + 1}`); setNewItemColor(randColor()); setNewItemShape('circle'); setNewCountDlg('area') }}
+            onNewLinear={() => { setNewItemName(`Linear ${linearGroupNumRef.current + 1}`); setNewItemColor(randColor()); setNewItemShape('circle'); setNewCountDlg('linear') }}
             onDeleteCountGroup={id => setCountGroups(prev => prev.filter(g => g.id !== id))}
             onDeleteAreaGroup={id => setAreaGroups(prev => prev.filter(g => g.id !== id))}
+            onDeleteLinearGroup={id => setLinearGroups(prev => prev.filter(g => g.id !== id))}
             fs={fs}
           />
         </aside>
@@ -1493,12 +1526,16 @@ export default function SheetPage() {
                 onClick={() => {
                   if (t.id === 'count') {
                     setNewItemName(`Count ${countGroupNumRef.current + 1}`)
-                    setNewItemColor(randColor())
+                    setNewItemColor(randColor()); setNewItemShape('circle')
                     setNewCountDlg('count')
                   } else if (t.id === 'area') {
                     setNewItemName(`Area ${areaGroupNumRef.current + 1}`)
-                    setNewItemColor(randColor())
+                    setNewItemColor(randColor()); setNewItemShape('circle')
                     setNewCountDlg('area')
+                  } else if (t.id === 'linear') {
+                    setNewItemName(`Linear ${linearGroupNumRef.current + 1}`)
+                    setNewItemColor(randColor()); setNewItemShape('circle')
+                    setNewCountDlg('linear')
                   } else {
                     setActiveTool(t.id)
                   }
@@ -1665,7 +1702,7 @@ export default function SheetPage() {
               onKeyDown={e => { if (e.key === 'Enter') confirmNewItem(); if (e.key === 'Escape') setNewCountDlg(false) }}
               placeholder={newCountDlg === 'count' ? 'e.g. Trees, Shrubs…' : 'e.g. Sod area, Mulch bed…'}
               style={{ width: '100%', padding: '9px 12px', border: '1.5px solid var(--border-default)', borderRadius: 8, fontSize: 15, fontWeight: 600, color: 'var(--text-strong)', background: 'var(--surface-card)', boxSizing: 'border-box', marginBottom: 18 }} />
-            <div style={{ marginBottom: 20 }}>
+            <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 10 }}>Color</div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {COUNT_COLORS.map(c => (
@@ -1674,6 +1711,19 @@ export default function SheetPage() {
                 ))}
               </div>
             </div>
+            {newCountDlg === 'count' && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 10 }}>Shape</div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  {[['circle','●'],['square','■'],['diamond','◆'],['triangle','▲']].map(([sh, icon]) => (
+                    <button key={sh} onClick={() => setNewItemShape(sh)}
+                      style={{ width: 44, height: 44, borderRadius: 8, border: `2px solid ${newItemShape === sh ? newItemColor : 'var(--border-default)'}`, background: newItemShape === sh ? `${newItemColor}22` : 'transparent', cursor: 'pointer', fontSize: 22, color: newItemShape === sh ? newItemColor : 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {icon}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button onClick={() => setNewCountDlg(false)}
                 style={{ padding: '8px 20px', borderRadius: 8, border: '1px solid var(--border-default)', background: 'transparent', fontSize: 14, cursor: 'pointer', color: 'var(--text-muted)' }}>Cancel</button>
@@ -2297,23 +2347,28 @@ function DefaultPanel({ sheet, allAreas, allPoints, allLines, onActivate, onExpo
 }
 
 // ---- Conditions (always-visible counts/areas) panel ------------------------
-function ConditionsPanel({ countGroups, activeCountGroupId, onSetActiveCountGroup, areaGroups, activeAreaGroupId, onSetActiveAreaGroup, addedAreas, addedPoints, addedLines, sqft, fSq, lnft, fLn, areaDepth, topsoilType, topsoilCustom, onNewCount, onNewArea, onDeleteCountGroup, onDeleteAreaGroup, fs }) {
+function ConditionsPanel({ countGroups, activeCountGroupId, onSetActiveCountGroup, linearGroups, activeLinearGroupId, onSetActiveLinearGroup, areaGroups, activeAreaGroupId, onSetActiveAreaGroup, addedAreas, addedPoints, addedLines, sqft, fSq, lnft, fLn, areaDepth, topsoilType, topsoilCustom, onNewCount, onNewArea, onNewLinear, onDeleteCountGroup, onDeleteAreaGroup, onDeleteLinearGroup, fs }) {
   const depthIn = parseFloat(areaDepth) || 0
   const totalCountItems = addedPoints.length
   const totalAreaSqft = addedAreas.reduce((s, a) => s + sqft(polyAreaPx(a.poly)), 0)
+  const totalLinearFt = addedLines.reduce((s, l) => s + (l.pts ? perimPx(l.pts) / 4 : 0), 0)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       {/* Header */}
       <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
         <div style={{ fontSize: `calc(11px * ${fs})`, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-subtle)', marginBottom: 10 }}>Conditions</div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 6 }}>
           <button onClick={onNewCount}
-            style={{ flex: 1, padding: '7px 10px', borderRadius: 8, border: '1.5px dashed var(--border-default)', background: 'transparent', fontSize: `calc(12px * ${fs})`, fontWeight: 600, color: 'var(--brand-600)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
-            <MapPin size={13} /> + Count
+            style={{ flex: 1, padding: '6px 8px', borderRadius: 8, border: '1.5px dashed var(--border-default)', background: 'transparent', fontSize: `calc(11px * ${fs})`, fontWeight: 600, color: 'var(--brand-600)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+            <MapPin size={12} /> Count
+          </button>
+          <button onClick={onNewLinear}
+            style={{ flex: 1, padding: '6px 8px', borderRadius: 8, border: '1.5px dashed var(--border-default)', background: 'transparent', fontSize: `calc(11px * ${fs})`, fontWeight: 600, color: 'var(--brand-600)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+            <Spline size={12} /> Linear
           </button>
           <button onClick={onNewArea}
-            style={{ flex: 1, padding: '7px 10px', borderRadius: 8, border: '1.5px dashed var(--border-default)', background: 'transparent', fontSize: `calc(12px * ${fs})`, fontWeight: 600, color: 'var(--brand-600)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
-            <SquareDashed size={13} /> + Area
+            style={{ flex: 1, padding: '6px 8px', borderRadius: 8, border: '1.5px dashed var(--border-default)', background: 'transparent', fontSize: `calc(11px * ${fs})`, fontWeight: 600, color: 'var(--brand-600)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+            <SquareDashed size={12} /> Area
           </button>
         </div>
       </div>
@@ -2325,10 +2380,9 @@ function ConditionsPanel({ countGroups, activeCountGroupId, onSetActiveCountGrou
           <>
             <div style={{ fontSize: `calc(10px * ${fs})`, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-subtle)', padding: '8px 4px 4px' }}>Counts</div>
             {countGroups.map(g => (
-              <div key={g.id}
-                onClick={() => onSetActiveCountGroup(g.id)}
+              <div key={g.id} onClick={() => onSetActiveCountGroup(g.id)}
                 style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, marginBottom: 2, border: `1.5px solid ${g.id === activeCountGroupId ? g.color : 'transparent'}`, background: g.id === activeCountGroupId ? `${g.color}18` : 'transparent', cursor: 'pointer' }}>
-                <span style={{ width: 12, height: 12, borderRadius: '50%', background: g.color, flexShrink: 0 }} />
+                <span style={{ width: 12, height: 12, borderRadius: g.shape === 'square' ? 2 : g.shape === 'diamond' ? 0 : '50%', background: g.color, flexShrink: 0, rotate: g.shape === 'diamond' ? '45deg' : undefined }} />
                 <span style={{ flex: 1, fontSize: `calc(13px * ${fs})`, fontWeight: 600, color: 'var(--text-strong)' }}>{g.name}</span>
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(13px * ${fs})`, fontWeight: 700, color: g.color }}>{g.points.length}</span>
                 <button onClick={e => { e.stopPropagation(); onDeleteCountGroup(g.id) }}
@@ -2340,29 +2394,55 @@ function ConditionsPanel({ countGroups, activeCountGroupId, onSetActiveCountGrou
           </>
         )}
 
+        {/* Linear groups */}
+        {linearGroups.length > 0 && (
+          <>
+            <div style={{ fontSize: `calc(10px * ${fs})`, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-subtle)', padding: '8px 4px 4px' }}>Linear</div>
+            {linearGroups.map(g => {
+              const groupLines = addedLines.filter(l => l.groupId === g.id)
+              const groupLnft = groupLines.reduce((s, l) => s + (l.pts ? perimPx(l.pts) / 4 : 0), 0)
+              return (
+                <div key={g.id} onClick={() => onSetActiveLinearGroup(g.id)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, marginBottom: 2, border: `1.5px solid ${g.id === activeLinearGroupId ? g.color : 'transparent'}`, background: g.id === activeLinearGroupId ? `${g.color}18` : 'transparent', cursor: 'pointer' }}>
+                  <span style={{ width: 20, height: 4, borderRadius: 2, background: g.color, flexShrink: 0 }} />
+                  <span style={{ flex: 1, fontSize: `calc(13px * ${fs})`, fontWeight: 600, color: 'var(--text-strong)' }}>{g.name}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(11px * ${fs})`, fontWeight: 700, color: g.color }}>{groupLnft > 0 ? `${groupLnft.toFixed(0)} ft` : '0'}</span>
+                  <button onClick={e => { e.stopPropagation(); onDeleteLinearGroup(g.id) }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', padding: 2, display: 'inline-flex' }}>
+                    <XIcon size={12} />
+                  </button>
+                </div>
+              )
+            })}
+          </>
+        )}
+
         {/* Area groups */}
         {areaGroups.length > 0 && (
           <>
             <div style={{ fontSize: `calc(10px * ${fs})`, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-subtle)', padding: '8px 4px 4px' }}>Areas</div>
-            {areaGroups.map(g => (
-              <div key={g.id}
-                onClick={() => onSetActiveAreaGroup(g.id)}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, marginBottom: 2, border: `1.5px solid ${g.id === activeAreaGroupId ? g.color : 'transparent'}`, background: g.id === activeAreaGroupId ? `${g.color}18` : 'transparent', cursor: 'pointer' }}>
-                <span style={{ width: 12, height: 12, borderRadius: 3, background: g.color, flexShrink: 0 }} />
-                <span style={{ flex: 1, fontSize: `calc(13px * ${fs})`, fontWeight: 600, color: 'var(--text-strong)' }}>{g.name}</span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(12px * ${fs})`, fontWeight: 700, color: g.color }}>{g.areas?.length || 0}</span>
-                <button onClick={e => { e.stopPropagation(); onDeleteAreaGroup(g.id) }}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', padding: 2, display: 'inline-flex' }}>
-                  <XIcon size={12} />
-                </button>
-              </div>
-            ))}
+            {areaGroups.map(g => {
+              const groupAreas = addedAreas.filter(a => a.groupId === g.id)
+              const groupSqft = groupAreas.reduce((s, a) => s + sqft(polyAreaPx(a.poly)), 0)
+              return (
+                <div key={g.id} onClick={() => onSetActiveAreaGroup(g.id)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, marginBottom: 2, border: `1.5px solid ${g.id === activeAreaGroupId ? g.color : 'transparent'}`, background: g.id === activeAreaGroupId ? `${g.color}18` : 'transparent', cursor: 'pointer' }}>
+                  <span style={{ width: 12, height: 12, borderRadius: 3, background: g.color, flexShrink: 0 }} />
+                  <span style={{ flex: 1, fontSize: `calc(13px * ${fs})`, fontWeight: 600, color: 'var(--text-strong)' }}>{g.name}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(11px * ${fs})`, fontWeight: 700, color: g.color }}>{groupSqft > 0 ? `${fSq(groupSqft)} ft²` : '0'}</span>
+                  <button onClick={e => { e.stopPropagation(); onDeleteAreaGroup(g.id) }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', padding: 2, display: 'inline-flex' }}>
+                    <XIcon size={12} />
+                  </button>
+                </div>
+              )
+            })}
           </>
         )}
 
-        {countGroups.length === 0 && areaGroups.length === 0 && (
+        {countGroups.length === 0 && areaGroups.length === 0 && linearGroups.length === 0 && (
           <div style={{ padding: '32px 8px', textAlign: 'center', color: 'var(--text-subtle)', fontSize: `calc(13px * ${fs})` }}>
-            No conditions yet.<br />Use + Count or + Area to start.
+            No conditions yet.<br />Use the buttons above to start.
           </div>
         )}
 
