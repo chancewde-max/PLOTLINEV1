@@ -102,17 +102,25 @@
 /* ---- Body layout ---- */
 .body { flex: 1 1 auto; display: flex; min-height: 0; }
 
-/* ---- Tool rail ---- */
-.rail {
-  width: var(--rail-left);
+/* ---- Bottom toolbar rail ---- */
+.bottomRail {
   flex: 0 0 auto;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-5) 0;
+  gap: var(--space-2);
+  padding: 6px 12px;
   background: var(--surface-card);
-  border-right: 1px solid var(--border-default);
+  border-top: 1px solid var(--border-default);
+  z-index: 10;
+}
+
+.railSepH {
+  width: 1px;
+  height: 28px;
+  background: var(--border-subtle);
+  margin: 0 4px;
+  flex-shrink: 0;
 }
 
 .tool {

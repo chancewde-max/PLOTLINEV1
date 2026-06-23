@@ -47,6 +47,9 @@ const NEAR = 16
 const FIT = 0.72
 const FOLDER_PALETTE = ['#157a52','#2563eb','#7c3aed','#d97706','#dc2626','#0891b2']
 
+const COUNT_COLORS = ['#258c62','#2563eb','#7c3aed','#d97706','#dc2626','#0891b2','#db2777','#65a30d','#ea580c','#6366f1']
+const randColor = () => COUNT_COLORS[Math.floor(Math.random() * COUNT_COLORS.length)]
+
 const AREA_CATS   = CATS.filter(c => c.kind === 'area')
 const COUNT_CATS  = CATS.filter(c => c.kind === 'point')
 const LINEAR_CATS = CATS.filter(c => c.kind === 'linear')
@@ -55,28 +58,36 @@ function singularize(name) {
   return name.replace(/s\s*$/, '').trim()
 }
 
+// True circular arc SVG segment through 3 points S, T (through-point), E
+function circularArcSeg(S, T, E) {
+  // Find circumcircle of S, T, E
+  const ax = S.x, ay = S.y, bx = T.x, by = T.y, cx = E.x, cy = E.y
+  const D = 2 * (ax*(by-cy) + bx*(cy-ay) + cx*(ay-by))
+  if (Math.abs(D) < 1e-10) return ` L ${E.x} ${E.y}` // collinear → straight line
+  const ux = ((ax*ax+ay*ay)*(by-cy) + (bx*bx+by*by)*(cy-ay) + (cx*cx+cy*cy)*(ay-by)) / D
+  const uy = ((ax*ax+ay*ay)*(cx-bx) + (bx*bx+by*by)*(ax-cx) + (cx*cx+cy*cy)*(bx-ax)) / D
+  const r = Math.hypot(ax-ux, ay-uy)
+  // Determine sweep: cross product (S→T) × (S→E) > 0 → counter-clockwise
+  const cross = (bx-ax)*(cy-ay) - (by-ay)*(cx-ax)
+  const sweep = cross > 0 ? 1 : 0
+  // Large arc: if T is on the major arc (center is on same side as T relative to SE)
+  const midSE = { x: (ax+cx)/2, y: (ay+cy)/2 }
+  const tSide = (bx-midSE.x)*(uy-midSE.y) - (by-midSE.y)*(ux-midSE.x)
+  const large = tSide < 0 ? 0 : 1
+  return ` A ${r} ${r} 0 ${large} ${sweep} ${E.x} ${E.y}`
+}
+
 function buildAreaPath(poly, arcSegs = {}) {
   if (!poly || poly.length < 2) return ''
   let d = `M ${poly[0].x} ${poly[0].y}`
   for (let i = 1; i < poly.length; i++) {
     const S = poly[i - 1], E = poly[i]
-    if (arcSegs[i - 1]) {
-      const T = arcSegs[i - 1]
-      const cx = 2 * T.x - 0.5 * S.x - 0.5 * E.x
-      const cy = 2 * T.y - 0.5 * S.y - 0.5 * E.y
-      d += ` Q ${cx} ${cy} ${E.x} ${E.y}`
-    } else {
-      d += ` L ${E.x} ${E.y}`
-    }
+    if (arcSegs[i - 1]) d += circularArcSeg(S, arcSegs[i - 1], E)
+    else d += ` L ${E.x} ${E.y}`
   }
   const last = poly[poly.length - 1], first = poly[0]
   const closeIdx = poly.length - 1
-  if (arcSegs[closeIdx]) {
-    const T = arcSegs[closeIdx]
-    const cx = 2 * T.x - 0.5 * last.x - 0.5 * first.x
-    const cy = 2 * T.y - 0.5 * last.y - 0.5 * first.y
-    d += ` Q ${cx} ${cy} ${first.x} ${first.y}`
-  }
+  if (arcSegs[closeIdx]) d += circularArcSeg(last, arcSegs[closeIdx], first)
   return d + ' Z'
 }
 
@@ -85,14 +96,8 @@ function buildLinePath(pts, arcSegs = {}) {
   let d = `M ${pts[0].x} ${pts[0].y}`
   for (let i = 1; i < pts.length; i++) {
     const S = pts[i - 1], E = pts[i]
-    if (arcSegs[i - 1]) {
-      const T = arcSegs[i - 1]
-      const cx = 2 * T.x - 0.5 * S.x - 0.5 * E.x
-      const cy = 2 * T.y - 0.5 * S.y - 0.5 * E.y
-      d += ` Q ${cx} ${cy} ${E.x} ${E.y}`
-    } else {
-      d += ` L ${E.x} ${E.y}`
-    }
+    if (arcSegs[i - 1]) d += circularArcSeg(S, arcSegs[i - 1], E)
+    else d += ` L ${E.x} ${E.y}`
   }
   return d
 }
@@ -164,11 +169,19 @@ export default function SheetPage() {
   const arcSegsRef = useRef({})         // for current area drawing
   const linearArcSegsRef = useRef({})  // for current linear drawing
 
-  // ---- Count tool ---- (each activation creates a new count group)
+  // ---- Count tool ----
   const [addCountType, setAddCountType] = useState(COUNT_CATS[0]?.id || 'tree')
-  const [countGroups, setCountGroups]   = useState([])           // { id, name, type, points[] }
+  const [countGroups, setCountGroups]   = useState([])  // { id, name, color, type, points[] }
   const [activeCountGroupId, setActiveCountGroupId] = useState(null)
   const countGroupNumRef = useRef(0)
+  // ---- Area groups ----
+  const [areaGroups, setAreaGroups]     = useState([])  // { id, name, color, type, areas[] }
+  const [activeAreaGroupId, setActiveAreaGroupId] = useState(null)
+  const areaGroupNumRef = useRef(0)
+  // ---- New count/area dialog ----
+  const [newCountDlg, setNewCountDlg]   = useState(false)  // 'count' | 'area' | false
+  const [newItemName, setNewItemName]   = useState('')
+  const [newItemColor, setNewItemColor] = useState('#258c62')
 
   // ---- Snapping ----
   const [snapEnabled, setSnapEnabled]   = useState(false)
@@ -276,12 +289,14 @@ export default function SheetPage() {
       if (key === 'M') setActiveTool('measure')
       if (key === 'L') setActiveTool('linear')
       if (key === 'C') {
-        countGroupNumRef.current += 1
-        const gid = `cg-${Date.now()}`
-        const newGroup = { id: gid, name: `Count ${countGroupNumRef.current}`, type: addCountType, points: [] }
-        setCountGroups(prev => [...prev, newGroup])
-        setActiveCountGroupId(gid)
-        setActiveTool('count')
+        setNewItemName(`Count ${countGroupNumRef.current + 1}`)
+        setNewItemColor(randColor())
+        setNewCountDlg('count')
+      }
+      if (key === 'A' && activeTool !== 'area' && activeTool !== 'linear') {
+        setNewItemName(`Area ${areaGroupNumRef.current + 1}`)
+        setNewItemColor(randColor())
+        setNewCountDlg('area')
       }
       if (e.key === 'F3') { e.preventDefault(); setSnapEnabled(v => !v) }
       if (e.key === 'F8') { e.preventDefault(); setOrthoEnabled(v => !v) }
@@ -419,7 +434,15 @@ export default function SheetPage() {
   }
 
   // ---- Event handlers ----
+  const onContextMenu = (e) => { e.preventDefault() }
   const onMouseDown = (e) => {
+    // Right-click always pans (except pan tool uses left click)
+    if (e.button === 2) {
+      isPanningRef.current = true
+      panStartRef.current = { x: e.clientX, y: e.clientY }
+      panOriginRef.current = { x: panOffset.x, y: panOffset.y }
+      return
+    }
     if (activeTool === 'pan') {
       isPanningRef.current = true
       panStartRef.current = { x: e.clientX, y: e.clientY }
@@ -741,9 +764,7 @@ export default function SheetPage() {
     if (areaCursor) {
       const lastV = areaVerts[areaVerts.length - 1]
       if (pendingArcThrough) {
-        const cx = 2*pendingArcThrough.x - 0.5*lastV.x - 0.5*areaCursor.x
-        const cy = 2*pendingArcThrough.y - 0.5*lastV.y - 0.5*areaCursor.y
-        d += ` Q ${cx} ${cy} ${areaCursor.x} ${areaCursor.y}`
+        d += circularArcSeg(lastV, pendingArcThrough, areaCursor)
       } else {
         d += ` L ${areaCursor.x} ${areaCursor.y}`
       }
@@ -767,13 +788,8 @@ export default function SheetPage() {
     }
     if (linearCursor) {
       const lastV = linearVerts[linearVerts.length - 1]
-      if (pendingArcThrough) {
-        const cx = 2*pendingArcThrough.x - 0.5*lastV.x - 0.5*linearCursor.x
-        const cy = 2*pendingArcThrough.y - 0.5*lastV.y - 0.5*linearCursor.y
-        d += ` Q ${cx} ${cy} ${linearCursor.x} ${linearCursor.y}`
-      } else {
-        d += ` L ${linearCursor.x} ${linearCursor.y}`
-      }
+      if (pendingArcThrough) d += circularArcSeg(lastV, pendingArcThrough, linearCursor)
+      else d += ` L ${linearCursor.x} ${linearCursor.y}`
     }
     return d
   }
@@ -849,6 +865,24 @@ export default function SheetPage() {
     : ['region','measure','scale','area','linear','count'].includes(activeTool) ? 'crosshair'
     : 'default'
 
+  const confirmNewItem = () => {
+    const name = newItemName.trim() || (newCountDlg === 'count' ? `Count ${countGroupNumRef.current + 1}` : `Area ${areaGroupNumRef.current + 1}`)
+    if (newCountDlg === 'count') {
+      countGroupNumRef.current++
+      const newGroup = { id: `cg-${Date.now()}`, name, color: newItemColor, type: addCountType, points: [] }
+      setCountGroups(prev => [...prev, newGroup])
+      setActiveCountGroupId(newGroup.id)
+      setActiveTool('count')
+    } else {
+      areaGroupNumRef.current++
+      const newGroup = { id: `ag-${Date.now()}`, name, color: newItemColor, type: areaType, areas: [] }
+      setAreaGroups(prev => [...prev, newGroup])
+      setActiveAreaGroupId(newGroup.id)
+      setActiveTool('area')
+    }
+    setNewCountDlg(false)
+  }
+
   return (
     <div className={s.root} data-theme={theme} style={{ '--rc-fs': fs, ...accentStyle }}>
 
@@ -867,7 +901,7 @@ export default function SheetPage() {
         <div className={s.topRight}>
           <div className={s.zoomCtrl}>
             <button className={s.zoomBtn} onClick={() => setZoom(z => Math.max(25, z - 25))}><Minus size={14} /></button>
-            <span className={s.zoomVal}>{zoom}%</span>
+            <span className={s.zoomVal}>{Math.round(zoom)}%</span>
             <button className={s.zoomBtn} onClick={() => setZoom(z => Math.min(400, z + 25))}><Plus size={14} /></button>
           </div>
           <Badge variant="success" dot>Synced</Badge>
@@ -915,108 +949,104 @@ export default function SheetPage() {
 
       <div className={s.body}>
 
-        <aside className={s.rail}>
-          {TOOLS.map((t, i) => {
-            if (t === 'sep') return <div key={'sep-' + i} className={s.railSep} />
-            const { Icon } = t
-            return (
-              <Tooltip key={t.id} label={t.label} shortcut={t.k} side="right">
-                <button className={s.tool} data-on={activeTool === t.id}
-                  onClick={() => {
-                    if (t.id === 'count') {
-                      // create new count group on each press
-                      countGroupNumRef.current += 1
-                      const gid = `cg-${Date.now()}`
-                      const newGroup = { id: gid, name: `Count ${countGroupNumRef.current}`, type: addCountType, points: [] }
-                      setCountGroups(prev => [...prev, newGroup])
-                      setActiveCountGroupId(gid)
-                    }
-                    setActiveTool(t.id)
-                  }} aria-label={t.label}>
-                  <Icon size={20} />
-                  <span className={s.toolKbd}>{t.k}</span>
-                </button>
-              </Tooltip>
-            )
-          })}
-          <div className={s.railSep} />
-          <Tooltip label="Set scale" shortcut="S" side="right">
-            <button className={s.tool} data-on={activeTool === 'scale'}
-              onClick={() => { setActiveTool('scale'); setScalePts([]) }} aria-label="Set scale">
-              <Ruler size={20} />
-              <span className={s.toolKbd}>S</span>
-            </button>
-          </Tooltip>
-          <div className={s.railSep} />
-          <Tooltip label={`Snap ${snapEnabled ? 'ON' : 'OFF'} (F3)`} side="right">
-            <button className={s.tool} data-on={snapEnabled} onClick={() => setSnapEnabled(v => !v)} aria-label="Toggle snap">
-              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '-0.02em' }}>SNAP</span>
-            </button>
-          </Tooltip>
-          <Tooltip label={`Ortho ${orthoEnabled ? 'ON' : 'OFF'} (F8)`} side="right">
-            <button className={s.tool} data-on={orthoEnabled} onClick={() => setOrthoEnabled(v => !v)} aria-label="Toggle ortho">
-              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '-0.02em' }}>ORTH</span>
-            </button>
-          </Tooltip>
-          <Tooltip label="Page overlay" side="right">
-            <button className={s.tool} data-on={!!overlaySheetId} onClick={() => setOverlayDlg(true)} aria-label="Page overlay">
-              <Layers size={18} />
-            </button>
-          </Tooltip>
-        </aside>
-
         <div className={s.leftPanel} style={{ width: leftPanelW, minWidth: 180, maxWidth: 500 }}>
           <div className={s.resizeHandle} style={{ right: -3 }}
             onMouseDown={e => { e.preventDefault(); const startX = e.clientX, startW = leftPanelW; const move = ev => setLeftPanelW(Math.max(180, Math.min(500, startW + ev.clientX - startX))); const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }; window.addEventListener('mousemove', move); window.addEventListener('mouseup', up) }} />
-          <div className={s.leftPanelTabs}>
-            <Tabs variant="pill" value={leftPanel} onChange={setLeftPanel}
-              items={[
-                { value: 'layers', label: 'Layers', count: layerItems.length },
-                { value: 'sheets', label: 'Sheets', count: (project.sheetIds || []).length },
-              ]}
+          {/* Tool-specific detail panel */}
+          {activeTool === 'select' ? (
+            <SelectPanel
+              selectedArea={selectedArea} selectedPoint={selectedPoint} selectedLine={selectedLine}
+              selectedId={selectedId} selectedKind={selectedKind}
+              onRename={renameSelected} onDelete={deleteSelected}
+              onDeselect={() => { setSelectedId(null); setSelectedKind(null) }}
+              sqft={sqft} fSq={fSq} fLn={fLn} lnft={lnft}
+              fs={fs} />
+          ) : activeTool === 'region' ? (
+            <RegionPanel
+              hasRegion={hasRegion} regionSqft={regionSqft} regionPerim={regionPerim}
+              totalPointCount={totalPointCount} catActive={catActive} regionRes={regionRes}
+              allPoints={allPoints} allAreas={allAreas} sheet={sheet}
+              fSq={fSq} fLn={fLn} sqft={sqft}
+              onToggleCat={toggleCat}
+              onReset={() => { setRegionVerts([]); setRegionClosed(null); setRegionCursor(null) }}
+              onSample={() => { setRegionVerts([]); setRegionCursor(null); setRegionClosed(SAMPLE_REGION) }}
+              fs={fs}
+              folders={folders} activeFolderId={activeFolderId}
+              renamingId={renamingId} renameVal={renameVal}
+              onSwitchFolder={switchFolder} onAddFolder={addFolder} onDeleteFolder={deleteFolder}
+              onStartRename={startRename} onRenameChange={setRenameVal} onCommitRename={commitRename}
             />
-          </div>
-          {leftPanel === 'layers' ? (
-            <div className={s.scroll}>
-              {layerItems.length === 0 && (
-                <div style={{ padding: '24px 8px', textAlign: 'center', color: 'var(--text-subtle)', fontSize: 12 }}>
-                  No layers yet
+          ) : activeTool === 'measure' ? (
+            <MeasurePanel segments={measureSegments} totalFt={measureTotalFt} fLn={fLn}
+              onReset={() => { setMeasurePts([]); setMeasureDone(false); setMeasureCursor(null) }} fs={fs} />
+          ) : activeTool === 'area' ? (
+            <AreaPanel areaType={areaType} onSetAreaType={setAreaType}
+              addedAreas={addedAreas} sqft={sqft} fSq={fSq}
+              areaDepth={areaDepth} onSetDepth={setAreaDepth}
+              topsoilType={topsoilType} onSetTopsoil={setTopsoilType}
+              topsoilCustom={topsoilCustom} onSetTopsoilCustom={setTopsoilCustom}
+              onClearAdded={() => setAddedAreas([])} fs={fs} />
+          ) : activeTool === 'linear' ? (
+            <LinearPanel linearType={linearType} onSetLinearType={setLinearType}
+              addedLines={addedLines} lnft={lnft} fLn={fLn}
+              onClearAdded={() => setAddedLines([])} fs={fs} />
+          ) : activeTool === 'count' ? (
+            <CountPanel countType={addCountType} onSetCountType={setAddCountType}
+              addedPoints={addedPoints} countGroups={countGroups} activeCountGroupId={activeCountGroupId}
+              onSetActiveGroup={setActiveCountGroupId}
+              onClearAdded={() => setCountGroups([])} fs={fs} />
+          ) : (
+            /* Layers / Sheets tabs for pan/scale/other tools */
+            <>
+              <div className={s.leftPanelTabs}>
+                <Tabs variant="pill" value={leftPanel} onChange={setLeftPanel}
+                  items={[
+                    { value: 'layers', label: 'Layers', count: layerItems.length },
+                    { value: 'sheets', label: 'Sheets', count: (project.sheetIds || []).length },
+                  ]}
+                />
+              </div>
+              {leftPanel === 'layers' ? (
+                <div className={s.scroll}>
+                  {layerItems.length === 0 && (
+                    <div style={{ padding: '24px 8px', textAlign: 'center', color: 'var(--text-subtle)', fontSize: 12 }}>No layers yet</div>
+                  )}
+                  {layerItems.map(item => (
+                    <div key={item.id} className={s.layerRow}
+                      style={{ background: item.kind === 'countGroup' && item.id === activeCountGroupId ? 'var(--brand-50)' : undefined }}
+                      onClick={item.kind === 'countGroup' ? () => { setActiveCountGroupId(item.id); setActiveTool('count') } : undefined}>
+                      <button className={s.eyeBtn} onClick={e => { e.stopPropagation(); toggleLayer(item.id) }}>
+                        {hidden[item.id] ? <EyeOff size={14} /> : <Eye size={14} />}
+                      </button>
+                      <span className={`${s.layerDot} ${item.kind === 'linear' ? s.layerLine : ''}`}
+                        style={{ background: CAT_COLOR[item.type] || 'var(--brand-500)', borderRadius: item.kind === 'countGroup' ? '3px' : undefined }} />
+                      <span className={s.layerLabel}>{item.label}</span>
+                      {item.kind === 'countGroup' && (
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginLeft: 'auto', paddingRight: 4 }}>{item.count}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className={s.scroll}>
+                  {(project.sheetIds || []).map(sid => {
+                    const sh = sheets[sid]
+                    if (!sh) return null
+                    return (
+                      <div key={sid}
+                        className={`${s.sheetThumbRow} ${sid === sheetId ? s.sheetThumbActive : ''}`}
+                        onClick={() => navigate(`/project/${projectId}/sheet/${sid}`)}>
+                        <div className={s.sheetThumbMini}><Map size={12} /></div>
+                        <div>
+                          <div className={s.sheetThumbCode}>{sh.code}</div>
+                          <div className={s.sheetThumbName}>{sh.name}</div>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
-              {layerItems.map(item => (
-                <div key={item.id} className={s.layerRow}
-                  style={{ background: item.kind === 'countGroup' && item.id === activeCountGroupId ? 'var(--brand-50)' : undefined }}
-                  onClick={item.kind === 'countGroup' ? () => { setActiveCountGroupId(item.id); setActiveTool('count') } : undefined}>
-                  <button className={s.eyeBtn} onClick={e => { e.stopPropagation(); toggleLayer(item.id) }}>
-                    {hidden[item.id] ? <EyeOff size={14} /> : <Eye size={14} />}
-                  </button>
-                  <span className={`${s.layerDot} ${item.kind === 'linear' ? s.layerLine : item.kind === 'countGroup' ? '' : ''}`}
-                    style={{ background: CAT_COLOR[item.type] || 'var(--brand-500)', borderRadius: item.kind === 'countGroup' ? '3px' : undefined }} />
-                  <span className={s.layerLabel}>{item.label}</span>
-                  {item.kind === 'countGroup' && (
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginLeft: 'auto', paddingRight: 4 }}>{item.count}</span>
-                  )}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className={s.scroll}>
-              {(project.sheetIds || []).map(sid => {
-                const sh = sheets[sid]
-                if (!sh) return null
-                return (
-                  <div key={sid}
-                    className={`${s.sheetThumbRow} ${sid === sheetId ? s.sheetThumbActive : ''}`}
-                    onClick={() => navigate(`/project/${projectId}/sheet/${sid}`)}>
-                    <div className={s.sheetThumbMini}><Map size={12} /></div>
-                    <div>
-                      <div className={s.sheetThumbCode}>{sh.code}</div>
-                      <div className={s.sheetThumbName}>{sh.name}</div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
+            </>
           )}
         </div>
 
@@ -1084,7 +1114,8 @@ export default function SheetPage() {
                 onMouseMove={onMouseMove}
                 onMouseUp={onMouseUp}
                 onClick={onClick}
-                onDoubleClick={onDblClick}>
+                onDoubleClick={onDblClick}
+                onContextMenu={onContextMenu}>
                 <defs>
                   {previewPoly.length >= 3 && (
                     <clipPath id="region-clip">
@@ -1425,61 +1456,90 @@ export default function SheetPage() {
 
           <div className={s.zoomPanel}>
             <button className={s.zoomPanBtn} onClick={() => setZoom(z => Math.max(25, z - 25))}><Minus size={14} /></button>
-            <span className={s.zoomPanVal}>{zoom}%</span>
+            <span className={s.zoomPanVal}>{Math.round(zoom)}%</span>
             <button className={s.zoomPanBtn} onClick={() => setZoom(z => Math.min(400, z + 25))}><Plus size={14} /></button>
           </div>
         </main>
 
+        {/* Tool detail panel - always visible on right */}
         <aside className={s.rightPanel} style={{ width: rightPanelW, minWidth: 240, maxWidth: 600 }}>
           <div className={s.resizeHandle} style={{ left: -3 }}
             onMouseDown={e => { e.preventDefault(); const startX = e.clientX, startW = rightPanelW; const move = ev => setRightPanelW(Math.max(240, Math.min(600, startW - (ev.clientX - startX)))); const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }; window.addEventListener('mousemove', move); window.addEventListener('mouseup', up) }} />
-          {activeTool === 'select' ? (
-            <SelectPanel
-              selectedArea={selectedArea} selectedPoint={selectedPoint} selectedLine={selectedLine}
-              selectedId={selectedId} selectedKind={selectedKind}
-              onRename={renameSelected} onDelete={deleteSelected}
-              onDeselect={() => { setSelectedId(null); setSelectedKind(null) }}
-              sqft={sqft} fSq={fSq} fLn={fLn} lnft={lnft}
-              fs={fs} />
-          ) : activeTool === 'region' ? (
-            <RegionPanel
-              hasRegion={hasRegion} regionSqft={regionSqft} regionPerim={regionPerim}
-              totalPointCount={totalPointCount} catActive={catActive} regionRes={regionRes}
-              allPoints={allPoints} allAreas={allAreas} sheet={sheet}
-              fSq={fSq} fLn={fLn} sqft={sqft}
-              onToggleCat={toggleCat}
-              onReset={() => { setRegionVerts([]); setRegionClosed(null); setRegionCursor(null) }}
-              onSample={() => { setRegionVerts([]); setRegionCursor(null); setRegionClosed(SAMPLE_REGION) }}
-              fs={fs}
-              folders={folders} activeFolderId={activeFolderId}
-              renamingId={renamingId} renameVal={renameVal}
-              onSwitchFolder={switchFolder} onAddFolder={addFolder} onDeleteFolder={deleteFolder}
-              onStartRename={startRename} onRenameChange={setRenameVal} onCommitRename={commitRename}
-            />
-          ) : activeTool === 'measure' ? (
-            <MeasurePanel segments={measureSegments} totalFt={measureTotalFt} fLn={fLn}
-              onReset={() => { setMeasurePts([]); setMeasureDone(false); setMeasureCursor(null) }} fs={fs} />
-          ) : activeTool === 'area' ? (
-            <AreaPanel areaType={areaType} onSetAreaType={setAreaType}
-              addedAreas={addedAreas} sqft={sqft} fSq={fSq}
-              areaDepth={areaDepth} onSetDepth={setAreaDepth}
-              topsoilType={topsoilType} onSetTopsoil={setTopsoilType}
-              topsoilCustom={topsoilCustom} onSetTopsoilCustom={setTopsoilCustom}
-              onClearAdded={() => setAddedAreas([])} fs={fs} />
-          ) : activeTool === 'linear' ? (
-            <LinearPanel linearType={linearType} onSetLinearType={setLinearType}
-              addedLines={addedLines} lnft={lnft} fLn={fLn}
-              onClearAdded={() => setAddedLines([])} fs={fs} />
-          ) : activeTool === 'count' ? (
-            <CountPanel countType={addCountType} onSetCountType={setAddCountType}
-              addedPoints={addedPoints} countGroups={countGroups} activeCountGroupId={activeCountGroupId}
-              onSetActiveGroup={setActiveCountGroupId}
-              onClearAdded={() => setCountGroups([])} fs={fs} />
-          ) : (
-            <DefaultPanel sheet={sheet} allAreas={allAreas} allPoints={allPoints} allLines={allLines}
-              onActivate={activateType} onExport={() => setExportOpen(true)} fs={fs} />
-          )}
+          <ConditionsPanel
+            countGroups={countGroups} activeCountGroupId={activeCountGroupId}
+            onSetActiveCountGroup={id => { setActiveCountGroupId(id); setActiveTool('count') }}
+            areaGroups={areaGroups} activeAreaGroupId={activeAreaGroupId}
+            onSetActiveAreaGroup={id => { setActiveAreaGroupId(id); setActiveTool('area') }}
+            addedAreas={addedAreas} addedPoints={addedPoints} addedLines={addedLines}
+            sqft={sqft} fSq={fSq} lnft={lnft} fLn={fLn}
+            areaDepth={areaDepth} topsoilType={topsoilType} topsoilCustom={topsoilCustom}
+            onNewCount={() => { setNewItemName(`Count ${countGroupNumRef.current + 1}`); setNewItemColor(randColor()); setNewCountDlg('count') }}
+            onNewArea={() => { setNewItemName(`Area ${areaGroupNumRef.current + 1}`); setNewItemColor(randColor()); setNewCountDlg('area') }}
+            onDeleteCountGroup={id => setCountGroups(prev => prev.filter(g => g.id !== id))}
+            onDeleteAreaGroup={id => setAreaGroups(prev => prev.filter(g => g.id !== id))}
+            fs={fs}
+          />
         </aside>
+      </div>
+
+      {/* Bottom toolbar rail */}
+      <div className={s.bottomRail}>
+        {TOOLS.map((t, i) => {
+          if (t === 'sep') return <div key={'sep-' + i} className={s.railSepH} />
+          const { Icon } = t
+          return (
+            <Tooltip key={t.id} label={t.label} shortcut={t.k} side="top">
+              <button className={s.tool} data-on={activeTool === t.id}
+                onClick={() => {
+                  if (t.id === 'count') {
+                    setNewItemName(`Count ${countGroupNumRef.current + 1}`)
+                    setNewItemColor(randColor())
+                    setNewCountDlg('count')
+                  } else if (t.id === 'area') {
+                    setNewItemName(`Area ${areaGroupNumRef.current + 1}`)
+                    setNewItemColor(randColor())
+                    setNewCountDlg('area')
+                  } else {
+                    setActiveTool(t.id)
+                  }
+                }} aria-label={t.label}>
+                <Icon size={20} />
+                <span className={s.toolKbd}>{t.k}</span>
+              </button>
+            </Tooltip>
+          )
+        })}
+        <div className={s.railSepH} />
+        <Tooltip label="Set scale" shortcut="S" side="top">
+          <button className={s.tool} data-on={activeTool === 'scale'}
+            onClick={() => { setActiveTool('scale'); setScalePts([]) }} aria-label="Set scale">
+            <Ruler size={20} />
+            <span className={s.toolKbd}>S</span>
+          </button>
+        </Tooltip>
+        <div className={s.railSepH} />
+        <Tooltip label={`Snap ${snapEnabled ? 'ON' : 'OFF'} (F3)`} side="top">
+          <button className={s.tool} data-on={snapEnabled} onClick={() => setSnapEnabled(v => !v)} aria-label="Toggle snap">
+            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '-0.02em' }}>SNAP</span>
+          </button>
+        </Tooltip>
+        <Tooltip label={`Ortho ${orthoEnabled ? 'ON' : 'OFF'} (F8)`} side="top">
+          <button className={s.tool} data-on={orthoEnabled} onClick={() => setOrthoEnabled(v => !v)} aria-label="Toggle ortho">
+            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '-0.02em' }}>ORTH</span>
+          </button>
+        </Tooltip>
+        <Tooltip label="Page overlay" side="top">
+          <button className={s.tool} data-on={!!overlaySheetId} onClick={() => setOverlayDlg(true)} aria-label="Page overlay">
+            <Layers size={18} />
+          </button>
+        </Tooltip>
+        {/* Tool detail inline (current tool indicator) */}
+        <div className={s.railSepH} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', paddingLeft: 4 }}>
+          <span style={{ fontWeight: 700, color: 'var(--text-strong)' }}>{TOOLS.find(t => t !== 'sep' && t.id === activeTool)?.label || activeTool}</span>
+          {activeTool === 'area' && <span style={{ color: 'var(--brand-600)' }}>· {areaGroups.find(g => g.id === activeAreaGroupId)?.name || 'No group'}</span>}
+          {activeTool === 'count' && <span style={{ color: 'var(--brand-600)' }}>· {countGroups.find(g => g.id === activeCountGroupId)?.name || 'No group'}</span>}
+        </div>
       </div>
 
       <Dialog open={!!scaleDlg}
@@ -1591,6 +1651,40 @@ export default function SheetPage() {
           </div>
         </div>
       </Dialog>
+
+      {/* Count / Area naming dialog */}
+      {newCountDlg && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setNewCountDlg(false)}>
+          <div style={{ background: 'var(--surface-paper)', borderRadius: 12, padding: 28, width: 380, boxShadow: '0 8px 40px rgba(0,0,0,0.22)' }}
+            onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 18px', fontSize: 18, fontWeight: 700, color: 'var(--text-strong)' }}>
+              Name this {newCountDlg === 'count' ? 'count' : 'area'}
+            </h3>
+            <input autoFocus value={newItemName} onChange={e => setNewItemName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') confirmNewItem(); if (e.key === 'Escape') setNewCountDlg(false) }}
+              placeholder={newCountDlg === 'count' ? 'e.g. Trees, Shrubs…' : 'e.g. Sod area, Mulch bed…'}
+              style={{ width: '100%', padding: '9px 12px', border: '1.5px solid var(--border-default)', borderRadius: 8, fontSize: 15, fontWeight: 600, color: 'var(--text-strong)', background: 'var(--surface-card)', boxSizing: 'border-box', marginBottom: 18 }} />
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 10 }}>Color</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {COUNT_COLORS.map(c => (
+                  <button key={c} onClick={() => setNewItemColor(c)}
+                    style={{ width: 30, height: 30, borderRadius: '50%', background: c, border: `3px solid ${newItemColor === c ? 'var(--text-strong)' : 'transparent'}`, cursor: 'pointer', padding: 0, outline: 'none' }} />
+                ))}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setNewCountDlg(false)}
+                style={{ padding: '8px 20px', borderRadius: 8, border: '1px solid var(--border-default)', background: 'transparent', fontSize: 14, cursor: 'pointer', color: 'var(--text-muted)' }}>Cancel</button>
+              <button onClick={confirmNewItem}
+                style={{ padding: '8px 22px', borderRadius: 8, border: 'none', background: newItemColor, color: 'white', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+                Start {newCountDlg === 'count' ? 'counting' : 'drawing'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {toast && (
         <div className={s.toast}>
@@ -2199,5 +2293,88 @@ function DefaultPanel({ sheet, allAreas, allPoints, allLines, onActivate, onExpo
         <Button variant="primary" fullWidth iconLeft={<FileDown size={15} />} onClick={onExport}>Export estimate</Button>
       </div>
     </>
+  )
+}
+
+// ---- Conditions (always-visible counts/areas) panel ------------------------
+function ConditionsPanel({ countGroups, activeCountGroupId, onSetActiveCountGroup, areaGroups, activeAreaGroupId, onSetActiveAreaGroup, addedAreas, addedPoints, addedLines, sqft, fSq, lnft, fLn, areaDepth, topsoilType, topsoilCustom, onNewCount, onNewArea, onDeleteCountGroup, onDeleteAreaGroup, fs }) {
+  const depthIn = parseFloat(areaDepth) || 0
+  const totalCountItems = addedPoints.length
+  const totalAreaSqft = addedAreas.reduce((s, a) => s + sqft(polyAreaPx(a.poly)), 0)
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+      {/* Header */}
+      <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
+        <div style={{ fontSize: `calc(11px * ${fs})`, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-subtle)', marginBottom: 10 }}>Conditions</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onNewCount}
+            style={{ flex: 1, padding: '7px 10px', borderRadius: 8, border: '1.5px dashed var(--border-default)', background: 'transparent', fontSize: `calc(12px * ${fs})`, fontWeight: 600, color: 'var(--brand-600)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+            <MapPin size={13} /> + Count
+          </button>
+          <button onClick={onNewArea}
+            style={{ flex: 1, padding: '7px 10px', borderRadius: 8, border: '1.5px dashed var(--border-default)', background: 'transparent', fontSize: `calc(12px * ${fs})`, fontWeight: 600, color: 'var(--brand-600)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+            <SquareDashed size={13} /> + Area
+          </button>
+        </div>
+      </div>
+
+      {/* Scrollable list */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '8px 12px 12px' }}>
+        {/* Count groups */}
+        {countGroups.length > 0 && (
+          <>
+            <div style={{ fontSize: `calc(10px * ${fs})`, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-subtle)', padding: '8px 4px 4px' }}>Counts</div>
+            {countGroups.map(g => (
+              <div key={g.id}
+                onClick={() => onSetActiveCountGroup(g.id)}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, marginBottom: 2, border: `1.5px solid ${g.id === activeCountGroupId ? g.color : 'transparent'}`, background: g.id === activeCountGroupId ? `${g.color}18` : 'transparent', cursor: 'pointer' }}>
+                <span style={{ width: 12, height: 12, borderRadius: '50%', background: g.color, flexShrink: 0 }} />
+                <span style={{ flex: 1, fontSize: `calc(13px * ${fs})`, fontWeight: 600, color: 'var(--text-strong)' }}>{g.name}</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(13px * ${fs})`, fontWeight: 700, color: g.color }}>{g.points.length}</span>
+                <button onClick={e => { e.stopPropagation(); onDeleteCountGroup(g.id) }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', padding: 2, display: 'inline-flex' }}>
+                  <XIcon size={12} />
+                </button>
+              </div>
+            ))}
+          </>
+        )}
+
+        {/* Area groups */}
+        {areaGroups.length > 0 && (
+          <>
+            <div style={{ fontSize: `calc(10px * ${fs})`, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-subtle)', padding: '8px 4px 4px' }}>Areas</div>
+            {areaGroups.map(g => (
+              <div key={g.id}
+                onClick={() => onSetActiveAreaGroup(g.id)}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, marginBottom: 2, border: `1.5px solid ${g.id === activeAreaGroupId ? g.color : 'transparent'}`, background: g.id === activeAreaGroupId ? `${g.color}18` : 'transparent', cursor: 'pointer' }}>
+                <span style={{ width: 12, height: 12, borderRadius: 3, background: g.color, flexShrink: 0 }} />
+                <span style={{ flex: 1, fontSize: `calc(13px * ${fs})`, fontWeight: 600, color: 'var(--text-strong)' }}>{g.name}</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(12px * ${fs})`, fontWeight: 700, color: g.color }}>{g.areas?.length || 0}</span>
+                <button onClick={e => { e.stopPropagation(); onDeleteAreaGroup(g.id) }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', padding: 2, display: 'inline-flex' }}>
+                  <XIcon size={12} />
+                </button>
+              </div>
+            ))}
+          </>
+        )}
+
+        {countGroups.length === 0 && areaGroups.length === 0 && (
+          <div style={{ padding: '32px 8px', textAlign: 'center', color: 'var(--text-subtle)', fontSize: `calc(13px * ${fs})` }}>
+            No conditions yet.<br />Use + Count or + Area to start.
+          </div>
+        )}
+
+        {/* Summary totals */}
+        {(totalCountItems > 0 || totalAreaSqft > 0) && (
+          <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 8, background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)' }}>
+            {totalCountItems > 0 && <div style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)' }}><b style={{ color: 'var(--text-strong)' }}>{totalCountItems}</b> total items</div>}
+            {totalAreaSqft > 0 && <div style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)', marginTop: 3 }}><b style={{ color: 'var(--text-strong)' }}>{fSq(totalAreaSqft)}</b> sq ft total</div>}
+            {depthIn > 0 && totalAreaSqft > 0 && <div style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--brand-600)', marginTop: 3, fontWeight: 700 }}>{((totalAreaSqft * (depthIn/12))/27).toFixed(1)} CY</div>}
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
