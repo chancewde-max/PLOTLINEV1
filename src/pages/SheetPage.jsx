@@ -234,6 +234,7 @@ export default function SheetPage() {
   const origDragRef      = useRef(null)
   const dragVertIdxRef   = useRef(null)
   const dragAreaIdRef    = useRef(null)
+  const dragRegionVertRef = useRef(null) // index of region vertex being dragged
   const panStartRef      = useRef(null) // for pan tool
   const panOriginRef     = useRef(null)
   const isPanningRef     = useRef(false)
@@ -446,16 +447,19 @@ export default function SheetPage() {
 
   const finishArea = () => {
     if (areaVerts.length < 3) return
+    const capturedArcSegs = { ...arcSegsRef.current }
+    const capturedVerts = [...areaVerts]
+    const grp = areaGroups.find(g => g.id === activeAreaGroupId)
     setAddedAreas(prev => {
       undoStackRef.current = [...undoStackRef.current.slice(-19), { type: 'area', state: prev }]
       return [...prev, {
         id: `ua-${Date.now()}`,
         groupId: activeAreaGroupId || null,
         type: areaType,
-        name: areaGroups.find(g => g.id === activeAreaGroupId)?.name || genName(areaType),
-        color: areaGroups.find(g => g.id === activeAreaGroupId)?.color || null,
-        poly: [...areaVerts],
-        arcSegs: { ...arcSegsRef.current },
+        name: grp?.name || genName(areaType),
+        color: grp?.color || null,
+        poly: capturedVerts,
+        arcSegs: capturedArcSegs,
       }]
     })
     setAreaVerts([]); setAreaCursor(null)
@@ -465,16 +469,19 @@ export default function SheetPage() {
 
   const finishLine = () => {
     if (linearVerts.length < 2) return
+    const capturedArcSegs = { ...linearArcSegsRef.current }
+    const capturedVerts = [...linearVerts]
+    const grp = linearGroups.find(g => g.id === activeLinearGroupId)
     setAddedLines(prev => {
       undoStackRef.current = [...undoStackRef.current.slice(-19), { type: 'line', state: prev }]
       return [...prev, {
         id: `ul-${Date.now()}`,
         groupId: activeLinearGroupId || null,
         type: linearType,
-        name: linearGroups.find(g => g.id === activeLinearGroupId)?.name || genName(linearType),
-        color: linearGroups.find(g => g.id === activeLinearGroupId)?.color || null,
-        pts: [...linearVerts],
-        arcSegs: { ...linearArcSegsRef.current },
+        name: grp?.name || genName(linearType),
+        color: grp?.color || null,
+        pts: capturedVerts,
+        arcSegs: capturedArcSegs,
       }]
     })
     setLinearVerts([]); setLinearCursor(null)
@@ -556,17 +563,24 @@ export default function SheetPage() {
   }
 
   const onMouseMove = (e) => {
-    // Pan tool
-    if (activeTool === 'pan' && isPanningRef.current && panStartRef.current) {
+    // Pan: right-button drag or pan tool left-button drag
+    if (isPanningRef.current && panStartRef.current) {
       const dx = e.clientX - panStartRef.current.x
       const dy = e.clientY - panStartRef.current.y
       setPanOffset({ x: panOriginRef.current.x + dx, y: panOriginRef.current.y + dy })
-      return
+      if (activeTool === 'pan' || e.buttons === 2) return
     }
     const rawP = toSheet(e)
     const prevMove = activeTool === 'area' && areaVerts.length > 0 ? areaVerts[areaVerts.length - 1]
       : activeTool === 'linear' && linearVerts.length > 0 ? linearVerts[linearVerts.length - 1] : null
     const p = applySnap(rawP, prevMove)
+    // Region vertex drag
+    if (dragRegionVertRef.current !== null && regionClosed) {
+      const idx = dragRegionVertRef.current
+      const updated = regionClosed.map((v, i) => i === idx ? { x: rawP.x, y: rawP.y } : v)
+      setRegionClosed(updated)
+      return
+    }
     if (activeTool === 'region' && !regionClosed) setRegionCursor(p)
     if (activeTool === 'measure' && !measureDone && measurePts.length > 0) setMeasureCursor(p)
     if (activeTool === 'scale') setRegionCursor(p)
@@ -621,6 +635,7 @@ export default function SheetPage() {
     isDraggingRef.current = false
     dragVertIdxRef.current = null
     dragAreaIdRef.current = null
+    dragRegionVertRef.current = null
     // Finalize box select
     if (boxSelect && activeTool === 'select') {
       const minX = Math.min(boxSelect.x1, boxSelect.x2), maxX = Math.max(boxSelect.x1, boxSelect.x2)
@@ -1107,8 +1122,8 @@ export default function SheetPage() {
         </div>
 
         <main className={s.canvas} ref={canvasRef}
-          onMouseMove={activeTool === 'pan' ? onMouseMove : undefined}
-          onMouseUp={activeTool === 'pan' ? onMouseUp : undefined}>
+          onMouseMove={onMouseMove}
+          onMouseUp={onMouseUp}>
           <div className={s.hint}>
             {activeTool === 'scale' ? (
               scalePts.length === 0
@@ -1339,8 +1354,11 @@ export default function SheetPage() {
                     stroke={activeFolder?.color || 'var(--brand-600)'} strokeWidth="2.5" />
                 ))}
                 {activeTool === 'region' && !isDrawingRegion && regionPoly.map((v, i) => (
-                  <rect key={i} x={v.x - 4} y={v.y - 4} width="8" height="8"
-                    fill="#fff" stroke={activeFolder?.color || 'var(--brand-600)'} strokeWidth="2" />
+                  <rect key={i} x={v.x - 6} y={v.y - 6} width="12" height="12"
+                    fill="#fff" stroke={activeFolder?.color || 'var(--brand-600)'} strokeWidth="2"
+                    style={{ cursor: 'move' }}
+                    onMouseDown={e => { e.stopPropagation(); dragRegionVertRef.current = i }}
+                  />
                 ))}
 
                 {/* Area drawing overlay */}
@@ -1527,7 +1545,8 @@ export default function SheetPage() {
               regionRes={regionRes} hasRegion={hasRegion} regionSqft={regionSqft} regionPerim={regionPerim}
               fSq={fSq} fLn={fLn} isDrawingRegion={isDrawingRegion}
               onExportMTO={exportRegionMTO}
-              allPoints={allPoints} allAreas={allAreas} allLines={allLines}
+              countGroups={countGroups} areaGroups={areaGroups} linearGroups={linearGroups}
+              addedAreas={addedAreas} addedLines={addedLines}
               sqft={sqft} lnft={lnft}
             />
           ) : (
@@ -2147,23 +2166,36 @@ const TOPSOIL_OPTIONS = [
 ]
 
 function RegionPanel({ folders, activeFolderId, renamingId, renameVal, onSwitch, onAdd, onDelete,
-  onStartRename, onCommitRename, onRenameVal, regionRes, hasRegion, regionSqft, regionPerim,
-  fSq, fLn, isDrawingRegion, onExportMTO, allPoints, allAreas, allLines, sqft, lnft }) {
+  onStartRename, onCommitRename, onRenameVal, hasRegion, regionSqft, regionPerim,
+  fSq, fLn, isDrawingRegion, onExportMTO,
+  countGroups, areaGroups, linearGroups, addedAreas, addedLines, sqft, lnft }) {
   const activeFolder = folders.find(f => f.id === activeFolderId)
+  const poly = activeFolder?.poly
 
-  const computeForFolder = (folder) => {
-    const poly = folder?.poly
-    if (!poly || poly.length < 3) return null
-    const res = {}
-    CATS.forEach(c => { res[c.id] = { count: 0, sqft: 0, lnft: 0 } })
-    allPoints.forEach(p => { if (inside(p, poly)) res[p.type].count++ })
-    allAreas.forEach(a => { const cp = clipPx2(a.poly, poly, 4); if (cp.px2 > 0) { res[a.type].count++; res[a.type].sqft += sqft(cp.px2) } })
-    allLines.forEach(l => { const lc = centroid(l.pts); if (inside(lc, poly)) { res[l.type].count++; res[l.type].lnft += lnft(perimPx(l.pts)) } })
-    return res
-  }
+  // Per-group breakdown for the active region polygon
+  const countResults = (countGroups || []).map(g => ({
+    id: g.id, name: g.name, color: g.color,
+    count: poly && poly.length >= 3 ? g.points.filter(p => inside(p, poly)).length : 0,
+  })).filter(r => r.count > 0)
 
-  const activeRes = hasRegion && activeFolder?.id === activeFolderId ? regionRes : computeForFolder(activeFolder)
-  const activeHasData = activeRes && CATS.some(c => activeRes[c.id]?.count > 0 || activeRes[c.id]?.sqft > 0 || activeRes[c.id]?.lnft > 0)
+  const areaResults = (areaGroups || []).map(g => {
+    const groupAreas = (addedAreas || []).filter(a => a.groupId === g.id)
+    const totalSqft = poly && poly.length >= 3
+      ? groupAreas.reduce((s, a) => { const cp = clipPx2(a.poly, poly, 4); return s + sqft(cp.px2) }, 0)
+      : 0
+    return { id: g.id, name: g.name, color: g.color, sqft: totalSqft }
+  }).filter(r => r.sqft > 0)
+
+  const linearResults = (linearGroups || []).map(g => {
+    const groupLines = (addedLines || []).filter(l => l.groupId === g.id)
+    const totalLnft = poly && poly.length >= 3
+      ? groupLines.reduce((s, l) => { const lc = centroid(l.pts); return inside(lc, poly) ? s + lnft(perimPx(l.pts)) : s }, 0)
+      : 0
+    return { id: g.id, name: g.name, color: g.color, lnft: totalLnft }
+  }).filter(r => r.lnft > 0)
+
+  const activeHasData = countResults.length > 0 || areaResults.length > 0 || linearResults.length > 0
+  const totalItems = countResults.reduce((s, r) => s + r.count, 0)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -2233,24 +2265,40 @@ function RegionPanel({ folders, activeFolderId, renamingId, renameVal, onSwitch,
                 <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>ln ft perim</div>
               </div>
               <div style={{ background: 'var(--surface-sunken)', borderRadius: 8, padding: '10px 8px', textAlign: 'center' }}>
-                <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-strong)' }}>{CATS.filter(c => c.kind === 'point').reduce((s, c) => s + (activeRes?.[c.id]?.count || 0), 0)}</div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-strong)' }}>{totalItems}</div>
                 <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>items</div>
               </div>
             </div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 }}>Breakdown</div>
-            {CATS.map(c => {
-              const r = activeRes?.[c.id]
-              if (!r || (r.count === 0 && r.sqft === 0 && r.lnft === 0)) return null
-              return (
-                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border-subtle)' }}>
-                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: `var(--mat-${c.id}, var(--brand-500))`, flexShrink: 0 }} />
-                  <span style={{ flex: 1, fontSize: 12, color: 'var(--text-body)' }}>{c.name}</span>
-                  <span style={{ fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text-strong)' }}>
-                    {r.count > 0 ? `×${r.count}` : r.sqft > 0 ? `${fSq(r.sqft)} sf` : `${fLn(r.lnft)} lf`}
-                  </span>
+            {countResults.length > 0 && <>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>Counts</div>
+              {countResults.map(r => (
+                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: r.color || 'var(--brand-500)', flexShrink: 0 }} />
+                  <span style={{ flex: 1, fontSize: 12, color: 'var(--text-body)' }}>{r.name}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text-strong)' }}>×{r.count}</span>
                 </div>
-              )
-            })}
+              ))}
+            </>}
+            {areaResults.length > 0 && <>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, margin: '12px 0 6px' }}>Areas</div>
+              {areaResults.map(r => (
+                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+                  <div style={{ width: 8, height: 8, borderRadius: 2, background: r.color || 'var(--brand-500)', flexShrink: 0 }} />
+                  <span style={{ flex: 1, fontSize: 12, color: 'var(--text-body)' }}>{r.name}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text-strong)' }}>{fSq(r.sqft)} sf</span>
+                </div>
+              ))}
+            </>}
+            {linearResults.length > 0 && <>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, margin: '12px 0 6px' }}>Linear</div>
+              {linearResults.map(r => (
+                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+                  <div style={{ width: 14, height: 4, borderRadius: 2, background: r.color || 'var(--brand-500)', flexShrink: 0 }} />
+                  <span style={{ flex: 1, fontSize: 12, color: 'var(--text-body)' }}>{r.name}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text-strong)' }}>{fLn(r.lnft)} lf</span>
+                </div>
+              ))}
+            </>}
           </>
         ) : (
           <div style={{ textAlign: 'center', padding: '24px 16px', color: 'var(--text-muted)', fontSize: 12 }}>
