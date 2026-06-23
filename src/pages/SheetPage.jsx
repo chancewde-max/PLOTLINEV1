@@ -4,7 +4,7 @@ import {
   Minus, Plus, Hand, SquareDashed, Spline, MapPin,
   Ruler, Lasso, Eye, EyeOff, Check, TriangleAlert, Sun, Moon,
   Settings2, FileDown, Share2, ChevronRight, Eraser, Sparkles,
-  X as XIcon, Map, Pencil, Trash2, MousePointer2, Layers,
+  X as XIcon, Map, Pencil, Trash2, MousePointer2, Layers, Download,
 } from 'lucide-react'
 import { Button } from '../components/ui/Button.jsx'
 import { Badge } from '../components/ui/Badge.jsx'
@@ -855,6 +855,66 @@ export default function SheetPage() {
     setTimeout(() => setToast(null), 4000)
   }
 
+  const exportMTO = () => {
+    const rows = []
+    rows.push(['Material Takeoff', project.name, sheet.name, new Date().toLocaleDateString()])
+    rows.push([])
+    rows.push(['Category', 'Group / Item', 'Count', 'Sq Ft', 'Lin Ft', 'Notes'])
+    // Count groups
+    countGroups.forEach(g => {
+      rows.push(['Count', g.name, g.points.length, '', '', ''])
+    })
+    // Area groups
+    areaGroups.forEach(g => {
+      const totalSqFt = addedAreas.filter(a => a.groupId === g.id).reduce((s, a) => s + sqft(polyAreaPx(a.poly)), 0)
+      const depth = g.depth ? `Depth: ${g.depth}"` : ''
+      const topsoil = g.topsoil && g.topsoil !== 'none' ? `Topsoil: ${g.topsoil}` : ''
+      rows.push(['Area', g.name, addedAreas.filter(a => a.groupId === g.id).length, Math.round(totalSqFt), '', [depth, topsoil].filter(Boolean).join('; ')])
+    })
+    // Linear groups
+    linearGroups.forEach(g => {
+      const totalLnFt = addedLines.filter(l => l.groupId === g.id).reduce((s, l) => s + lnft(perimPx(l.pts)), 0)
+      rows.push(['Linear', g.name, addedLines.filter(l => l.groupId === g.id).length, '', Math.round(totalLnFt), ''])
+    })
+    const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = `MTO-${project.name}-${sheet.name}.csv`.replace(/\s+/g, '_')
+    a.click(); URL.revokeObjectURL(url)
+    setToast({ message: 'MTO exported as CSV.' })
+    setTimeout(() => setToast(null), 3000)
+  }
+
+  const exportRegionMTO = () => {
+    const rows = []
+    rows.push(['Region MTO', project.name, sheet.name, new Date().toLocaleDateString()])
+    rows.push([])
+    rows.push(['Region', 'Category', 'Item', 'Count', 'Sq Ft', 'Lin Ft'])
+    folders.forEach(folder => {
+      const poly = folder.poly
+      if (!poly || poly.length < 3) return
+      const res = {}
+      CATS.forEach(c => { res[c.id] = { count: 0, sqft: 0, lnft: 0 } })
+      allPoints.forEach(p => { if (inside(p, poly)) res[p.type].count++ })
+      allAreas.forEach(a => { const cp = clipPx2(a.poly, poly, 4); if (cp.px2 > 0) { res[a.type].count++; res[a.type].sqft += sqft(cp.px2) } })
+      allLines.forEach(l => { const lc = centroid(l.pts); if (inside(lc, poly)) { res[l.type].count++; res[l.type].lnft += lnft(perimPx(l.pts)) } })
+      CATS.forEach(c => {
+        const r = res[c.id]
+        if (r.count > 0 || r.sqft > 0 || r.lnft > 0)
+          rows.push([folder.name, c.kind, c.name, r.count || '', r.sqft > 0 ? Math.round(r.sqft) : '', r.lnft > 0 ? Math.round(r.lnft) : ''])
+      })
+    })
+    const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = `Region-MTO-${project.name}-${sheet.name}.csv`.replace(/\s+/g, '_')
+    a.click(); URL.revokeObjectURL(url)
+    setToast({ message: 'Region MTO exported.' })
+    setTimeout(() => setToast(null), 3000)
+  }
+
   const px2pct = (v, dim) => `calc(50% + ${(v - dim / 2) * (zoom / 100) * FIT}px)`
 
   const activeFolder = folders.find(f => f.id === activeFolderId)
@@ -950,6 +1010,7 @@ export default function SheetPage() {
           </button>
           <Button size="sm" variant="secondary" iconLeft={<Share2 size={14} />}>Share</Button>
           <Button size="sm" variant="ghost" iconLeft={<Share2 size={14} />} onClick={() => { setQuoteVendor(''); setQuoteCopied(false); setQuoteOpen(true) }}>Quote email</Button>
+          <Button size="sm" variant="ghost" iconLeft={<Download size={14} />} onClick={exportMTO}>MTO</Button>
           <Button size="sm" variant="primary" iconLeft={<FileDown size={14} />} onClick={() => setExportOpen(true)}>Export</Button>
         </div>
       </header>
@@ -1097,10 +1158,10 @@ export default function SheetPage() {
           </div>
 
           <div className={s.sheetWrap} style={{ transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${(zoom / 100) * FIT})`, transition: isPanningRef.current ? 'none' : undefined }}>
-            <div className={s.sheet} style={{ width: SHEET_W, height: SHEET_H }}>
+            <div className={s.sheet} style={{ width: SHEET_W, height: SHEET_H, backgroundImage: sheet.pdfUrl ? 'none' : undefined }}>
               {sheet.pdfUrl && (
-                <iframe src={`${sheet.pdfUrl}#view=FitH&toolbar=0&navpanes=0`}
-                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none', opacity: 0.6, pointerEvents: 'none', zIndex: 0 }} title="PDF background" />
+                <iframe src={`${sheet.pdfUrl}#view=FitH&toolbar=0&navpanes=0&scrollbar=0`}
+                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none', opacity: 1, pointerEvents: 'none', zIndex: 0, borderRadius: 3 }} title="Plan" />
               )}
               <svg ref={svgRef} className={s.svg} width={SHEET_W} height={SHEET_H}
                 viewBox={`0 0 ${SHEET_W} ${SHEET_H}`}
@@ -1414,11 +1475,6 @@ export default function SheetPage() {
                 })
               )}
 
-              <div className={s.titleBlock}>
-                <div className={s.tbRow}><b>{sheet.name.toUpperCase()}</b></div>
-                <div className={s.tbRow}>{project.name}</div>
-                <div className={s.tbRow}>SHEET {sheet.code}</div>
-              </div>
             </div>
           </div>
 
@@ -1463,25 +1519,38 @@ export default function SheetPage() {
         <aside className={s.rightPanel} style={{ width: rightPanelW, minWidth: 240, maxWidth: 600 }}>
           <div className={s.resizeHandle} style={{ left: -3 }}
             onMouseDown={e => { e.preventDefault(); const startX = e.clientX, startW = rightPanelW; const move = ev => setRightPanelW(Math.max(240, Math.min(600, startW - (ev.clientX - startX)))); const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }; window.addEventListener('mousemove', move); window.addEventListener('mouseup', up) }} />
-          <ConditionsPanel
-            countGroups={countGroups} activeCountGroupId={activeCountGroupId}
-            onSetActiveCountGroup={id => { setActiveCountGroupId(id); setActiveTool('count') }}
-            linearGroups={linearGroups} activeLinearGroupId={activeLinearGroupId}
-            onSetActiveLinearGroup={id => { setActiveLinearGroupId(id); setActiveTool('linear') }}
-            areaGroups={areaGroups} activeAreaGroupId={activeAreaGroupId}
-            onSetActiveAreaGroup={id => { setActiveAreaGroupId(id); setActiveTool('area') }}
-            addedAreas={addedAreas} addedPoints={addedPoints} addedLines={addedLines}
-            sqft={sqft} fSq={fSq} lnft={lnft} fLn={fLn}
-            areaDepth={areaDepth} topsoilType={topsoilType} topsoilCustom={topsoilCustom}
-            onNewCount={() => { setNewItemName(`Count ${countGroupNumRef.current + 1}`); setNewItemColor(randColor()); setNewItemShape('circle'); setNewCountDlg('count') }}
-            onNewArea={() => { setNewItemName(`Area ${areaGroupNumRef.current + 1}`); setNewItemColor(randColor()); setNewItemShape('circle'); setNewCountDlg('area') }}
-            onNewLinear={() => { setNewItemName(`Linear ${linearGroupNumRef.current + 1}`); setNewItemColor(randColor()); setNewItemShape('circle'); setNewCountDlg('linear') }}
-            onDeleteCountGroup={id => setCountGroups(prev => prev.filter(g => g.id !== id))}
-            onDeleteAreaGroup={id => setAreaGroups(prev => prev.filter(g => g.id !== id))}
-            onDeleteLinearGroup={id => setLinearGroups(prev => prev.filter(g => g.id !== id))}
-            onEditGroup={openEditGroup}
-            fs={fs}
-          />
+          {activeTool === 'region' ? (
+            <RegionPanel
+              folders={folders} activeFolderId={activeFolderId} renamingId={renamingId} renameVal={renameVal}
+              onSwitch={switchFolder} onAdd={addFolder} onDelete={deleteFolder}
+              onStartRename={startRename} onCommitRename={commitRename} onRenameVal={setRenameVal}
+              regionRes={regionRes} hasRegion={hasRegion} regionSqft={regionSqft} regionPerim={regionPerim}
+              fSq={fSq} fLn={fLn} isDrawingRegion={isDrawingRegion}
+              onExportMTO={exportRegionMTO}
+              allPoints={allPoints} allAreas={allAreas} allLines={allLines}
+              sqft={sqft} lnft={lnft}
+            />
+          ) : (
+            <ConditionsPanel
+              countGroups={countGroups} activeCountGroupId={activeCountGroupId}
+              onSetActiveCountGroup={id => { setActiveCountGroupId(id); setActiveTool('count') }}
+              linearGroups={linearGroups} activeLinearGroupId={activeLinearGroupId}
+              onSetActiveLinearGroup={id => { setActiveLinearGroupId(id); setActiveTool('linear') }}
+              areaGroups={areaGroups} activeAreaGroupId={activeAreaGroupId}
+              onSetActiveAreaGroup={id => { setActiveAreaGroupId(id); setActiveTool('area') }}
+              addedAreas={addedAreas} addedPoints={addedPoints} addedLines={addedLines}
+              sqft={sqft} fSq={fSq} lnft={lnft} fLn={fLn}
+              areaDepth={areaDepth} topsoilType={topsoilType} topsoilCustom={topsoilCustom}
+              onNewCount={() => { setNewItemName(`Count ${countGroupNumRef.current + 1}`); setNewItemColor(randColor()); setNewItemShape('circle'); setNewCountDlg('count') }}
+              onNewArea={() => { setNewItemName(`Area ${areaGroupNumRef.current + 1}`); setNewItemColor(randColor()); setNewItemShape('circle'); setNewCountDlg('area') }}
+              onNewLinear={() => { setNewItemName(`Linear ${linearGroupNumRef.current + 1}`); setNewItemColor(randColor()); setNewItemShape('circle'); setNewCountDlg('linear') }}
+              onDeleteCountGroup={id => setCountGroups(prev => prev.filter(g => g.id !== id))}
+              onDeleteAreaGroup={id => setAreaGroups(prev => prev.filter(g => g.id !== id))}
+              onDeleteLinearGroup={id => setLinearGroups(prev => prev.filter(g => g.id !== id))}
+              onEditGroup={openEditGroup}
+              fs={fs}
+            />
+          )}
         </aside>
       </div>
 
@@ -1951,8 +2020,8 @@ function SelectPanel({ selectedArea, selectedPoint, selectedLine, selectedId, se
   )
 }
 
-// ---- Region panel with breakout folders ------------------------------------
-function RegionPanel({ hasRegion, regionSqft, regionPerim, totalPointCount, catActive, regionRes, allPoints, allAreas, sheet, fSq, fLn, sqft, onToggleCat, onReset, onSample, fs, folders, activeFolderId, renamingId, renameVal, onSwitchFolder, onAddFolder, onDeleteFolder, onStartRename, onRenameChange, onCommitRename }) {
+// ---- Region panel (legacy - replaced) --------------------------------------
+function _OldRegionPanel_UNUSED({ hasRegion, regionSqft, regionPerim, totalPointCount, catActive, regionRes, allPoints, allAreas, sheet, fSq, fLn, sqft, onToggleCat, onReset, onSample, fs, folders, activeFolderId, renamingId, renameVal, onSwitchFolder, onAddFolder, onDeleteFolder, onStartRename, onRenameChange, onCommitRename }) {
   const totalOf = (id) => {
     const cat = CATS.find(c => c.id === id)
     if (!cat) return 0
@@ -2076,6 +2145,123 @@ const TOPSOIL_OPTIONS = [
   { value: '4way', label: '4 way mix' },
   { value: 'custom', label: 'Custom…' },
 ]
+
+function RegionPanel({ folders, activeFolderId, renamingId, renameVal, onSwitch, onAdd, onDelete,
+  onStartRename, onCommitRename, onRenameVal, regionRes, hasRegion, regionSqft, regionPerim,
+  fSq, fLn, isDrawingRegion, onExportMTO, allPoints, allAreas, allLines, sqft, lnft }) {
+  const activeFolder = folders.find(f => f.id === activeFolderId)
+
+  const computeForFolder = (folder) => {
+    const poly = folder?.poly
+    if (!poly || poly.length < 3) return null
+    const res = {}
+    CATS.forEach(c => { res[c.id] = { count: 0, sqft: 0, lnft: 0 } })
+    allPoints.forEach(p => { if (inside(p, poly)) res[p.type].count++ })
+    allAreas.forEach(a => { const cp = clipPx2(a.poly, poly, 4); if (cp.px2 > 0) { res[a.type].count++; res[a.type].sqft += sqft(cp.px2) } })
+    allLines.forEach(l => { const lc = centroid(l.pts); if (inside(lc, poly)) { res[l.type].count++; res[l.type].lnft += lnft(perimPx(l.pts)) } })
+    return res
+  }
+
+  const activeRes = hasRegion && activeFolder?.id === activeFolderId ? regionRes : computeForFolder(activeFolder)
+  const activeHasData = activeRes && CATS.some(c => activeRes[c.id]?.count > 0 || activeRes[c.id]?.sqft > 0 || activeRes[c.id]?.lnft > 0)
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+      {/* Header */}
+      <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-strong)', letterSpacing: 0.2 }}>Regions</span>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button onClick={onExportMTO}
+            style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 6, border: '1px solid var(--border-default)', background: 'transparent', fontSize: 12, fontWeight: 600, color: 'var(--text-body)', cursor: 'pointer' }}>
+            <Download size={12} /> Export MTO
+          </button>
+          <button onClick={onAdd}
+            style={{ padding: '5px 10px', borderRadius: 6, border: 'none', background: 'var(--brand-600)', color: 'white', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>+ Region</button>
+        </div>
+      </div>
+
+      {/* Region list */}
+      <div style={{ borderBottom: '1px solid var(--border-subtle)', maxHeight: 160, overflowY: 'auto' }}>
+        {folders.map(f => (
+          <div key={f.id}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', cursor: 'pointer', background: f.id === activeFolderId ? 'var(--brand-50)' : 'transparent', borderLeft: `3px solid ${f.id === activeFolderId ? f.color : 'transparent'}` }}
+            onClick={() => onSwitch(f.id)}>
+            <div style={{ width: 12, height: 12, borderRadius: 3, background: f.color, flexShrink: 0 }} />
+            {renamingId === f.id ? (
+              <input autoFocus value={renameVal} onChange={e => onRenameVal(e.target.value)}
+                onBlur={onCommitRename} onKeyDown={e => { if (e.key === 'Enter') onCommitRename(); if (e.key === 'Escape') onRenameVal(f.name) }}
+                style={{ flex: 1, fontSize: 12, fontWeight: 600, border: '1px solid var(--brand-500)', borderRadius: 4, padding: '2px 6px', background: 'var(--surface-card)', color: 'var(--text-strong)' }}
+                onClick={e => e.stopPropagation()} />
+            ) : (
+              <span style={{ flex: 1, fontSize: 12, fontWeight: f.id === activeFolderId ? 700 : 500, color: 'var(--text-strong)' }}
+                onDoubleClick={e => { e.stopPropagation(); onStartRename(f) }}>{f.name}</span>
+            )}
+            {f.poly && <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>✓</span>}
+            {folders.length > 1 && (
+              <button onClick={e => { e.stopPropagation(); onDelete(f.id) }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', padding: 2, display: 'flex' }}>
+                <Trash2 size={11} />
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Active region results */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px' }}>
+        {isDrawingRegion ? (
+          <div style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--text-muted)', fontSize: 12 }}>
+            <Lasso size={24} style={{ marginBottom: 10, opacity: 0.4 }} />
+            <div>Click to draw region boundary</div>
+            <div style={{ marginTop: 4, opacity: 0.7 }}>Click first point or press Enter to close</div>
+          </div>
+        ) : !activeFolder?.poly ? (
+          <div style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--text-muted)', fontSize: 12 }}>
+            <Lasso size={24} style={{ marginBottom: 10, opacity: 0.4 }} />
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>{activeFolder?.name}</div>
+            <div>Draw a boundary on the canvas to count items inside</div>
+          </div>
+        ) : activeHasData ? (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
+              <div style={{ background: 'var(--surface-sunken)', borderRadius: 8, padding: '10px 8px', textAlign: 'center' }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-strong)' }}>{fSq(regionSqft)}</div>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>sq ft area</div>
+              </div>
+              <div style={{ background: 'var(--surface-sunken)', borderRadius: 8, padding: '10px 8px', textAlign: 'center' }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-strong)' }}>{fLn(regionPerim)}</div>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>ln ft perim</div>
+              </div>
+              <div style={{ background: 'var(--surface-sunken)', borderRadius: 8, padding: '10px 8px', textAlign: 'center' }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-strong)' }}>{CATS.filter(c => c.kind === 'point').reduce((s, c) => s + (activeRes?.[c.id]?.count || 0), 0)}</div>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>items</div>
+              </div>
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 }}>Breakdown</div>
+            {CATS.map(c => {
+              const r = activeRes?.[c.id]
+              if (!r || (r.count === 0 && r.sqft === 0 && r.lnft === 0)) return null
+              return (
+                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: `var(--mat-${c.id}, var(--brand-500))`, flexShrink: 0 }} />
+                  <span style={{ flex: 1, fontSize: 12, color: 'var(--text-body)' }}>{c.name}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text-strong)' }}>
+                    {r.count > 0 ? `×${r.count}` : r.sqft > 0 ? `${fSq(r.sqft)} sf` : `${fLn(r.lnft)} lf`}
+                  </span>
+                </div>
+              )
+            })}
+          </>
+        ) : (
+          <div style={{ textAlign: 'center', padding: '24px 16px', color: 'var(--text-muted)', fontSize: 12 }}>
+            <Check size={24} style={{ marginBottom: 10, opacity: 0.4 }} />
+            <div>Region drawn — no items found inside</div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 function AreaPanel({ areaType, onSetAreaType, addedAreas, sqft, fSq, onClearAdded, fs,
   areaDepth, onSetDepth, topsoilType, onSetTopsoil, topsoilCustom, onSetTopsoilCustom }) {
