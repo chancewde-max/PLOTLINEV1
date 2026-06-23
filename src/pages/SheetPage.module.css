@@ -214,9 +214,7 @@
 .canvas {
   flex: 1 1 auto;
   position: relative;
-  background: var(--bg-canvas);
-  background-image: var(--grid-blueprint);
-  background-size: var(--grid-size) var(--grid-size);
+  background: #6b6b6b;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -229,13 +227,9 @@
 .sheet {
   position: relative;
   background: var(--surface-paper);
-  border: 1px solid var(--paper-edge);
-  border-radius: 3px;
-  box-shadow: var(--sheet-shadow);
-  background-image:
-    linear-gradient(var(--paper-line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--paper-line) 1px, transparent 1px);
-  background-size: 24px 24px;
+  border: none;
+  border-radius: 2px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.45), 0 1px 4px rgba(0,0,0,0.3);
 }
 
 .svg { position: absolute; inset: 0; }
