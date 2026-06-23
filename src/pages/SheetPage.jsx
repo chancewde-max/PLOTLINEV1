@@ -206,6 +206,23 @@ export default function SheetPage() {
     setEditGroupDlg({ kind, group })
   }
 
+  const saveEditGroup = () => {
+    if (!editGroupDlg) return
+    const { kind, group } = editGroupDlg
+    if (kind === 'count') {
+      setCountGroups(prev => prev.map(g => g.id === group.id
+        ? { ...g, name: eName, color: eColor, shape: eShape, points: g.points.map(p => ({ ...p, color: eColor })) }
+        : g))
+    } else if (kind === 'linear') {
+      setLinearGroups(prev => prev.map(g => g.id === group.id ? { ...g, name: eName, color: eColor } : g))
+      setAddedLines(prev => prev.map(l => l.groupId === group.id ? { ...l, color: eColor, name: eName } : l))
+    } else if (kind === 'area') {
+      setAreaGroups(prev => prev.map(g => g.id === group.id ? { ...g, name: eName, color: eColor, depth: eDepth, topsoil: eTopsoil, topsoilCustom: eTopsoilCustom } : g))
+      setAddedAreas(prev => prev.map(a => a.groupId === group.id ? { ...a, color: eColor, name: eName } : a))
+    }
+    setEditGroupDlg(null)
+  }
+
   // ---- Snapping ----
   const [snapEnabled, setSnapEnabled]   = useState(false)
   const [orthoEnabled, setOrthoEnabled] = useState(false)
@@ -1756,13 +1773,7 @@ export default function SheetPage() {
             <h3 style={{ margin: '0 0 18px', fontSize: 17, fontWeight: 700, color: 'var(--text-strong)' }}>Edit — {editGroupDlg.group.name}</h3>
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>Name</div>
-              <input value={eName} onChange={e => setEName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') {
-                const { kind, group } = editGroupDlg
-                if (kind === 'count') setCountGroups(prev => prev.map(g => g.id === group.id ? { ...g, name: eName, color: eColor, shape: eShape } : g))
-                else if (kind === 'linear') setLinearGroups(prev => prev.map(g => g.id === group.id ? { ...g, name: eName, color: eColor } : g))
-                else if (kind === 'area') setAreaGroups(prev => prev.map(g => g.id === group.id ? { ...g, name: eName, color: eColor, depth: eDepth, topsoil: eTopsoil, topsoilCustom: eTopsoilCustom } : g))
-                setEditGroupDlg(null)
-              }}}
+              <input value={eName} onChange={e => setEName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') saveEditGroup() }}
                 style={{ width: '100%', padding: '8px 12px', border: '1.5px solid var(--border-default)', borderRadius: 8, fontSize: 14, fontWeight: 600, color: 'var(--text-strong)', background: 'var(--surface-card)', boxSizing: 'border-box' }} />
             </div>
             <div style={{ marginBottom: 14 }}>
@@ -1811,13 +1822,7 @@ export default function SheetPage() {
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
               <button onClick={() => setEditGroupDlg(null)}
                 style={{ padding: '8px 20px', borderRadius: 8, border: '1px solid var(--border-default)', background: 'transparent', fontSize: 14, cursor: 'pointer', color: 'var(--text-muted)' }}>Cancel</button>
-              <button onClick={() => {
-                const { kind, group } = editGroupDlg
-                if (kind === 'count') setCountGroups(prev => prev.map(g => g.id === group.id ? { ...g, name: eName, color: eColor, shape: eShape } : g))
-                else if (kind === 'linear') setLinearGroups(prev => prev.map(g => g.id === group.id ? { ...g, name: eName, color: eColor } : g))
-                else if (kind === 'area') setAreaGroups(prev => prev.map(g => g.id === group.id ? { ...g, name: eName, color: eColor, depth: eDepth, topsoil: eTopsoil, topsoilCustom: eTopsoilCustom } : g))
-                setEditGroupDlg(null)
-              }}
+              <button onClick={saveEditGroup}
                 style={{ padding: '8px 22px', borderRadius: 8, border: 'none', background: eColor, color: 'white', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>Save</button>
             </div>
           </div>
