@@ -1221,7 +1221,20 @@ export default function SheetPage() {
           <div className={s.sheetWrap} style={{ transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${(zoom / 100) * FIT})`, transition: isPanningRef.current ? 'none' : undefined }}>
             <div className={s.sheet} style={{ width: SHEET_W, height: SHEET_H, backgroundImage: sheet.pdfUrl ? 'none' : undefined }}>
               {sheet.pdfUrl && (
-                <PdfCanvas url={sheet.pdfUrl} width={SHEET_W} height={SHEET_H} />
+                <PdfCanvas url={sheet.pdfUrl} width={SHEET_W} height={SHEET_H}
+                  onReuploadNeeded={() => {
+                    const input = document.createElement('input')
+                    input.type = 'file'; input.accept = 'application/pdf'
+                    input.onchange = (e) => {
+                      const file = e.target.files?.[0]
+                      if (!file) return
+                      const reader = new FileReader()
+                      reader.onload = (ev) => updateSheet(sheetId, { pdfUrl: ev.target.result })
+                      reader.readAsDataURL(file)
+                    }
+                    input.click()
+                  }}
+                />
               )}
               <svg ref={svgRef} className={s.svg} width={SHEET_W} height={SHEET_H}
                 viewBox={`0 0 ${SHEET_W} ${SHEET_H}`}
