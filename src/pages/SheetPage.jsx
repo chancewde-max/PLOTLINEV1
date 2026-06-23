@@ -16,6 +16,7 @@ import { Tabs } from '../components/ui/Tabs.jsx'
 import { Tooltip } from '../components/ui/Tooltip.jsx'
 import { useAppData } from '../data/useAppData.jsx'
 import { useSettings } from '../data/useSettings.jsx'
+import PdfCanvas from '../components/PdfCanvas.jsx'
 import { CATS, CAT_COLOR, SHEET_W, SHEET_H } from '../data/sampleData.js'
 import { inside, polyAreaPx, perimPx, centroid, clipPx2, dist } from '../workspace/geometry.js'
 import s from './SheetPage.module.css'
@@ -866,6 +867,34 @@ export default function SheetPage() {
     ...areaGroups.map(g => ({ id: g.id, color: g.color, kind: 'areaGroup', label: g.name, count: addedAreas.filter(a => a.groupId === g.id).length })),
   ]
 
+  // Project-wide totals aggregated across all sheets
+  const projectLayers = (() => {
+    const byName = {}
+    ;(project.sheetIds || []).forEach(sid => {
+      const sh = sheets[sid]
+      if (!sh) return
+      ;(sh.savedCountGroups || []).forEach(g => {
+        const key = `count::${g.name}`
+        if (!byName[key]) byName[key] = { label: g.name, kind: 'count', color: g.color || 'var(--takeoff-count)', count: 0, sheets: 0 }
+        byName[key].count += g.points?.length || 0
+        byName[key].sheets += 1
+      })
+      ;(sh.savedAreaGroups || []).forEach(g => {
+        const key = `area::${g.name}`
+        if (!byName[key]) byName[key] = { label: g.name, kind: 'area', color: g.color || 'var(--takeoff-area)', count: 0, sheets: 0 }
+        byName[key].count += (sh.savedAreas || []).filter(a => a.groupId === g.id).length
+        byName[key].sheets += 1
+      })
+      ;(sh.savedLinearGroups || []).forEach(g => {
+        const key = `linear::${g.name}`
+        if (!byName[key]) byName[key] = { label: g.name, kind: 'linear', color: g.color || 'var(--takeoff-linear)', count: 0, sheets: 0 }
+        byName[key].count += (sh.savedLines || []).filter(l => l.groupId === g.id).length
+        byName[key].sheets += 1
+      })
+    })
+    return Object.values(byName)
+  })()
+
   const toggleCat   = (id) => setCatActive(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   const toggleLayer = (id) => setHidden(h => ({ ...h, [id]: !h[id] }))
 
@@ -1089,31 +1118,26 @@ export default function SheetPage() {
           <div className={s.leftPanelTabs}>
             <Tabs variant="pill" value={leftPanel} onChange={setLeftPanel}
               items={[
-                { value: 'layers', label: 'Layers', count: layerItems.length },
+                { value: 'layers', label: 'Layers', count: projectLayers.length },
                 { value: 'sheets', label: 'Sheets', count: (project.sheetIds || []).length },
               ]}
             />
           </div>
           {leftPanel === 'layers' ? (
             <div className={s.scroll}>
-              {layerItems.length === 0 && (
-                <div style={{ padding: '24px 8px', textAlign: 'center', color: 'var(--text-subtle)', fontSize: 12 }}>No items yet — start drawing to see layers</div>
+              <div style={{ padding: '8px 10px 4px', fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-subtle)' }}>Project totals</div>
+              {projectLayers.length === 0 && (
+                <div style={{ padding: '24px 8px', textAlign: 'center', color: 'var(--text-subtle)', fontSize: 12 }}>No takeoffs yet</div>
               )}
-              {layerItems.map(item => (
-                <div key={item.id} className={s.layerRow}
-                  style={{ background: item.kind === 'countGroup' && item.id === activeCountGroupId ? 'var(--brand-50)' : undefined, cursor: 'pointer' }}
-                  onClick={() => {
-                    if (item.kind === 'countGroup') { setActiveCountGroupId(item.id); setActiveTool('count') }
-                    else if (item.kind === 'linearGroup') { setActiveLinearGroupId(item.id); setActiveTool('linear') }
-                    else if (item.kind === 'areaGroup') { setActiveAreaGroupId(item.id); setActiveTool('area') }
-                  }}>
-                  <button className={s.eyeBtn} onClick={e => { e.stopPropagation(); toggleLayer(item.id) }}>
-                    {hidden[item.id] ? <EyeOff size={14} /> : <Eye size={14} />}
-                  </button>
-                  <span className={`${s.layerDot} ${item.kind === 'linearGroup' ? s.layerLine : ''}`}
-                    style={{ background: item.color || 'var(--brand-500)', borderRadius: item.kind === 'countGroup' ? '50%' : item.kind === 'areaGroup' ? '3px' : undefined }} />
+              {projectLayers.map((item, i) => (
+                <div key={i} className={s.layerRow}>
+                  <span className={`${s.layerDot} ${item.kind === 'linear' ? s.layerLine : ''}`}
+                    style={{ background: item.color, borderRadius: item.kind === 'count' ? '50%' : '3px', flexShrink: 0 }} />
                   <span className={s.layerLabel}>{item.label}</span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginLeft: 'auto', paddingRight: 4 }}>{item.count != null ? item.count : ''}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginLeft: 'auto', paddingRight: 4, flexShrink: 0 }}>
+                    {item.count}
+                    {item.sheets > 1 && <span style={{ fontWeight: 400, color: 'var(--text-subtle)', marginLeft: 3 }}>({item.sheets})</span>}
+                  </span>
                 </div>
               ))}
             </div>
@@ -1192,8 +1216,7 @@ export default function SheetPage() {
           <div className={s.sheetWrap} style={{ transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${(zoom / 100) * FIT})`, transition: isPanningRef.current ? 'none' : undefined }}>
             <div className={s.sheet} style={{ width: SHEET_W, height: SHEET_H, backgroundImage: sheet.pdfUrl ? 'none' : undefined }}>
               {sheet.pdfUrl && (
-                <iframe src={`${sheet.pdfUrl}#view=FitH&toolbar=0&navpanes=0&scrollbar=0`}
-                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none', opacity: 1, pointerEvents: 'none', zIndex: 0, borderRadius: 3 }} title="Plan" />
+                <PdfCanvas url={sheet.pdfUrl} width={SHEET_W} height={SHEET_H} />
               )}
               <svg ref={svgRef} className={s.svg} width={SHEET_W} height={SHEET_H}
                 viewBox={`0 0 ${SHEET_W} ${SHEET_H}`}
