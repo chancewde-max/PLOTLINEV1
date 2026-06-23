@@ -1,11 +1,12 @@
-import React, { useState } from 'react'
+import React, { useState, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Plus, ChevronRight } from 'lucide-react'
+import { ArrowLeft, Plus, ChevronRight, Upload, FileText, Folder, FolderPlus, FolderOpen, X, LayoutDashboard } from 'lucide-react'
 import { Button } from '../components/ui/Button.jsx'
 import { Badge } from '../components/ui/Badge.jsx'
 import { Avatar } from '../components/ui/Avatar.jsx'
 import { Input } from '../components/ui/Input.jsx'
 import { Dialog } from '../components/ui/Dialog.jsx'
+import { Tabs } from '../components/ui/Tabs.jsx'
 import { useAppData } from '../data/useAppData.jsx'
 import { STATUS_LABEL, STATUS_VARIANT, CATS, CAT_COLOR, SHEET_W, SHEET_H } from '../data/sampleData.js'
 import s from './ProjectPage.module.css'
@@ -66,9 +67,16 @@ const EMPTY_FORM = { name: '', code: '' }
 export default function ProjectPage() {
   const { projectId } = useParams()
   const navigate = useNavigate()
-  const { projects, sheets, addSheet } = useAppData()
+  const { projects, sheets, addSheet, addSheetSet, renameSheetSet, deleteSheetSet, moveSheetToSet } = useAppData()
   const [dlgOpen, setDlgOpen] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
+  const [pdfFile, setPdfFile] = useState(null)
+  const pdfInputRef = useRef(null)
+  const [folderDlg, setFolderDlg] = useState(false)
+  const [folderName, setFolderName] = useState('')
+  const [expandedSets, setExpandedSets] = useState({})
+  const [moveSheetDlg, setMoveSheetDlg] = useState(null) // sheetId being moved
+  const [activeTab, setActiveTab] = useState('sheets')
 
   const project = projects[projectId]
 
@@ -76,17 +84,26 @@ export default function ProjectPage() {
 
   const sheetList = (project.sheetIds || []).map(id => sheets[id]).filter(Boolean)
 
-  const openDlg = () => { setForm(EMPTY_FORM); setDlgOpen(true) }
+  const openDlg = () => { setForm(EMPTY_FORM); setPdfFile(null); setDlgOpen(true) }
+
+  const handlePdfSelect = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setPdfFile(file)
+    if (!form.name.trim()) setForm(f => ({ ...f, name: file.name.replace(/\.pdf$/i, '') }))
+  }
 
   const createSheet = () => {
     if (!form.name.trim()) return
     const id = `sheet-${Date.now()}`
+    const pdfUrl = pdfFile ? URL.createObjectURL(pdfFile) : null
     addSheet(projectId, {
       id,
       projectId,
       name: form.name.trim(),
       code: form.code.trim() || `S-${(project.sheetIds?.length || 0) + 1}`,
       pxPerFt: null,
+      pdfUrl,
       areas: [],
       lines: [],
       points: [],
@@ -136,7 +153,78 @@ export default function ProjectPage() {
           </div>
         </div>
 
-        <div className={s.sectionLabel}>Sheets · {sheetList.length}</div>
+        <div style={{ marginBottom: 24 }}>
+          <Tabs variant="pill" value={activeTab} onChange={setActiveTab}
+            items={[{ value: 'dashboard', label: 'Dashboard' }, { value: 'sheets', label: `Sheets (${sheetList.length})` }]} />
+        </div>
+
+        {activeTab === 'dashboard' && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16, marginBottom: 32 }}>
+            <div style={{ background: 'var(--surface-sunken)', borderRadius: 'var(--radius-lg)', padding: 20 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Sheets</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 36, fontWeight: 700, color: 'var(--text-strong)' }}>{sheetList.length}</div>
+            </div>
+            <div style={{ background: 'var(--surface-sunken)', borderRadius: 'var(--radius-lg)', padding: 20 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Total areas</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 36, fontWeight: 700, color: 'var(--text-strong)' }}>{sheetList.reduce((s, sh) => s + (sh.areas || []).length, 0)}</div>
+            </div>
+            <div style={{ background: 'var(--surface-sunken)', borderRadius: 'var(--radius-lg)', padding: 20 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Total items</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 36, fontWeight: 700, color: 'var(--text-strong)' }}>{sheetList.reduce((s, sh) => s + (sh.points || []).length, 0)}</div>
+            </div>
+            {project.bidValue > 0 && (
+              <div style={{ background: 'var(--surface-sunken)', borderRadius: 'var(--radius-lg)', padding: 20 }}>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Bid value</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 28, fontWeight: 700, color: 'var(--brand-600)' }}>${project.bidValue.toLocaleString()}</div>
+              </div>
+            )}
+            <div style={{ background: 'var(--surface-sunken)', borderRadius: 'var(--radius-lg)', padding: 20 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Folders</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 36, fontWeight: 700, color: 'var(--text-strong)' }}>{(project.sheetSets || []).length}</div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'sheets' && <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+          <div className={s.sectionLabel} style={{ margin: 0 }}>Sheets · {sheetList.length}</div>
+          <Button variant="ghost" size="sm" iconLeft={<FolderPlus size={14} />} onClick={() => { setFolderName(''); setFolderDlg(true) }}>Add folder</Button>
+        </div>}
+        {activeTab === 'sheets' && <>
+        {/* Sheet Sets / Folders */}
+        {(project.sheetSets || []).map(set => {
+          const setSheets = (set.sheetIds || []).map(id => sheets[id]).filter(Boolean)
+          const expanded = expandedSets[set.id] !== false
+          return (
+            <div key={set.id} style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'var(--surface-sunken)', borderRadius: 'var(--radius-md)', cursor: 'pointer', marginBottom: 8 }}
+                onClick={() => setExpandedSets(p => ({ ...p, [set.id]: !expanded }))}>
+                {expanded ? <FolderOpen size={16} style={{ color: 'var(--brand-600)' }} /> : <Folder size={16} style={{ color: 'var(--brand-600)' }} />}
+                <span style={{ flex: 1, fontWeight: 600, fontSize: 14, color: 'var(--text-strong)' }}>{set.name}</span>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{setSheets.length} sheet{setSheets.length !== 1 ? 's' : ''}</span>
+                <button onClick={e => { e.stopPropagation(); deleteSheetSet(projectId, set.id) }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', padding: 2 }}>
+                  <X size={14} />
+                </button>
+              </div>
+              {expanded && setSheets.length > 0 && (
+                <div className={s.grid} style={{ marginLeft: 24 }}>
+                  {setSheets.map(sheet => {
+                    const c = countByKind(sheet)
+                    return (
+                      <div key={sheet.id} className={s.sheetCard} onClick={() => navigate(`/project/${projectId}/sheet/${sheet.id}`)}>
+                        <div className={s.sheetThumb}><SheetPreview sheet={sheet} /><div className={s.sheetCodeBadge}>{sheet.code}</div></div>
+                        <div className={s.sheetInfo}>
+                          <div className={s.sheetName}>{sheet.name}</div>
+                          <div className={s.sheetCode}>{sheet.code}</div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )
+        })}
 
         {sheetList.length === 0 ? (
           <div style={{ padding: '48px 0', textAlign: 'center', color: 'var(--text-muted)' }}>
@@ -180,12 +268,19 @@ export default function ProjectPage() {
                         <span className={s.countChip} style={{ color: 'var(--text-subtle)' }}>Empty sheet</span>
                       )}
                     </div>
+                    {(project.sheetSets || []).length > 0 && (
+                      <button onClick={e => { e.stopPropagation(); setMoveSheetDlg(sheet.id) }}
+                        style={{ marginTop: 4, background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4, padding: 0 }}>
+                        <Folder size={11} /> Move to folder
+                      </button>
+                    )}
                   </div>
                 </div>
               )
             })}
           </div>
         )}
+        </>}
       </main>
 
       <Dialog
@@ -203,10 +298,54 @@ export default function ProjectPage() {
         </>}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, paddingBottom: 6 }}>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>PDF background (optional)</div>
+            <input ref={pdfInputRef} type="file" accept=".pdf" style={{ display: 'none' }} onChange={handlePdfSelect} />
+            <button onClick={() => pdfInputRef.current?.click()}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', border: '1.5px dashed var(--border-strong)', borderRadius: 'var(--radius-md)', background: pdfFile ? 'var(--surface-sunken)' : 'transparent', cursor: 'pointer', width: '100%', textAlign: 'left' }}>
+              {pdfFile ? <FileText size={16} style={{ color: 'var(--brand-600)' }} /> : <Upload size={16} style={{ color: 'var(--text-muted)' }} />}
+              <span style={{ fontSize: 13, color: pdfFile ? 'var(--text-strong)' : 'var(--text-muted)' }}>
+                {pdfFile ? pdfFile.name : 'Upload PDF plan…'}
+              </span>
+            </button>
+          </div>
           <Input label="Sheet name" placeholder="Planting Plan…" value={form.name}
             onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
           <Input label="Sheet code" placeholder="L-1, SP-2…" value={form.code}
             onChange={e => setForm(f => ({ ...f, code: e.target.value }))} />
+        </div>
+      </Dialog>
+
+      {/* Add folder dialog */}
+      <Dialog open={folderDlg} onClose={() => setFolderDlg(false)} title="Add folder"
+        description="Create a folder to organize sheets by set." width={360}
+        footer={<>
+          <Button variant="ghost" onClick={() => setFolderDlg(false)}>Cancel</Button>
+          <Button variant="primary" iconLeft={<FolderPlus size={15} />}
+            disabled={!folderName.trim()}
+            onClick={() => { addSheetSet(projectId, folderName.trim()); setFolderDlg(false) }}>
+            Create folder
+          </Button>
+        </>}>
+        <Input label="Folder name" placeholder="Landscape Plans, Civil…" value={folderName}
+          onChange={e => setFolderName(e.target.value)} autoFocus />
+      </Dialog>
+
+      {/* Move to folder dialog */}
+      <Dialog open={!!moveSheetDlg} onClose={() => setMoveSheetDlg(null)} title="Move to folder" width={360}
+        footer={<Button variant="ghost" onClick={() => setMoveSheetDlg(null)}>Cancel</Button>}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {(project.sheetSets || []).map(set => (
+            <button key={set.id}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', border: '1.5px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', background: 'transparent', cursor: 'pointer', textAlign: 'left' }}
+              onClick={() => { moveSheetToSet(projectId, moveSheetDlg, set.id); setMoveSheetDlg(null) }}>
+              <Folder size={14} style={{ color: 'var(--brand-600)' }} />
+              <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-strong)' }}>{set.name}</span>
+            </button>
+          ))}
+          {(project.sheetSets || []).length === 0 && (
+            <p style={{ color: 'var(--text-muted)', fontSize: 13, textAlign: 'center', padding: '12px 0' }}>No folders yet. Create one first.</p>
+          )}
         </div>
       </Dialog>
     </div>
