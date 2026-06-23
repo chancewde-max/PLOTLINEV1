@@ -33,10 +33,15 @@ const TOOLS = [
 ]
 
 const ACCENTS = {
-  pine:   { 50:'#eef7f2', 500:'#258c62', 600:'#157a52', 700:'#0f6243', label:'Pine' },
-  ocean:  { 50:'#e8f0fe', 500:'#3b82f6', 600:'#2563eb', 700:'#1d4ed8', label:'Ocean' },
+  // SheetPage keys — kept in sync with ProjectsPage accent ids
+  green:  { 50:'#eef7f2', 500:'#258c62', 600:'#157a52', 700:'#0f6243', label:'Green' },
+  blue:   { 50:'#e8f0fe', 500:'#3b82f6', 600:'#2563eb', 700:'#1d4ed8', label:'Blue' },
   violet: { 50:'#f1ebfe', 500:'#8b5cf6', 600:'#7c3aed', 700:'#6d28d9', label:'Violet' },
+  rose:   { 50:'#fde8ef', 500:'#f43f5e', 600:'#e11d48', 700:'#be123c', label:'Rose' },
   amber:  { 50:'#fdf4e3', 500:'#f59e0b', 600:'#d97706', 700:'#b45309', label:'Amber' },
+  // Legacy aliases so old localStorage values don't crash
+  pine:   { 50:'#eef7f2', 500:'#258c62', 600:'#157a52', 700:'#0f6243', label:'Green' },
+  ocean:  { 50:'#e8f0fe', 500:'#3b82f6', 600:'#2563eb', 700:'#1d4ed8', label:'Blue' },
   slate:  { 50:'#eef1f4', 500:'#64748b', 600:'#475569', 700:'#334155', label:'Slate' },
 }
 
@@ -898,7 +903,7 @@ export default function SheetPage() {
   const toggleCat   = (id) => setCatActive(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   const toggleLayer = (id) => setHidden(h => ({ ...h, [id]: !h[id] }))
 
-  const ac = ACCENTS[accent]
+  const ac = ACCENTS[accent] || ACCENTS.green
   const accentStyle = { '--brand-50': ac[50], '--brand-500': ac[500], '--brand-600': ac[600], '--brand-700': ac[700] }
 
   const confirmScale = () => {
@@ -1088,11 +1093,11 @@ export default function SheetPage() {
           <div>
             <div className={s.popHead}>Accent color</div>
             <div className={s.swatches}>
-              {Object.entries(ACCENTS).map(([k, a]) => (
+              {['green','blue','violet','rose','amber'].map(k => { const a = ACCENTS[k]; return (
                 <button key={k} title={a.label} data-on={accent === k} style={{ background: a[600] }} onClick={() => setAccent(k)}>
                   {accent === k && <Check size={13} />}
                 </button>
-              ))}
+              )})}
             </div>
           </div>
           <div>
