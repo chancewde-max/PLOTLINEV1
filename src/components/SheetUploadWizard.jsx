@@ -123,17 +123,15 @@ async function extractEmbeddedText(fileId, bytes, pageNum, rect) {
   return items.map(i => i.str).join(' ').trim()
 }
 
-// OCR a rect directly from the picker's already-rendered high-res canvas.
-// Avoids re-rendering the PDF and sidesteps any scale/coordinate mismatch.
+// OCR a rect directly from a high-res canvas element.
 async function ocrFromPickerCanvas(pickerCanvas, rect) {
   const sx = Math.round(rect.x * pickerCanvas.width)
   const sy = Math.round(rect.y * pickerCanvas.height)
   const sw = Math.max(1, Math.round(rect.w * pickerCanvas.width))
   const sh = Math.max(1, Math.round(rect.h * pickerCanvas.height))
 
-  // Ensure minimum size for Tesseract (aim for text ~40px tall)
-  const MIN_W = 800
-  const outW = Math.max(sw, MIN_W)
+  // Ensure crop is large enough for Tesseract (~800px wide minimum)
+  const outW = Math.max(sw, 800)
   const outH = Math.round(sh * outW / sw)
 
   const crop = document.createElement('canvas')
@@ -145,29 +143,17 @@ async function ocrFromPickerCanvas(pickerCanvas, rect) {
   ctx.imageSmoothingQuality = 'high'
   ctx.drawImage(pickerCanvas, sx, sy, sw, sh, 0, 0, outW, outH)
 
-  // Gentle contrast boost: stretch to [0,255] then light sharpen
-  const img = ctx.getImageData(0, 0, outW, outH)
-  const d = img.data
-  // Find actual min/max luminance for contrast stretch
-  let lo = 255, hi = 0
-  for (let i = 0; i < d.length; i += 4) {
-    const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]
-    if (lum < lo) lo = lum; if (lum > hi) hi = lum
-  }
-  const range = Math.max(1, hi - lo)
-  for (let i = 0; i < d.length; i += 4) {
-    const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]
-    const v = Math.round(Math.max(0, Math.min(255, ((lum - lo) / range) * 255)))
-    d[i] = d[i + 1] = d[i + 2] = v
-    d[i + 3] = 255
-  }
-  ctx.putImageData(img, 0, 0)
-
   const worker = await getOcrWorker()
-  const psm = outH < outW * 0.35 ? '7' : '6' // PSM 7 = single line, 6 = block
-  await worker.setParameters({ tessedit_pagesegmode: psm })
-  const { data } = await worker.recognize(crop)
-  return data.text.replace(/\s+/g, ' ').trim()
+  // Try PSM 6 (block) first; fall back to PSM 7 (single line) if empty
+  for (const psm of ['6', '7', '3']) {
+    try {
+      await worker.setParameters({ tessedit_pagesegmode: psm })
+    } catch (_) { /* ignore if API differs */ }
+    const { data } = await worker.recognize(crop)
+    const text = data.text.replace(/\s+/g, ' ').trim()
+    if (text) return text
+  }
+  return ''
 }
 
 // OCR a rect from a PDF page — used for pages not currently shown in the picker.
@@ -466,7 +452,7 @@ function FullPageAreaPicker({ pages, startIndex = 0, field, onSave, onCancel }) 
         <div style={{ width: 1, height: 24, background: '#333', margin: '0 4px' }} />
         <span style={{ fontSize: 13, color: '#ccc', textTransform: 'capitalize' }}>{fieldLabel}:</span>
         <span style={{ fontSize: 13, fontFamily: 'var(--font-mono)', color: extracting ? '#888' : extracted ? '#5ecb8f' : '#888', minWidth: 80 }}>
-          {extracting ? 'reading…' : extracted || (rect ? 'No text found' : 'Draw a rectangle')}
+          {extracting ? 'reading…' : extracted || (rect ? 'Type manually ↗' : 'Draw a rectangle')}
         </span>
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 12, color: '#888' }}>Scroll to zoom · Hold Space to pan · Drag to draw area</span>
