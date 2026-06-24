@@ -38,6 +38,30 @@ async function renderPageThumb(page, thumbW = 220) {
   return { thumb: canvas.toDataURL('image/jpeg', 0.75), aspect: vp.height / vp.width }
 }
 
+// Render just the rect region of a PDF page at high res, returns a dataURL
+async function renderRectCrop(bytes, pageNum, rect, cropW = 320) {
+  const pdf = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise
+  const page = await pdf.getPage(pageNum)
+  const vp0 = page.getViewport({ scale: 1 })
+  const dpr = Math.max(window.devicePixelRatio || 1, 2)
+  // Scale so the cropped region fills cropW logical pixels
+  const scale = (cropW / (rect.w * vp0.width)) * dpr
+  const vp = page.getViewport({ scale })
+  // Offset the viewport so the rect region starts at (0,0)
+  const offsetX = -rect.x * vp0.width * scale
+  const offsetY = -rect.y * vp0.height * scale
+  const cropH = Math.round(rect.h * vp0.height * scale)
+  const canvas = document.createElement('canvas')
+  canvas.width = cropW * dpr
+  canvas.height = cropH
+  const ctx = canvas.getContext('2d')
+  ctx.fillStyle = '#fff'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  const transform = [scale, 0, 0, scale, offsetX, offsetY]
+  await page.render({ canvasContext: ctx, viewport: { ...vp, transform } }).promise
+  return canvas.toDataURL('image/png')
+}
+
 async function renderPageFull(bytes, pageNum, targetW = 1600) {
   const pdf = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise
   const page = await pdf.getPage(pageNum)
@@ -307,10 +331,28 @@ function FullPageAreaPicker({ pages, startIndex = 0, field, onSave, onCancel }) 
   )
 }
 
+// ---- Crisp crop preview from PDF bytes -------------------------------------
+function CropPreview({ page, rect }) {
+  const [dataUrl, setDataUrl] = useState(null)
+  useEffect(() => {
+    if (!rect) { setDataUrl(null); return }
+    let cancelled = false
+    const bytes = pdfCache.get(page.fileId)
+    if (!bytes) return
+    renderRectCrop(bytes, page.pageIndex, rect, 320).then(url => {
+      if (!cancelled) setDataUrl(url)
+    })
+    return () => { cancelled = true }
+  }, [page.fileId, page.pageIndex, rect?.x, rect?.y, rect?.w, rect?.h])
+
+  if (!rect) return <div style={{ fontSize: 11, color: 'var(--text-subtle)', fontStyle: 'italic' }}>No area set</div>
+  if (!dataUrl) return <div style={{ width: 140, height: 44, borderRadius: 4, background: 'var(--surface-sunken)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Loader size={13} style={{ animation: 'spin 1s linear infinite', color: 'var(--text-subtle)' }} /></div>
+  return <img src={dataUrl} alt="area preview" style={{ maxWidth: 180, maxHeight: 60, borderRadius: 4, border: '1px solid var(--border-subtle)', display: 'block', imageRendering: 'crisp-edges' }} />
+}
+
 // ---- Sheet table row --------------------------------------------------------
 function SheetRow({ page, field, checked, onCheck, onUpdate, onRemove, rowH, onPickArea }) {
   const thumbH = rowH
-  const isSet = field === 'sheetNum' ? !!page.sheetNumRect : !!page.titleRect
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '36px minmax(120px,1.2fr) minmax(80px,1fr) 1fr 32px', gap: 0, alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', background: checked ? 'var(--brand-50)' : 'transparent', transition: 'background 0.1s' }}>
       {/* Checkbox */}
@@ -328,22 +370,9 @@ function SheetRow({ page, field, checked, onCheck, onUpdate, onRemove, rowH, onP
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Page {page.pageIndex}{page.totalPages > 1 ? ` of ${page.totalPages}` : ''}</div>
         </div>
       </div>
-      {/* Area crop preview (zoomed-in thumbnail crop of the picked rect) */}
-      <div style={{ padding: '10px 8px', height: thumbH + 20, display: 'flex', alignItems: 'center' }}>
-        {isSet ? (
-          <div style={{ width: '100%', maxWidth: 120, height: thumbH * 0.55, borderRadius: 4, overflow: 'hidden', border: '1px solid var(--brand-300)', background: '#f0f8f4', position: 'relative' }}>
-            <img src={page.thumb} alt="" style={{
-              position: 'absolute',
-              width: `${100 / ((field === 'sheetNum' ? page.sheetNumRect : page.titleRect)?.w || 0.3)}%`,
-              height: `${100 / ((field === 'sheetNum' ? page.sheetNumRect : page.titleRect)?.h || 0.2)}%`,
-              objectFit: 'fill',
-              left: `-${((field === 'sheetNum' ? page.sheetNumRect : page.titleRect)?.x || 0) / ((field === 'sheetNum' ? page.sheetNumRect : page.titleRect)?.w || 0.3) * 100}%`,
-              top: `-${((field === 'sheetNum' ? page.sheetNumRect : page.titleRect)?.y || 0) / ((field === 'sheetNum' ? page.sheetNumRect : page.titleRect)?.h || 0.2) * 100}%`,
-            }} />
-          </div>
-        ) : (
-          <div style={{ fontSize: 11, color: 'var(--text-subtle)', fontStyle: 'italic' }}>No area set</div>
-        )}
+      {/* Area crop preview — rendered from PDF at full resolution */}
+      <div style={{ padding: '10px 8px', display: 'flex', alignItems: 'center' }}>
+        <CropPreview page={page} rect={field === 'sheetNum' ? page.sheetNumRect : page.titleRect} />
       </div>
       {/* Editable field */}
       <div style={{ padding: '0 8px' }}>
