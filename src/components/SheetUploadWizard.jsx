@@ -124,46 +124,33 @@ async function extractEmbeddedText(fileId, bytes, pageNum, rect) {
   return items.map(i => i.str).join(' ').trim()
 }
 
-// Cache full-page OCR word results so multiple rect draws don't re-OCR.
-// Key: `${fileId}:${pageNum}`, value: Promise<{ words, W, H }>
-const ocrPageCache = new Map()
-
-async function getPageOcrWords(fileId, bytes, pageNum, existingCanvas = null) {
-  const key = `${fileId}:${pageNum}`
-  if (ocrPageCache.has(key)) return ocrPageCache.get(key)
-  const promise = (async () => {
-    let canvas = existingCanvas
-    if (!canvas) {
-      const pdf = await getPdfDoc(fileId, bytes)
-      const page = await pdf.getPage(pageNum)
-      const vp0 = page.getViewport({ scale: 1 })
-      const vp = page.getViewport({ scale: 1600 / vp0.width })
-      canvas = document.createElement('canvas')
-      canvas.width = Math.round(vp.width); canvas.height = Math.round(vp.height)
-      const ctx = canvas.getContext('2d')
-      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height)
-      await page.render({ canvasContext: ctx, viewport: vp }).promise
-    }
-    const worker = await getOcrWorker()
-    const { data } = await worker.recognize(canvas)
-    return { words: data.words || [], W: canvas.width, H: canvas.height }
-  })()
-  ocrPageCache.set(key, promise)
-  promise.catch(() => ocrPageCache.delete(key))
-  return promise
-}
-
-// OCR a rect on a page by scanning the full page and filtering word bboxes.
-// Full-page OCR gives Tesseract better context than a small crop.
-async function ocrRect(fileId, bytes, pageNum, rect, existingCanvas = null) {
-  const { words, W, H } = await getPageOcrWords(fileId, bytes, pageNum, existingCanvas)
-  const matched = words.filter(w => {
-    if (!w.bbox) return false
-    const cx = (w.bbox.x0 + w.bbox.x1) / 2 / W
-    const cy = (w.bbox.y0 + w.bbox.y1) / 2 / H
-    return cx >= rect.x && cx <= rect.x + rect.w && cy >= rect.y && cy <= rect.y + rect.h
-  })
-  return matched.map(w => w.text).join(' ').replace(/\s+/g, ' ').trim()
+// OCR a rect on a page by rendering just that region at high res and passing to Tesseract.
+// This mirrors exactly what CropPreview renders, so if the preview shows text, OCR will find it.
+async function ocrRect(fileId, bytes, pageNum, rect) {
+  const pdf = await getPdfDoc(fileId, bytes)
+  const page = await pdf.getPage(pageNum)
+  const vp0 = page.getViewport({ scale: 1 })
+  // Render so the selected rect fills ~800px wide (good OCR resolution)
+  const scale = 800 / (rect.w * vp0.width)
+  const vp = page.getViewport({ scale })
+  const full = document.createElement('canvas')
+  full.width = Math.round(vp.width); full.height = Math.round(vp.height)
+  const fctx = full.getContext('2d')
+  fctx.fillStyle = '#fff'; fctx.fillRect(0, 0, full.width, full.height)
+  await page.render({ canvasContext: fctx, viewport: vp }).promise
+  // Extract just the rect region
+  const srcX = Math.round(rect.x * vp.width)
+  const srcY = Math.round(rect.y * vp.height)
+  const srcW = Math.max(1, Math.round(rect.w * vp.width))
+  const srcH = Math.max(1, Math.round(rect.h * vp.height))
+  const crop = document.createElement('canvas')
+  crop.width = srcW; crop.height = srcH
+  const cctx = crop.getContext('2d')
+  cctx.fillStyle = '#fff'; cctx.fillRect(0, 0, srcW, srcH)
+  cctx.drawImage(full, srcX, srcY, srcW, srcH, 0, 0, srcW, srcH)
+  const worker = await getOcrWorker()
+  const { data } = await worker.recognize(crop)
+  return (data.text || '').replace(/\s+/g, ' ').trim()
 }
 
 function guessSheetNumber(items) {
