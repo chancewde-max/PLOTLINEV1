@@ -793,6 +793,28 @@ export default function SheetPage() {
       setMeasurePts([]); setMeasureCursor(null)
     }
     if (activeTool === 'linear' && linearVerts.length >= 2) finishLine()
+    // Insert vertex on double-click near edge of selected area
+    if (activeTool === 'select' && selectedArea) {
+      const p = toSheet(e)
+      const poly = selectedArea.poly
+      const threshold = 12 / ((zoom / 100) * FIT)
+      let bestDist = Infinity, bestIdx = -1, bestPt = null
+      for (let i = 0; i < poly.length; i++) {
+        const a = poly[i], b = poly[(i + 1) % poly.length]
+        const dx = b.x - a.x, dy = b.y - a.y
+        const len2 = dx*dx + dy*dy
+        if (len2 === 0) continue
+        const t = Math.max(0, Math.min(1, ((p.x-a.x)*dx + (p.y-a.y)*dy) / len2))
+        const nx = a.x + t*dx, ny = a.y + t*dy
+        const d = Math.hypot(p.x - nx, p.y - ny)
+        if (d < bestDist) { bestDist = d; bestIdx = i; bestPt = { x: nx, y: ny } }
+      }
+      if (bestIdx !== -1 && bestDist < threshold) {
+        const newPoly = [...poly.slice(0, bestIdx + 1), bestPt, ...poly.slice(bestIdx + 1)]
+        setAddedAreas(prev => prev.map(a => a.id === selectedId ? { ...a, poly: newPoly } : a))
+        e.stopPropagation()
+      }
+    }
   }
 
   // ---- Selection callbacks ----
@@ -830,6 +852,8 @@ export default function SheetPage() {
   const fLn  = (n)   => Math.round(n).toLocaleString()
   // Scale marker sizes proportionally to plan scale so they look right at any calibration
   const mk = pxPerFt * 0.25
+  // Zoom-invariant unit: 1 screen pixel in SVG coords regardless of CSS zoom
+  const u = 1 / ((zoom / 100) * FIT)
 
   const regionRes = {}
   const inPoints  = {}
@@ -1577,8 +1601,8 @@ export default function SheetPage() {
 
                 {/* Selection vertex handles for selected area */}
                 {activeTool === 'select' && selectedArea && selectedArea.poly.map((v, i) => (
-                  <rect key={i} x={v.x - 4*mk} y={v.y - 4*mk} width={8*mk} height={8*mk}
-                    fill="#fff" stroke="#000" strokeWidth={1.5*mk} style={{ cursor: 'move' }} />
+                  <rect key={i} x={v.x - 5*u} y={v.y - 5*u} width={10*u} height={10*u}
+                    fill="#fff" stroke="#000" strokeWidth={1.5*u} style={{ cursor: 'move' }} />
                 ))}
 
                 {/* Region outline */}
