@@ -125,29 +125,36 @@ async function extractEmbeddedText(fileId, bytes, pageNum, rect) {
 }
 
 // OCR a rect on a page by rendering just that region at high res and passing to Tesseract.
-// This mirrors exactly what CropPreview renders, so if the preview shows text, OCR will find it.
+// Adds padding so edge characters (like a leading "L") aren't clipped.
 async function ocrRect(fileId, bytes, pageNum, rect) {
   const pdf = await getPdfDoc(fileId, bytes)
   const page = await pdf.getPage(pageNum)
   const vp0 = page.getViewport({ scale: 1 })
-  // Render so the selected rect fills ~800px wide (good OCR resolution)
-  const scale = 800 / (rect.w * vp0.width)
+  // Render so the selected rect fills ~1600px wide for high accuracy
+  const scale = 1600 / (rect.w * vp0.width)
   const vp = page.getViewport({ scale })
   const full = document.createElement('canvas')
   full.width = Math.round(vp.width); full.height = Math.round(vp.height)
   const fctx = full.getContext('2d')
   fctx.fillStyle = '#fff'; fctx.fillRect(0, 0, full.width, full.height)
   await page.render({ canvasContext: fctx, viewport: vp }).promise
-  // Extract just the rect region
-  const srcX = Math.round(rect.x * vp.width)
-  const srcY = Math.round(rect.y * vp.height)
-  const srcW = Math.max(1, Math.round(rect.w * vp.width))
-  const srcH = Math.max(1, Math.round(rect.h * vp.height))
+  // Expand the crop rect by 15% on each side so edge characters aren't cut off
+  const pad = 0.15
+  const px = rect.x - rect.w * pad; const py = rect.y - rect.h * pad
+  const pw = rect.w * (1 + 2 * pad); const ph = rect.h * (1 + 2 * pad)
+  const srcX = Math.max(0, Math.round(px * vp.width))
+  const srcY = Math.max(0, Math.round(py * vp.height))
+  const srcX2 = Math.min(full.width, Math.round((px + pw) * vp.width))
+  const srcY2 = Math.min(full.height, Math.round((py + ph) * vp.height))
+  const srcW = Math.max(1, srcX2 - srcX)
+  const srcH = Math.max(1, srcY2 - srcY)
+  // Add white padding border so Tesseract doesn't treat crop edge as page edge
+  const border = 20
   const crop = document.createElement('canvas')
-  crop.width = srcW; crop.height = srcH
+  crop.width = srcW + border * 2; crop.height = srcH + border * 2
   const cctx = crop.getContext('2d')
-  cctx.fillStyle = '#fff'; cctx.fillRect(0, 0, srcW, srcH)
-  cctx.drawImage(full, srcX, srcY, srcW, srcH, 0, 0, srcW, srcH)
+  cctx.fillStyle = '#fff'; cctx.fillRect(0, 0, crop.width, crop.height)
+  cctx.drawImage(full, srcX, srcY, srcW, srcH, border, border, srcW, srcH)
   const worker = await getOcrWorker()
   const { data } = await worker.recognize(crop)
   return (data.text || '').replace(/\s+/g, ' ').trim()
