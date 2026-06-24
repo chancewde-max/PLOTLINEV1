@@ -60,16 +60,15 @@ export default function PdfCanvas({ url, width, height, onReuploadNeeded, pageNu
         if (!canvas) return
 
         const viewport0 = page.getViewport({ scale: 1 })
-        const scaleX = width / viewport0.width
-        const scaleY = height / viewport0.height
         const dpr = window.devicePixelRatio || 1
-        const scale = Math.min(scaleX, scaleY) * dpr * 3
+        // Render at 3× DPR so the plan is crisp when zoomed in
+        const scale = Math.min(width / viewport0.width, height / viewport0.height) * dpr * 3
 
         const viewport = page.getViewport({ scale })
         canvas.width = viewport.width
         canvas.height = viewport.height
-        canvas.style.width = '100%'
-        canvas.style.height = '100%'
+        // Do NOT force 100%/100% — that stretches when aspect ratios differ.
+        // object-fit: contain (set in JSX) handles sizing without distortion.
 
         const ctx = canvas.getContext('2d')
         await page.render({ canvasContext: ctx, viewport }).promise
@@ -100,6 +99,6 @@ export default function PdfCanvas({ url, width, height, onReuploadNeeded, pageNu
 
   return (
     <canvas ref={canvasRef}
-      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block', pointerEvents: 'none', zIndex: 0 }} />
+      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', objectPosition: 'top left', display: 'block', pointerEvents: 'none', zIndex: 0 }} />
   )
 }

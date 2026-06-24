@@ -128,6 +128,7 @@ export default function SheetPage() {
   // ---- Display settings ----
   const [dotSize, setDotSize]     = useState(3)   // count dot radius (svg units)
   const [strokeW, setStrokeW]     = useState(1)   // area/linear stroke multiplier
+  const [measureSize, setMeasureSize] = useState(1) // measure label/tick size multiplier
   const [exportOpen, setExportOpen] = useState(false)
   const [quoteOpen, setQuoteOpen]   = useState(false)
   const [quoteVendor, setQuoteVendor] = useState('')
@@ -1141,6 +1142,17 @@ export default function SheetPage() {
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, minWidth: 38, textAlign: 'right' }}>{strokeW.toFixed(1)}×</span>
             </div>
           </div>
+          <div>
+            <div className={s.popHead}>Measure label size</div>
+            <div className={s.fsRow}>
+              <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>ft</span>
+              <input type="range" min="0.3" max="3" step="0.1" value={measureSize}
+                style={{ flex: 1, accentColor: 'var(--brand-600)' }}
+                onChange={e => setMeasureSize(parseFloat(e.target.value))} />
+              <span style={{ fontSize: 13, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>ft</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, minWidth: 38, textAlign: 'right' }}>{measureSize.toFixed(1)}×</span>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1503,56 +1515,60 @@ export default function SheetPage() {
                 {/* Measure tool — completed sessions */}
                 {activeTool === 'measure' && measureSessions.map((sess, si) => {
                   const col = sess.color
+                  const ms = measureSize
                   const segs = sess.pts.slice(0, -1).map((a, k) => ({ a, b: sess.pts[k+1], ft: lnft(dist(a, sess.pts[k+1])) }))
                   const total = segs.reduce((s, sg) => s + sg.ft, 0)
                   return (
                     <g key={si}>
                       <polyline points={sess.pts.map(p => `${p.x},${p.y}`).join(' ')}
-                        fill="none" stroke={col} strokeWidth="2.5" strokeLinecap="round" />
+                        fill="none" stroke={col} strokeWidth={2.5 * ms} strokeLinecap="round" />
                       {segs.map((seg, i) => (
-                        <text key={i} x={(seg.a.x+seg.b.x)/2} y={(seg.a.y+seg.b.y)/2 - 8}
+                        <text key={i} x={(seg.a.x+seg.b.x)/2} y={(seg.a.y+seg.b.y)/2 - 8*ms}
                           textAnchor="middle" fill={col}
-                          fontFamily="var(--font-mono)" fontSize="10" fontWeight="600">
+                          fontFamily="var(--font-mono)" fontSize={10 * ms} fontWeight="600">
                           {fLn(seg.ft)} ft
                         </text>
                       ))}
                       {sess.pts.map((p, i) => (
                         <g key={i}>
-                          <line x1={p.x} y1={p.y-8} x2={p.x} y2={p.y+8} stroke={col} strokeWidth="1.5" />
-                          <circle cx={p.x} cy={p.y} r="3.5" fill={col} />
+                          <line x1={p.x} y1={p.y - 8*ms} x2={p.x} y2={p.y + 8*ms} stroke={col} strokeWidth={1.5 * ms} />
+                          <circle cx={p.x} cy={p.y} r={3.5 * ms} fill={col} />
                         </g>
                       ))}
-                      {segs.length > 0 && (() => {
+                      {segs.length > 1 && (() => {
                         const last = sess.pts[sess.pts.length - 1]
-                        return <text x={last.x + 6} y={last.y - 6} fill={col} fontFamily="var(--font-mono)" fontSize="11" fontWeight="700">{fLn(total)} ft</text>
+                        return <text x={last.x + 6*ms} y={last.y - 6*ms} fill={col} fontFamily="var(--font-mono)" fontSize={11 * ms} fontWeight="700">Σ {fLn(total)} ft</text>
                       })()}
                     </g>
                   )
                 })}
 
                 {/* Measure tool — current in-progress */}
-                {activeTool === 'measure' && (
-                  <g>
-                    {measureAllPts.length >= 2 && (
-                      <polyline points={measureAllPts.map(p => `${p.x},${p.y}`).join(' ')}
-                        fill="none" stroke={measureColor} strokeWidth="2.5"
-                        strokeDasharray="6 4" strokeLinecap="round" />
-                    )}
-                    {measureSegments.map((seg, i) => (
-                      <text key={i} x={(seg.a.x+seg.b.x)/2} y={(seg.a.y+seg.b.y)/2 - 8}
-                        textAnchor="middle" fill={measureColor}
-                        fontFamily="var(--font-mono)" fontSize="11" fontWeight="600">
-                        {fLn(seg.ft)} ft
-                      </text>
-                    ))}
-                    {measureAllPts.map((p, i) => (
-                      <g key={i}>
-                        <line x1={p.x} y1={p.y-9} x2={p.x} y2={p.y+9} stroke={measureColor} strokeWidth="2" />
-                        <circle cx={p.x} cy={p.y} r="4" fill={measureColor} />
-                      </g>
-                    ))}
-                  </g>
-                )}
+                {activeTool === 'measure' && (() => {
+                  const ms = measureSize
+                  return (
+                    <g>
+                      {measureAllPts.length >= 2 && (
+                        <polyline points={measureAllPts.map(p => `${p.x},${p.y}`).join(' ')}
+                          fill="none" stroke={measureColor} strokeWidth={2.5 * ms}
+                          strokeDasharray={`${6*ms} ${4*ms}`} strokeLinecap="round" />
+                      )}
+                      {measureSegments.map((seg, i) => (
+                        <text key={i} x={(seg.a.x+seg.b.x)/2} y={(seg.a.y+seg.b.y)/2 - 8*ms}
+                          textAnchor="middle" fill={measureColor}
+                          fontFamily="var(--font-mono)" fontSize={11 * ms} fontWeight="600">
+                          {fLn(seg.ft)} ft
+                        </text>
+                      ))}
+                      {measureAllPts.map((p, i) => (
+                        <g key={i}>
+                          <line x1={p.x} y1={p.y - 9*ms} x2={p.x} y2={p.y + 9*ms} stroke={measureColor} strokeWidth={2 * ms} />
+                          <circle cx={p.x} cy={p.y} r={4 * ms} fill={measureColor} />
+                        </g>
+                      ))}
+                    </g>
+                  )
+                })()}
 
                 {/* Scale line */}
                 {activeTool === 'scale' && (() => {
@@ -1663,8 +1679,8 @@ export default function SheetPage() {
               segments={measureSegments}
               totalFt={measureTotalFt}
               fLn={fLn} lnft={lnft} dist={dist}
-              color={measureColor}
-              onColorChange={setMeasureColor}
+              color={measureColor} onColorChange={setMeasureColor}
+              measureSize={measureSize} onMeasureSizeChange={setMeasureSize}
               onReset={() => { setMeasurePts([]); setMeasureDone(false); setMeasureCursor(null); setMeasureSessions([]) }}
               fs={fs}
             />
@@ -2673,7 +2689,7 @@ function CountPanel({ countType, onSetCountType, addedPoints, countGroups, activ
 const MEASURE_COLORS = ['#e11d48','#2563eb','#16a34a','#d97706','#7c3aed','#0891b2','#ea580c','#0f172a']
 
 // ---- Measure panel ---------------------------------------------------------
-function MeasurePanel({ sessions, segments, totalFt, fLn, lnft, dist, onReset, fs, color, onColorChange }) {
+function MeasurePanel({ sessions, segments, totalFt, fLn, lnft, dist, onReset, fs, color, onColorChange, measureSize, onMeasureSizeChange }) {
   const grandTotal = sessions.reduce((s, sess) => {
     const segs = sess.pts.slice(0, -1).map((a, k) => lnft(dist(a, sess.pts[k+1])))
     return s + segs.reduce((x, v) => x + v, 0)
@@ -2690,14 +2706,25 @@ function MeasurePanel({ sessions, segments, totalFt, fLn, lnft, dist, onReset, f
         </p>
       </div>
 
-      {/* Color picker */}
-      <div style={{ padding: '10px 20px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span style={{ fontSize: `calc(11px * ${fs})`, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Color</span>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {MEASURE_COLORS.map(c => (
-            <button key={c} onClick={() => onColorChange(c)}
-              style={{ width: 22, height: 22, borderRadius: '50%', background: c, border: `3px solid ${color === c ? 'var(--text-strong)' : 'transparent'}`, cursor: 'pointer', padding: 0, outline: 'none', flexShrink: 0 }} />
-          ))}
+      {/* Color + size controls */}
+      <div style={{ padding: '10px 20px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: `calc(11px * ${fs})`, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', minWidth: 42 }}>Color</span>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {MEASURE_COLORS.map(c => (
+              <button key={c} onClick={() => onColorChange(c)}
+                style={{ width: 20, height: 20, borderRadius: '50%', background: c, border: `3px solid ${color === c ? 'var(--text-strong)' : 'transparent'}`, cursor: 'pointer', padding: 0, outline: 'none', flexShrink: 0 }} />
+            ))}
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: `calc(11px * ${fs})`, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', minWidth: 42 }}>Size</span>
+          <span style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>ft</span>
+          <input type="range" min="0.3" max="3" step="0.1" value={measureSize}
+            style={{ flex: 1, accentColor: color }}
+            onChange={e => onMeasureSizeChange(parseFloat(e.target.value))} />
+          <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-muted)' }}>ft</span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(11px * ${fs})`, minWidth: 28, textAlign: 'right', color: 'var(--text-strong)' }}>{measureSize.toFixed(1)}×</span>
         </div>
       </div>
 
