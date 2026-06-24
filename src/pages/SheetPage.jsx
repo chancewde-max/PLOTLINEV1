@@ -1714,13 +1714,15 @@ export default function SheetPage() {
                 {/* Scale line */}
                 {activeTool === 'scale' && (() => {
                   const pts = [...scalePts, ...(scalePts.length === 1 && regionCursor ? [regionCursor] : [])]
+                  const u = 1 / ((zoom / 100) * FIT)
                   return (
                     <g>
-                      {pts.length === 2 && <line x1={pts[0].x} y1={pts[0].y} x2={pts[1].x} y2={pts[1].y} stroke="var(--brand-600)" strokeWidth="2.5" />}
+                      {pts.length === 2 && <line x1={pts[0].x} y1={pts[0].y} x2={pts[1].x} y2={pts[1].y} stroke="var(--brand-600)" strokeWidth={1.5*u} />}
                       {pts.map((p, i) => (
                         <g key={i}>
-                          <line x1={p.x} y1={p.y-9*mk} x2={p.x} y2={p.y+9*mk} stroke="var(--brand-600)" strokeWidth={2.5*mk} />
-                          <circle cx={p.x} cy={p.y} r={4*mk} fill="var(--brand-600)" />
+                          <line x1={p.x} y1={p.y-8*u} x2={p.x} y2={p.y+8*u} stroke="var(--brand-600)" strokeWidth={1.5*u} />
+                          <line x1={p.x-8*u} y1={p.y} x2={p.x+8*u} y2={p.y} stroke="var(--brand-600)" strokeWidth={1.5*u} />
+                          <circle cx={p.x} cy={p.y} r={3*u} fill="var(--brand-600)" />
                         </g>
                       ))}
                     </g>
