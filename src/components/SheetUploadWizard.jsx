@@ -123,10 +123,10 @@ async function extractTextInRect(fileId, bytes, pageNum, rect) {
   const embedded = items.map(i => i.str).join(' ').trim()
   if (embedded) return embedded
 
-  // No embedded text — OCR the region from the rendered PDF
-  const dpr = Math.max(window.devicePixelRatio || 1, 2)
-  const cropW = 640
-  const scale = (cropW * dpr) / (rect.w * vp.width)
+  // No embedded text — render the region at high res and OCR it
+  // Render the crop region at ~300 DPI equivalent (large enough for Tesseract)
+  const targetCropPx = 1600 // wider = more detail = better OCR
+  const scale = targetCropPx / (rect.w * vp.width)
   const vpScaled = page.getViewport({ scale })
   const full = document.createElement('canvas')
   full.width = Math.round(vpScaled.width)
@@ -139,12 +139,46 @@ async function extractTextInRect(fileId, bytes, pageNum, rect) {
   const sy = Math.round(rect.y * full.height)
   const sw = Math.round(rect.w * full.width)
   const sh = Math.round(rect.h * full.height)
+  // Extract the crop region
   const crop = document.createElement('canvas')
-  crop.width = sw; crop.height = sh
+  crop.width = Math.max(1, sw); crop.height = Math.max(1, sh)
   crop.getContext('2d').drawImage(full, sx, sy, sw, sh, 0, 0, sw, sh)
+  // Preprocess for OCR: grayscale + adaptive threshold for clean B&W
+  const processed = preprocessForOcr(crop)
   const worker = await getOcrWorker()
-  const { data } = await worker.recognize(crop)
-  return data.text.replace(/\n/g, ' ').trim()
+  await worker.setParameters({ tessedit_pagesegmode: sh < sw * 0.4 ? '7' : '6' })
+  const { data } = await worker.recognize(processed)
+  return data.text.replace(/\s+/g, ' ').trim()
+}
+
+function preprocessForOcr(src) {
+  const canvas = document.createElement('canvas')
+  // Scale up small crops so characters are at least 30px tall
+  const scale = Math.max(1, Math.ceil(60 / src.height))
+  canvas.width = src.width * scale
+  canvas.height = src.height * scale
+  const ctx = canvas.getContext('2d')
+  ctx.imageSmoothingEnabled = scale > 1
+  ctx.imageSmoothingQuality = 'high'
+  ctx.fillStyle = '#fff'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.drawImage(src, 0, 0, canvas.width, canvas.height)
+  // Grayscale + threshold to clean B&W
+  const img = ctx.getImageData(0, 0, canvas.width, canvas.height)
+  const d = img.data
+  // Compute mean luminance for adaptive threshold
+  let sum = 0
+  for (let i = 0; i < d.length; i += 4) sum += 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]
+  const mean = sum / (d.length / 4)
+  const threshold = Math.min(mean * 0.85, 200) // bias toward keeping dark text
+  for (let i = 0; i < d.length; i += 4) {
+    const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]
+    const v = lum < threshold ? 0 : 255
+    d[i] = d[i + 1] = d[i + 2] = v
+    d[i + 3] = 255
+  }
+  ctx.putImageData(img, 0, 0)
+  return canvas
 }
 
 function guessSheetNumber(items) {
