@@ -801,6 +801,8 @@ export default function SheetPage() {
   const lnft = (px)  => px  / pxPerFt
   const fSq  = (n)   => (Math.round(n / 5) * 5).toLocaleString()
   const fLn  = (n)   => Math.round(n).toLocaleString()
+  // Scale marker sizes proportionally to plan scale so they look right at any calibration
+  const mk = pxPerFt * 0.25
 
   const regionRes = {}
   const inPoints  = {}
@@ -1357,7 +1359,7 @@ export default function SheetPage() {
                   const sharedProps = {
                     fill: areaColor, fillOpacity: fillOp,
                     stroke: isSelected ? '#000' : areaColor,
-                    strokeOpacity: strokeOp, strokeWidth: isSelected ? strokeW * 2 : strokeW * 0.75,
+                    strokeOpacity: strokeOp, strokeWidth: isSelected ? strokeW * mk * 2 : strokeW * mk * 0.75,
                     strokeDasharray: isSelected ? '0' : undefined,
                   }
                   return hasArcs
@@ -1373,10 +1375,10 @@ export default function SheetPage() {
                       return hasArcs
                         ? <path key={a.id} d={buildAreaPath(a.poly, a.arcSegs)}
                             fill={CAT_COLOR[a.type]} fillOpacity="0.28"
-                            stroke={CAT_COLOR[a.type]} strokeWidth="1" />
+                            stroke={CAT_COLOR[a.type]} strokeWidth={mk} />
                         : <polygon key={a.id} points={a.poly.map(p => `${p.x},${p.y}`).join(' ')}
                             fill={CAT_COLOR[a.type]} fillOpacity="0.28"
-                            stroke={CAT_COLOR[a.type]} strokeWidth="1" />
+                            stroke={CAT_COLOR[a.type]} strokeWidth={mk} />
                     })}
                   </g>
                 )}
@@ -1390,7 +1392,7 @@ export default function SheetPage() {
                     <polyline key={l.id}
                       points={l.pts.map(p => `${p.x},${p.y}`).join(' ')}
                       fill="none" stroke={CAT_COLOR[l.type]}
-                      strokeOpacity={dim ? 0.25 : 1} strokeWidth={strokeW * (isIn ? 2.5 : 1.5)}
+                      strokeOpacity={dim ? 0.25 : 1} strokeWidth={strokeW * mk * (isIn ? 2.5 : 1.5)}
                       strokeLinecap="round" strokeLinejoin="round" />
                   )
                 })}
@@ -1407,7 +1409,7 @@ export default function SheetPage() {
                   const sharedProps = {
                     fill: 'none', stroke: lineColor,
                     strokeOpacity: dim ? 0.25 : 1,
-                    strokeWidth: strokeW * (isSelected ? 2.5 : (isIn ? 2.5 : 1.5)),
+                    strokeWidth: strokeW * mk * (isSelected ? 2.5 : (isIn ? 2.5 : 1.5)),
                     strokeLinecap: 'round', strokeLinejoin: 'round',
                     strokeDasharray: isSelected ? '6 3' : undefined,
                   }
@@ -1422,13 +1424,13 @@ export default function SheetPage() {
                   const isSelected = selectedId === p.id
                   const dim = (activeTool === 'region' && hasRegion && !isIn) || !catActive.has(p.type)
                   const col = p.color || CAT_COLOR[p.type]
-                  const dr = dotSize
+                  const dr = dotSize * mk
                   return (
                     <g key={p.id} opacity={dim ? 0.22 : 1}>
                       {(isIn || isSelected) && <circle cx={p.x} cy={p.y} r={dr * 2.3} fill={col} opacity="0.15" />}
                       <circle cx={p.x} cy={p.y} r={isIn || isSelected ? dr * 1.33 : dr}
                         fill={(isIn || isSelected) ? col : '#fff'} stroke={isSelected ? '#000' : col}
-                        strokeWidth={(isIn || isSelected) ? strokeW * 1.5 : strokeW} />
+                        strokeWidth={(isIn || isSelected) ? strokeW * mk * 1.5 : strokeW * mk} />
                       {(isIn || isSelected) && <circle cx={p.x} cy={p.y} r={dr * 0.4} fill="#fff" />}
                     </g>
                   )
@@ -1436,8 +1438,8 @@ export default function SheetPage() {
 
                 {/* Selection vertex handles for selected area */}
                 {activeTool === 'select' && selectedArea && selectedArea.poly.map((v, i) => (
-                  <rect key={i} x={v.x - 4} y={v.y - 4} width="8" height="8"
-                    fill="#fff" stroke="#000" strokeWidth="1.5" style={{ cursor: 'move' }} />
+                  <rect key={i} x={v.x - 4*mk} y={v.y - 4*mk} width={8*mk} height={8*mk}
+                    fill="#fff" stroke="#000" strokeWidth={1.5*mk} style={{ cursor: 'move' }} />
                 ))}
 
                 {/* Region outline */}
@@ -1446,17 +1448,17 @@ export default function SheetPage() {
                     points={previewPoly.map(p => `${p.x},${p.y}`).join(' ')}
                     fill={activeFolder?.color || 'var(--brand-600)'} fillOpacity="0.04"
                     stroke={activeFolder?.color || 'var(--brand-600)'}
-                    strokeWidth="2.5" strokeDasharray={isDrawingRegion ? '7 5' : '0'} strokeLinejoin="round" />
+                    strokeWidth={2.5*mk} strokeDasharray={isDrawingRegion ? `${7*mk} ${5*mk}` : '0'} strokeLinejoin="round" />
                 )}
                 {activeTool === 'region' && isDrawingRegion && regionVerts.map((v, i) => (
                   <circle key={i} cx={v.x} cy={v.y}
-                    r={i === 0 && regionVerts.length >= 3 ? 7 : 4.5}
+                    r={i === 0 && regionVerts.length >= 3 ? 7*mk : 4.5*mk}
                     fill={i === 0 && regionVerts.length >= 3 ? '#fff' : (activeFolder?.color || 'var(--brand-600)')}
-                    stroke={activeFolder?.color || 'var(--brand-600)'} strokeWidth="2.5" />
+                    stroke={activeFolder?.color || 'var(--brand-600)'} strokeWidth={2.5*mk} />
                 ))}
                 {activeTool === 'region' && !isDrawingRegion && regionPoly.map((v, i) => (
-                  <rect key={i} x={v.x - 6} y={v.y - 6} width="12" height="12"
-                    fill="#fff" stroke={activeFolder?.color || 'var(--brand-600)'} strokeWidth="2"
+                  <rect key={i} x={v.x - 6*mk} y={v.y - 6*mk} width={12*mk} height={12*mk}
+                    fill="#fff" stroke={activeFolder?.color || 'var(--brand-600)'} strokeWidth={2*mk}
                     style={{ cursor: 'move' }}
                     onMouseDown={e => { e.stopPropagation(); dragRegionVertRef.current = i }}
                   />
@@ -1469,24 +1471,24 @@ export default function SheetPage() {
                     <>
                       <path d={pathD}
                         fill={CAT_COLOR[areaType] || '#888'} fillOpacity="0.15"
-                        stroke={CAT_COLOR[areaType] || '#888'} strokeWidth="2"
-                        strokeDasharray="6 4" strokeLinejoin="round" />
+                        stroke={CAT_COLOR[areaType] || '#888'} strokeWidth={2*mk}
+                        strokeDasharray={`${6*mk} ${4*mk}`} strokeLinejoin="round" />
                       {pendingArcThrough && (
-                        <circle cx={pendingArcThrough.x} cy={pendingArcThrough.y} r="6"
+                        <circle cx={pendingArcThrough.x} cy={pendingArcThrough.y} r={6*mk}
                           fill={CAT_COLOR[areaType] || '#888'} opacity="0.8" />
                       )}
                       {arcMode && !pendingArcThrough && areaCursor && (
-                        <circle cx={areaCursor.x} cy={areaCursor.y} r="5"
-                          fill="none" stroke={CAT_COLOR[areaType] || '#888'} strokeWidth="2" strokeDasharray="3 2" />
+                        <circle cx={areaCursor.x} cy={areaCursor.y} r={5*mk}
+                          fill="none" stroke={CAT_COLOR[areaType] || '#888'} strokeWidth={2*mk} strokeDasharray={`${3*mk} ${2*mk}`} />
                       )}
                     </>
                   )
                 })()}
                 {activeTool === 'area' && areaVerts.map((v, i) => (
                   <circle key={i} cx={v.x} cy={v.y}
-                    r={i === 0 && areaVerts.length >= 3 ? 7 : 4}
+                    r={i === 0 && areaVerts.length >= 3 ? 7*mk : 4*mk}
                     fill={i === 0 && areaVerts.length >= 3 ? '#fff' : (CAT_COLOR[areaType] || '#888')}
-                    stroke={CAT_COLOR[areaType] || '#888'} strokeWidth="2" />
+                    stroke={CAT_COLOR[areaType] || '#888'} strokeWidth={2*mk} />
                 ))}
 
                 {/* Linear drawing overlay */}
@@ -1496,10 +1498,10 @@ export default function SheetPage() {
                     <>
                       <path d={pathD}
                         fill="none"
-                        stroke={CAT_COLOR[linearType] || '#888'} strokeWidth="3"
-                        strokeDasharray="6 4" strokeLinecap="round" strokeLinejoin="round" />
+                        stroke={CAT_COLOR[linearType] || '#888'} strokeWidth={3*mk}
+                        strokeDasharray={`${6*mk} ${4*mk}`} strokeLinecap="round" strokeLinejoin="round" />
                       {pendingArcThrough && (
-                        <circle cx={pendingArcThrough.x} cy={pendingArcThrough.y} r="6"
+                        <circle cx={pendingArcThrough.x} cy={pendingArcThrough.y} r={6*mk}
                           fill={CAT_COLOR[linearType] || '#888'} opacity="0.8" />
                       )}
                     </>
@@ -1507,15 +1509,15 @@ export default function SheetPage() {
                 })()}
                 {activeTool === 'linear' && linearVerts.map((v, i) => (
                   <g key={i}>
-                    <line x1={v.x} y1={v.y - 7} x2={v.x} y2={v.y + 7} stroke={CAT_COLOR[linearType] || '#888'} strokeWidth="2" />
-                    <circle cx={v.x} cy={v.y} r="4" fill={CAT_COLOR[linearType] || '#888'} />
+                    <line x1={v.x} y1={v.y - 7*mk} x2={v.x} y2={v.y + 7*mk} stroke={CAT_COLOR[linearType] || '#888'} strokeWidth={2*mk} />
+                    <circle cx={v.x} cy={v.y} r={4*mk} fill={CAT_COLOR[linearType] || '#888'} />
                   </g>
                 ))}
 
                 {/* Measure tool — completed sessions */}
                 {activeTool === 'measure' && measureSessions.map((sess, si) => {
                   const col = sess.color
-                  const ms = measureSize
+                  const ms = measureSize * mk
                   const segs = sess.pts.slice(0, -1).map((a, k) => ({ a, b: sess.pts[k+1], ft: lnft(dist(a, sess.pts[k+1])) }))
                   const total = segs.reduce((s, sg) => s + sg.ft, 0)
                   return (
@@ -1545,7 +1547,7 @@ export default function SheetPage() {
 
                 {/* Measure tool — current in-progress */}
                 {activeTool === 'measure' && (() => {
-                  const ms = measureSize
+                  const ms = measureSize * mk
                   return (
                     <g>
                       {measureAllPts.length >= 2 && (
@@ -1578,13 +1580,44 @@ export default function SheetPage() {
                       {pts.length === 2 && <line x1={pts[0].x} y1={pts[0].y} x2={pts[1].x} y2={pts[1].y} stroke="var(--brand-600)" strokeWidth="2.5" />}
                       {pts.map((p, i) => (
                         <g key={i}>
-                          <line x1={p.x} y1={p.y-9} x2={p.x} y2={p.y+9} stroke="var(--brand-600)" strokeWidth="2.5" />
-                          <circle cx={p.x} cy={p.y} r="4" fill="var(--brand-600)" />
+                          <line x1={p.x} y1={p.y-9*mk} x2={p.x} y2={p.y+9*mk} stroke="var(--brand-600)" strokeWidth={2.5*mk} />
+                          <circle cx={p.x} cy={p.y} r={4*mk} fill="var(--brand-600)" />
                         </g>
                       ))}
                     </g>
                   )
                 })()}
+
+                {/* Count group dots — SVG so they scale with plan zoom/scale */}
+                {countGroups.map(g =>
+                  g.points.map(p => {
+                    const isSelected = selectedId === p.id
+                    const r = dotSize * mk * (isSelected ? 1.5 : 1)
+                    const sw = strokeW * mk * (isSelected ? 1.5 : 1)
+                    const col = g.color
+                    const bdr = isSelected ? '#000' : col
+                    if (g.shape === 'circle') {
+                      return (
+                        <circle key={p.id} cx={p.x} cy={p.y} r={r}
+                          fill={col} stroke={bdr} strokeWidth={sw}
+                          style={{ filter: 'drop-shadow(0 0 1px #fff)' }} />
+                      )
+                    } else if (g.shape === 'square') {
+                      return (
+                        <rect key={p.id} x={p.x - r} y={p.y - r} width={r*2} height={r*2}
+                          fill={col} stroke={bdr} strokeWidth={sw}
+                          style={{ filter: 'drop-shadow(0 0 1px #fff)' }} />
+                      )
+                    } else { // diamond
+                      return (
+                        <rect key={p.id} x={p.x - r} y={p.y - r} width={r*2} height={r*2}
+                          fill={col} stroke={bdr} strokeWidth={sw}
+                          transform={`rotate(45,${p.x},${p.y})`}
+                          style={{ filter: 'drop-shadow(0 0 1px #fff)' }} />
+                      )
+                    }
+                  })
+                )}
 
                 {/* Box select rectangle */}
                 {boxSelect && (
@@ -1605,29 +1638,6 @@ export default function SheetPage() {
                 )
               })}
 
-              {/* Count group dots - colored by group, sized by dotSize */}
-              {countGroups.map(g =>
-                g.points.map(p => {
-                  const isSelected = selectedId === p.id
-                  const sz = dotSize * 2 * (isSelected ? 1.5 : 1)
-                  return (
-                    <div key={p.id + '-dot'} style={{
-                      position: 'absolute',
-                      left: `${(p.x/SHEET_W)*100}%`,
-                      top: `${(p.y/SHEET_H)*100}%`,
-                      transform: 'translate(-50%, -50%)',
-                      width: sz,
-                      height: sz,
-                      borderRadius: g.shape === 'square' ? Math.max(1, sz * 0.1) : g.shape === 'diamond' ? 0 : '50%',
-                      background: g.color,
-                      border: isSelected ? `${strokeW * 1.5}px solid #000` : `${strokeW}px solid ${g.color}`,
-                      pointerEvents: 'none',
-                      rotate: g.shape === 'diamond' ? '45deg' : undefined,
-                      boxShadow: '0 0 0 1px #fff',
-                    }} />
-                  )
-                })
-              )}
 
             </div>
           </div>
