@@ -38,28 +38,38 @@ async function renderPageThumb(page, thumbW = 220) {
   return { thumb: canvas.toDataURL('image/jpeg', 0.75), aspect: vp.height / vp.width }
 }
 
-// Render just the rect region of a PDF page at high res, returns a dataURL
+// Render just the rect region of a PDF page at high res, returns a dataURL.
+// Renders the full page at a scale where rect.w fills cropW pixels, then
+// uses drawImage to extract just that region — handles rotated pages correctly.
 async function renderRectCrop(bytes, pageNum, rect, cropW = 320) {
   const pdf = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise
   const page = await pdf.getPage(pageNum)
-  const vp0 = page.getViewport({ scale: 1 })
   const dpr = Math.max(window.devicePixelRatio || 1, 2)
-  // Scale so the cropped region fills cropW logical pixels
-  const scale = (cropW / (rect.w * vp0.width)) * dpr
+  const vp0 = page.getViewport({ scale: 1 })
+  // Scale so the rect's width maps to cropW*dpr device pixels
+  const scale = (cropW * dpr) / (rect.w * vp0.width)
   const vp = page.getViewport({ scale })
-  // Offset the viewport so the rect region starts at (0,0)
-  const offsetX = -rect.x * vp0.width * scale
-  const offsetY = -rect.y * vp0.height * scale
-  const cropH = Math.round(rect.h * vp0.height * scale)
-  const canvas = document.createElement('canvas')
-  canvas.width = cropW * dpr
-  canvas.height = cropH
-  const ctx = canvas.getContext('2d')
+  // Render full page at this scale
+  const full = document.createElement('canvas')
+  full.width = Math.round(vp.width)
+  full.height = Math.round(vp.height)
+  const fctx = full.getContext('2d')
+  fctx.fillStyle = '#fff'
+  fctx.fillRect(0, 0, full.width, full.height)
+  await page.render({ canvasContext: fctx, viewport: vp }).promise
+  // Crop the rect region from the rendered canvas (y from top, matches screen coords)
+  const srcX = Math.round(rect.x * full.width)
+  const srcY = Math.round(rect.y * full.height)
+  const srcW = Math.round(rect.w * full.width)
+  const srcH = Math.round(rect.h * full.height)
+  const out = document.createElement('canvas')
+  out.width = cropW * dpr
+  out.height = Math.max(1, srcH)
+  const ctx = out.getContext('2d')
   ctx.fillStyle = '#fff'
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
-  const transform = [scale, 0, 0, scale, offsetX, offsetY]
-  await page.render({ canvasContext: ctx, viewport: { ...vp, transform } }).promise
-  return canvas.toDataURL('image/png')
+  ctx.fillRect(0, 0, out.width, out.height)
+  ctx.drawImage(full, srcX, srcY, srcW, srcH, 0, 0, out.width, out.height)
+  return out.toDataURL('image/png')
 }
 
 async function renderPageFull(bytes, pageNum, targetW = 1600) {
@@ -270,7 +280,25 @@ function FullPageAreaPicker({ pages, startIndex = 0, field, onSave, onCancel }) 
   }
 
   const handleSave = () => {
-    onSave(rect, extracted || '', pages.map(p => p.id))
+    let cropUrl = null
+    if (canvas && rect) {
+      const cropW = 320
+      const dpr = Math.max(window.devicePixelRatio || 1, 2)
+      const sx = Math.round(rect.x * canvas.width)
+      const sy = Math.round(rect.y * canvas.height)
+      const sw = Math.round(rect.w * canvas.width)
+      const sh = Math.round(rect.h * canvas.height)
+      const cropH = Math.max(1, Math.round(sh * (cropW * dpr) / sw))
+      const out = document.createElement('canvas')
+      out.width = cropW * dpr
+      out.height = cropH
+      const ctx = out.getContext('2d')
+      ctx.fillStyle = '#fff'
+      ctx.fillRect(0, 0, out.width, out.height)
+      ctx.drawImage(canvas, sx, sy, sw, sh, 0, 0, out.width, out.height)
+      cropUrl = out.toDataURL('image/png')
+    }
+    onSave(rect, extracted || '', pages.map(p => p.id), cropUrl)
   }
 
   const rectStyle = r => r ? ({
@@ -332,22 +360,10 @@ function FullPageAreaPicker({ pages, startIndex = 0, field, onSave, onCancel }) 
 }
 
 // ---- Crisp crop preview from PDF bytes -------------------------------------
-function CropPreview({ page, rect }) {
-  const [dataUrl, setDataUrl] = useState(null)
-  useEffect(() => {
-    if (!rect) { setDataUrl(null); return }
-    let cancelled = false
-    const bytes = pdfCache.get(page.fileId)
-    if (!bytes) return
-    renderRectCrop(bytes, page.pageIndex, rect, 320).then(url => {
-      if (!cancelled) setDataUrl(url)
-    })
-    return () => { cancelled = true }
-  }, [page.fileId, page.pageIndex, rect?.x, rect?.y, rect?.w, rect?.h])
-
+function CropPreview({ page, rect, cropUrl }) {
   if (!rect) return <div style={{ fontSize: 11, color: 'var(--text-subtle)', fontStyle: 'italic' }}>No area set</div>
-  if (!dataUrl) return <div style={{ width: 140, height: 44, borderRadius: 4, background: 'var(--surface-sunken)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Loader size={13} style={{ animation: 'spin 1s linear infinite', color: 'var(--text-subtle)' }} /></div>
-  return <img src={dataUrl} alt="area preview" style={{ maxWidth: 180, maxHeight: 60, borderRadius: 4, border: '1px solid var(--border-subtle)', display: 'block', imageRendering: 'crisp-edges' }} />
+  if (!cropUrl) return <div style={{ width: 140, height: 44, borderRadius: 4, background: 'var(--surface-sunken)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Loader size={13} style={{ animation: 'spin 1s linear infinite', color: 'var(--text-subtle)' }} /></div>
+  return <img src={cropUrl} alt="area preview" style={{ maxWidth: 180, maxHeight: 60, borderRadius: 4, border: '1px solid var(--border-subtle)', display: 'block', imageRendering: 'crisp-edges' }} />
 }
 
 // ---- Sheet table row --------------------------------------------------------
@@ -372,7 +388,7 @@ function SheetRow({ page, field, checked, onCheck, onUpdate, onRemove, rowH, onP
       </div>
       {/* Area crop preview — rendered from PDF at full resolution */}
       <div style={{ padding: '10px 8px', display: 'flex', alignItems: 'center' }}>
-        <CropPreview page={page} rect={field === 'sheetNum' ? page.sheetNumRect : page.titleRect} />
+        <CropPreview page={page} rect={field === 'sheetNum' ? page.sheetNumRect : page.titleRect} cropUrl={field === 'sheetNum' ? page.sheetNumCrop : page.titleCrop} />
       </div>
       {/* Editable field */}
       <div style={{ padding: '0 8px' }}>
@@ -430,15 +446,15 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
   // Pages to show in the picker = currently selected (or all if none selected)
   const pickerPages = pages.filter(p => selected.size === 0 || selected.has(p.id))
 
-  const handlePickerSave = (rect, text, pageIds) => {
+  const handlePickerSave = (rect, text, pageIds, cropUrl) => {
     const rectField = pickerField === 'sheetNum' ? 'sheetNumRect' : 'titleRect'
+    const cropField = pickerField === 'sheetNum' ? 'sheetNumCrop' : 'titleCrop'
     const idSet = new Set(pageIds)
     setPages(ps => ps.map(p => {
       if (!idSet.has(p.id)) return p
-      const updated = { ...p, [rectField]: rect }
-      // If field was empty, fill it with extracted text
-      if (pickerField === 'sheetNum' && !p.sheetNum) updated.sheetNum = text
-      if (pickerField === 'title' && !p.title) updated.title = text
+      const updated = { ...p, [rectField]: rect, [cropField]: cropUrl }
+      if (pickerField === 'sheetNum') updated.sheetNum = text
+      if (pickerField === 'title') updated.title = text
       return updated
     }))
     setPickerField(null)
