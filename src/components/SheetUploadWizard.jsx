@@ -219,16 +219,36 @@ function FullPageAreaPicker({ pages, startIndex = 0, field, onSave, onCancel }) 
   const [preview, setPreview] = useState(null)
   const [extracted, setExtracted] = useState(null)
   const [extracting, setExtracting] = useState(false)
+  // zoom/pan
+  const [scale, setScale] = useState(1)
+  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const [spaceDown, setSpaceDown] = useState(false)
+  const [panning, setPanning] = useState(null) // { startX, startY, panX, panY }
   const containerRef = useRef(null)
   const canvasWrapRef = useRef(null)
   const canvasHostRef = useRef(null)
+  const scaleRef = useRef(1)
+  const panRef = useRef({ x: 0, y: 0 })
+
+  scaleRef.current = scale
+  panRef.current = pan
 
   const page = pages[idx]
+
+  // Space key for pan mode
+  useEffect(() => {
+    const down = e => { if (e.code === 'Space') { e.preventDefault(); setSpaceDown(true) } }
+    const up = e => { if (e.code === 'Space') setSpaceDown(false) }
+    window.addEventListener('keydown', down)
+    window.addEventListener('keyup', up)
+    return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up) }
+  }, [])
 
   // Render the current page at full res
   useEffect(() => {
     if (!page) return
     setLoading(true); setCanvas(null); setRect(null); setPreview(null); setExtracted(null)
+    setScale(1); setPan({ x: 0, y: 0 })
     const bytes = pdfCache.get(page.fileId)
     if (!bytes) { setLoading(false); return }
     let cancelled = false
@@ -246,30 +266,80 @@ function FullPageAreaPicker({ pages, startIndex = 0, field, onSave, onCancel }) 
     host.appendChild(canvas)
   }, [canvas])
 
-  const getRelPos = (e) => {
-    const r = canvasWrapRef.current.getBoundingClientRect()
-    return {
-      x: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)),
-      y: Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)),
-    }
-  }
-
-  const onMouseDown = e => {
+  // Scroll to zoom
+  const onWheel = useCallback(e => {
     e.preventDefault()
-    const pos = getRelPos(e)
+    const container = containerRef.current
+    if (!container) return
+    const rect = container.getBoundingClientRect()
+    const mouseX = e.clientX - rect.left
+    const mouseY = e.clientY - rect.top
+    const delta = -e.deltaY * (e.deltaMode === 1 ? 30 : 1)
+    const zoomFactor = delta > 0 ? 1.08 : 1 / 1.08
+    const newScale = Math.max(0.25, Math.min(8, scaleRef.current * zoomFactor))
+    const ratio = newScale / scaleRef.current
+    setPan(p => ({
+      x: mouseX - ratio * (mouseX - p.x),
+      y: mouseY - ratio * (mouseY - p.y),
+    }))
+    setScale(newScale)
+  }, [])
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [onWheel])
+
+  // Convert client coords → normalized canvas coords, accounting for zoom/pan
+  const clientToNorm = useCallback((clientX, clientY) => {
+    const container = containerRef.current
+    const wrap = canvasWrapRef.current
+    if (!container || !wrap) return { x: 0, y: 0 }
+    const cr = container.getBoundingClientRect()
+    // Position in container space
+    const cx = clientX - cr.left
+    const cy = clientY - cr.top
+    // Undo pan+scale to get position in canvas CSS pixel space
+    const canvasX = (cx - panRef.current.x) / scaleRef.current
+    const canvasY = (cy - panRef.current.y) / scaleRef.current
+    // Normalize by canvas CSS size (style.width / style.height)
+    const cssW = parseFloat(wrap.firstChild?.style?.width || wrap.offsetWidth)
+    const cssH = parseFloat(wrap.firstChild?.style?.height || wrap.offsetHeight)
+    return {
+      x: Math.max(0, Math.min(1, canvasX / cssW)),
+      y: Math.max(0, Math.min(1, canvasY / cssH)),
+    }
+  }, [])
+
+  const onMouseDown = useCallback(e => {
+    e.preventDefault()
+    if (spaceDown) {
+      setPanning({ startX: e.clientX, startY: e.clientY, panX: panRef.current.x, panY: panRef.current.y })
+      return
+    }
+    const pos = clientToNorm(e.clientX, e.clientY)
     setDragging(pos); setPreview({ x: pos.x, y: pos.y, w: 0, h: 0 }); setRect(null); setExtracted(null)
-  }
-  const onMouseMove = e => {
+  }, [spaceDown, clientToNorm])
+
+  const onMouseMove = useCallback(e => {
+    if (panning) {
+      setPan({ x: panning.panX + e.clientX - panning.startX, y: panning.panY + e.clientY - panning.startY })
+      return
+    }
     if (!dragging) return
-    const pos = getRelPos(e)
+    const pos = clientToNorm(e.clientX, e.clientY)
     setPreview({ x: Math.min(dragging.x, pos.x), y: Math.min(dragging.y, pos.y), w: Math.abs(pos.x - dragging.x), h: Math.abs(pos.y - dragging.y) })
-  }
-  const onMouseUp = async e => {
+  }, [panning, dragging, clientToNorm])
+
+  const onMouseUp = useCallback(async e => {
+    if (panning) { setPanning(null); return }
     if (!dragging) return
-    const pos = getRelPos(e)
+    const pos = clientToNorm(e.clientX, e.clientY)
     const r = { x: Math.min(dragging.x, pos.x), y: Math.min(dragging.y, pos.y), w: Math.abs(pos.x - dragging.x), h: Math.abs(pos.y - dragging.y) }
     setDragging(null)
-    if (r.w < 0.01 || r.h < 0.01) { setPreview(null); return }
+    if (r.w < 0.005 || r.h < 0.005) { setPreview(null); return }
     setRect(r); setPreview(r)
     const bytes = pdfCache.get(page.fileId)
     if (bytes) {
@@ -277,7 +347,7 @@ function FullPageAreaPicker({ pages, startIndex = 0, field, onSave, onCancel }) 
       try { const t = await extractTextInRect(bytes, page.pageIndex, r); setExtracted(t) }
       finally { setExtracting(false) }
     }
-  }
+  }, [panning, dragging, clientToNorm, page])
 
   const handleSave = () => {
     let cropUrl = null
@@ -309,6 +379,7 @@ function FullPageAreaPicker({ pages, startIndex = 0, field, onSave, onCancel }) 
   }) : null
 
   const fieldLabel = field === 'sheetNum' ? 'sheet number' : 'title'
+  const cursor = spaceDown ? (panning ? 'grabbing' : 'grab') : 'crosshair'
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 1200, background: '#1a1a1a', display: 'flex', flexDirection: 'column' }}>
@@ -329,27 +400,30 @@ function FullPageAreaPicker({ pages, startIndex = 0, field, onSave, onCancel }) 
           {extracting ? 'reading…' : extracted || (rect ? 'No text found' : 'Draw a rectangle')}
         </span>
         <div style={{ flex: 1 }} />
-        <span style={{ fontSize: 12, color: '#888' }}>Drag a rectangle around the {fieldLabel}</span>
+        <span style={{ fontSize: 12, color: '#888' }}>Scroll to zoom · Hold Space to pan · Drag to draw area</span>
         <div style={{ flex: 1 }} />
         <button onClick={onCancel} style={{ background: 'none', border: '1px solid #444', borderRadius: 6, cursor: 'pointer', color: '#ccc', padding: '6px 14px', fontSize: 13 }}>Cancel</button>
-        <button onClick={handleSave} disabled={!rect}
-          style={{ background: rect ? 'var(--brand-600)' : '#333', border: 'none', borderRadius: 6, cursor: rect ? 'pointer' : 'default', color: rect ? '#fff' : '#666', padding: '6px 16px', fontSize: 13, fontWeight: 600 }}>
-          Save and apply to all ({pages.length})
+        <button onClick={handleSave} disabled={!rect || extracting}
+          style={{ background: rect && !extracting ? 'var(--brand-600)' : '#333', border: 'none', borderRadius: 6, cursor: rect && !extracting ? 'pointer' : 'default', color: rect && !extracting ? '#fff' : '#666', padding: '6px 16px', fontSize: 13, fontWeight: 600 }}>
+          {extracting ? 'Reading…' : `Save and apply to all (${pages.length})`}
         </button>
       </div>
 
       {/* PDF canvas area */}
-      <div ref={containerRef} style={{ flex: 1, overflow: 'auto', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '24px', background: '#2a2a2a' }}>
+      <div ref={containerRef} style={{ flex: 1, overflow: 'hidden', position: 'relative', background: '#2a2a2a', cursor }}
+        onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={e => { if (panning) setPanning(null); if (dragging) setDragging(null) }}>
         {loading && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#aaa', marginTop: 80 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#aaa', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)' }}>
             <Loader size={20} style={{ animation: 'spin 1s linear infinite' }} /> Rendering…
           </div>
         )}
         {!loading && canvas && (
-          <div ref={canvasWrapRef} style={{ position: 'relative', cursor: 'crosshair', userSelect: 'none', boxShadow: '0 4px 32px rgba(0,0,0,0.6)', display: 'inline-block' }}
-            onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp}>
-            <div ref={canvasHostRef} />
-            {preview && <div style={rectStyle(preview)} />}
+          <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+            <div ref={canvasWrapRef} style={{ position: 'absolute', transformOrigin: '0 0', transform: `translate(${pan.x}px,${pan.y}px) scale(${scale})`, userSelect: 'none', boxShadow: '0 4px 32px rgba(0,0,0,0.6)', display: 'inline-block' }}>
+              <div ref={canvasHostRef} style={{ position: 'relative' }}>
+                {preview && <div style={rectStyle(preview)} />}
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -453,8 +527,10 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
     setPages(ps => ps.map(p => {
       if (!idSet.has(p.id)) return p
       const updated = { ...p, [rectField]: rect, [cropField]: cropUrl }
-      if (pickerField === 'sheetNum') updated.sheetNum = text
-      if (pickerField === 'title') updated.title = text
+      if (text) {
+        if (pickerField === 'sheetNum') updated.sheetNum = text
+        if (pickerField === 'title') updated.title = text
+      }
       return updated
     }))
     setPickerField(null)
