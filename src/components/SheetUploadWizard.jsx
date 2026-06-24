@@ -110,7 +110,7 @@ async function renderPageFull(fileId, bytes, pageNum, targetW = 1600) {
   return canvas
 }
 
-async function extractTextInRect(fileId, bytes, pageNum, rect) {
+async function extractEmbeddedText(fileId, bytes, pageNum, rect) {
   const pdf = await getPdfDoc(fileId, bytes)
   const page = await pdf.getPage(pageNum)
   const vp = page.getViewport({ scale: 1 })
@@ -120,65 +120,54 @@ async function extractTextInRect(fileId, bytes, pageNum, rect) {
     const ny = 1 - item.transform[5] / vp.height
     return nx >= rect.x && nx <= rect.x + rect.w && ny >= rect.y && ny <= rect.y + rect.h
   })
-  const embedded = items.map(i => i.str).join(' ').trim()
-  if (embedded) return embedded
-
-  // No embedded text — render the region at high res and OCR it
-  // Render the crop region at ~300 DPI equivalent (large enough for Tesseract)
-  const targetCropPx = 1600 // wider = more detail = better OCR
-  const scale = targetCropPx / (rect.w * vp.width)
-  const vpScaled = page.getViewport({ scale })
-  const full = document.createElement('canvas')
-  full.width = Math.round(vpScaled.width)
-  full.height = Math.round(vpScaled.height)
-  const fctx = full.getContext('2d')
-  fctx.fillStyle = '#fff'
-  fctx.fillRect(0, 0, full.width, full.height)
-  await page.render({ canvasContext: fctx, viewport: vpScaled }).promise
-  const sx = Math.round(rect.x * full.width)
-  const sy = Math.round(rect.y * full.height)
-  const sw = Math.round(rect.w * full.width)
-  const sh = Math.round(rect.h * full.height)
-  // Extract the crop region
-  const crop = document.createElement('canvas')
-  crop.width = Math.max(1, sw); crop.height = Math.max(1, sh)
-  crop.getContext('2d').drawImage(full, sx, sy, sw, sh, 0, 0, sw, sh)
-  // Preprocess for OCR: grayscale + adaptive threshold for clean B&W
-  const processed = preprocessForOcr(crop)
-  const worker = await getOcrWorker()
-  await worker.setParameters({ tessedit_pagesegmode: sh < sw * 0.4 ? '7' : '6' })
-  const { data } = await worker.recognize(processed)
-  return data.text.replace(/\s+/g, ' ').trim()
+  return items.map(i => i.str).join(' ').trim()
 }
 
-function preprocessForOcr(src) {
-  const canvas = document.createElement('canvas')
-  // Scale up small crops so characters are at least 30px tall
-  const scale = Math.max(1, Math.ceil(60 / src.height))
-  canvas.width = src.width * scale
-  canvas.height = src.height * scale
-  const ctx = canvas.getContext('2d')
-  ctx.imageSmoothingEnabled = scale > 1
-  ctx.imageSmoothingQuality = 'high'
+// OCR a rect directly from the picker's already-rendered high-res canvas.
+// Avoids re-rendering the PDF and sidesteps any scale/coordinate mismatch.
+async function ocrFromPickerCanvas(pickerCanvas, rect) {
+  const sx = Math.round(rect.x * pickerCanvas.width)
+  const sy = Math.round(rect.y * pickerCanvas.height)
+  const sw = Math.max(1, Math.round(rect.w * pickerCanvas.width))
+  const sh = Math.max(1, Math.round(rect.h * pickerCanvas.height))
+
+  // Ensure minimum size for Tesseract (aim for text ~40px tall)
+  const MIN_W = 800
+  const outW = Math.max(sw, MIN_W)
+  const outH = Math.round(sh * outW / sw)
+
+  const crop = document.createElement('canvas')
+  crop.width = outW; crop.height = outH
+  const ctx = crop.getContext('2d')
   ctx.fillStyle = '#fff'
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
-  ctx.drawImage(src, 0, 0, canvas.width, canvas.height)
-  // Grayscale + threshold to clean B&W
-  const img = ctx.getImageData(0, 0, canvas.width, canvas.height)
+  ctx.fillRect(0, 0, outW, outH)
+  ctx.imageSmoothingEnabled = true
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(pickerCanvas, sx, sy, sw, sh, 0, 0, outW, outH)
+
+  // Gentle contrast boost: stretch to [0,255] then light sharpen
+  const img = ctx.getImageData(0, 0, outW, outH)
   const d = img.data
-  // Compute mean luminance for adaptive threshold
-  let sum = 0
-  for (let i = 0; i < d.length; i += 4) sum += 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]
-  const mean = sum / (d.length / 4)
-  const threshold = Math.min(mean * 0.85, 200) // bias toward keeping dark text
+  // Find actual min/max luminance for contrast stretch
+  let lo = 255, hi = 0
   for (let i = 0; i < d.length; i += 4) {
     const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]
-    const v = lum < threshold ? 0 : 255
+    if (lum < lo) lo = lum; if (lum > hi) hi = lum
+  }
+  const range = Math.max(1, hi - lo)
+  for (let i = 0; i < d.length; i += 4) {
+    const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]
+    const v = Math.round(Math.max(0, Math.min(255, ((lum - lo) / range) * 255)))
     d[i] = d[i + 1] = d[i + 2] = v
     d[i + 3] = 255
   }
   ctx.putImageData(img, 0, 0)
-  return canvas
+
+  const worker = await getOcrWorker()
+  const psm = outH < outW * 0.35 ? '7' : '6' // PSM 7 = single line, 6 = block
+  await worker.setParameters({ tessedit_pagesegmode: psm })
+  const { data } = await worker.recognize(crop)
+  return data.text.replace(/\s+/g, ' ').trim()
 }
 
 function guessSheetNumber(items) {
@@ -420,12 +409,15 @@ function FullPageAreaPicker({ pages, startIndex = 0, field, onSave, onCancel }) 
     setDragging(null)
     if (r.w < 0.005 || r.h < 0.005) { setPreview(null); return }
     setRect(r); setPreview(r)
-    const bytes = pdfCache.get(page.fileId)
-    if (bytes) {
-      setExtracting(true)
-      try { const t = await extractTextInRect(page.fileId, bytes, page.pageIndex, r); setExtracted(t) }
-      finally { setExtracting(false) }
-    }
+    setExtracting(true)
+    try {
+      // 1. Try fast embedded text extraction from PDF
+      const bytes = pdfCache.get(page.fileId)
+      let t = bytes ? await extractEmbeddedText(page.fileId, bytes, page.pageIndex, r) : ''
+      // 2. Fall back to OCR on the picker's already-rendered canvas
+      if (!t && canvas) t = await ocrFromPickerCanvas(canvas, r)
+      setExtracted(t)
+    } finally { setExtracting(false) }
   }, [panning, dragging, clientToNorm, page])
 
   const handleSave = () => {
