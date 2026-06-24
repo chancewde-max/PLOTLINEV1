@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
+import { createWorker } from 'tesseract.js'
 import { Upload, X, ChevronRight, CheckCircle, Loader, Square, ChevronLeft, Check } from 'lucide-react'
 import { Button } from './ui/Button.jsx'
 import { pdfCache } from './pdfCache.js'
@@ -8,6 +9,14 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
   import.meta.url
 ).toString()
+
+let ocrWorker = null
+async function getOcrWorker() {
+  if (!ocrWorker) {
+    ocrWorker = await createWorker('eng')
+  }
+  return ocrWorker
+}
 
 // ---- Helpers ----------------------------------------------------------------
 
@@ -99,7 +108,31 @@ async function extractTextInRect(bytes, pageNum, rect) {
     const ny = 1 - item.transform[5] / vp.height
     return nx >= rect.x && nx <= rect.x + rect.w && ny >= rect.y && ny <= rect.y + rect.h
   })
-  return items.map(i => i.str).join(' ').trim()
+  const embedded = items.map(i => i.str).join(' ').trim()
+  if (embedded) return embedded
+
+  // No embedded text — OCR the region from the rendered PDF
+  const dpr = Math.max(window.devicePixelRatio || 1, 2)
+  const cropW = 640
+  const scale = (cropW * dpr) / (rect.w * vp.width)
+  const vpScaled = page.getViewport({ scale })
+  const full = document.createElement('canvas')
+  full.width = Math.round(vpScaled.width)
+  full.height = Math.round(vpScaled.height)
+  const fctx = full.getContext('2d')
+  fctx.fillStyle = '#fff'
+  fctx.fillRect(0, 0, full.width, full.height)
+  await page.render({ canvasContext: fctx, viewport: vpScaled }).promise
+  const sx = Math.round(rect.x * full.width)
+  const sy = Math.round(rect.y * full.height)
+  const sw = Math.round(rect.w * full.width)
+  const sh = Math.round(rect.h * full.height)
+  const crop = document.createElement('canvas')
+  crop.width = sw; crop.height = sh
+  crop.getContext('2d').drawImage(full, sx, sy, sw, sh, 0, 0, sw, sh)
+  const worker = await getOcrWorker()
+  const { data } = await worker.recognize(crop)
+  return data.text.replace(/\n/g, ' ').trim()
 }
 
 function guessSheetNumber(items) {
