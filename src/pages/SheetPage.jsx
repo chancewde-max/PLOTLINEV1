@@ -1677,32 +1677,32 @@ export default function SheetPage() {
                   </g>
                 ))}
 
-                {/* Measure tool — completed sessions */}
-                {activeTool === 'measure' && measureSessions.map((sess, si) => {
+                {/* Measure tool — completed sessions (always visible until cleared) */}
+                {measureSessions.map((sess, si) => {
                   const col = sess.color
-                  const ms = measureSize * mk
+                  const ms = measureSize * u
                   const segs = sess.pts.slice(0, -1).map((a, k) => ({ a, b: sess.pts[k+1], ft: lnft(dist(a, sess.pts[k+1])) }))
                   const total = segs.reduce((s, sg) => s + sg.ft, 0)
                   return (
                     <g key={si}>
                       <polyline points={sess.pts.map(p => `${p.x},${p.y}`).join(' ')}
-                        fill="none" stroke={col} strokeWidth={2.5 * ms} strokeLinecap="round" />
+                        fill="none" stroke={col} strokeWidth={2 * u} strokeLinecap="round" />
                       {segs.map((seg, i) => (
-                        <text key={i} x={(seg.a.x+seg.b.x)/2} y={(seg.a.y+seg.b.y)/2 - 8*ms}
+                        <text key={i} x={(seg.a.x+seg.b.x)/2} y={(seg.a.y+seg.b.y)/2 - 10*ms}
                           textAnchor="middle" fill={col}
-                          fontFamily="var(--font-mono)" fontSize={10 * ms} fontWeight="600">
+                          fontFamily="var(--font-mono)" fontSize={11 * ms} fontWeight="600">
                           {fLn(seg.ft)} ft
                         </text>
                       ))}
                       {sess.pts.map((p, i) => (
                         <g key={i}>
-                          <line x1={p.x} y1={p.y - 8*ms} x2={p.x} y2={p.y + 8*ms} stroke={col} strokeWidth={1.5 * ms} />
-                          <circle cx={p.x} cy={p.y} r={3.5 * ms} fill={col} />
+                          <line x1={p.x} y1={p.y - 7*u} x2={p.x} y2={p.y + 7*u} stroke={col} strokeWidth={1.5 * u} />
+                          <circle cx={p.x} cy={p.y} r={3 * u} fill={col} />
                         </g>
                       ))}
                       {segs.length > 1 && (() => {
                         const last = sess.pts[sess.pts.length - 1]
-                        return <text x={last.x + 6*ms} y={last.y - 6*ms} fill={col} fontFamily="var(--font-mono)" fontSize={11 * ms} fontWeight="700">Σ {fLn(total)} ft</text>
+                        return <text x={last.x + 8*u} y={last.y - 6*u} fill={col} fontFamily="var(--font-mono)" fontSize={12 * ms} fontWeight="700">Σ {fLn(total)} ft</text>
                       })()}
                     </g>
                   )
@@ -1710,16 +1710,16 @@ export default function SheetPage() {
 
                 {/* Measure tool — current in-progress */}
                 {activeTool === 'measure' && (() => {
-                  const ms = measureSize * mk
+                  const ms = measureSize * u
                   return (
                     <g>
                       {measureAllPts.length >= 2 && (
                         <polyline points={measureAllPts.map(p => `${p.x},${p.y}`).join(' ')}
-                          fill="none" stroke={measureColor} strokeWidth={2.5 * ms}
-                          strokeDasharray={`${6*ms} ${4*ms}`} strokeLinecap="round" />
+                          fill="none" stroke={measureColor} strokeWidth={2 * u}
+                          strokeDasharray={`${6*u} ${4*u}`} strokeLinecap="round" />
                       )}
                       {measureSegments.map((seg, i) => (
-                        <text key={i} x={(seg.a.x+seg.b.x)/2} y={(seg.a.y+seg.b.y)/2 - 8*ms}
+                        <text key={i} x={(seg.a.x+seg.b.x)/2} y={(seg.a.y+seg.b.y)/2 - 10*ms}
                           textAnchor="middle" fill={measureColor}
                           fontFamily="var(--font-mono)" fontSize={11 * ms} fontWeight="600">
                           {fLn(seg.ft)} ft
@@ -1727,8 +1727,8 @@ export default function SheetPage() {
                       ))}
                       {measureAllPts.map((p, i) => (
                         <g key={i}>
-                          <line x1={p.x} y1={p.y - 9*ms} x2={p.x} y2={p.y + 9*ms} stroke={measureColor} strokeWidth={2 * ms} />
-                          <circle cx={p.x} cy={p.y} r={4 * ms} fill={measureColor} />
+                          <line x1={p.x} y1={p.y - 7*u} x2={p.x} y2={p.y + 7*u} stroke={measureColor} strokeWidth={1.5 * u} />
+                          <circle cx={p.x} cy={p.y} r={3 * u} fill={measureColor} />
                         </g>
                       ))}
                     </g>
