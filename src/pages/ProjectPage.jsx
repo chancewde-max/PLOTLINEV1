@@ -64,14 +64,40 @@ export default function ProjectPage() {
   const [folderDlg, setFolderDlg] = useState(false)
   const [folderName, setFolderName] = useState('')
   const [expandedSets, setExpandedSets] = useState({})
-  const [moveSheetDlg, setMoveSheetDlg] = useState(null) // sheetId being moved
+  const [moveSheetDlg, setMoveSheetDlg] = useState(null)
   const [activeTab, setActiveTab] = useState('sheets')
+  const [draggingSheetId, setDraggingSheetId] = useState(null)
+  const [dragOverTarget, setDragOverTarget] = useState(null) // setId or 'unassigned'
 
   const project = projects[projectId]
 
   if (!project) return <div style={{ padding: 40, color: 'var(--text-muted)' }}>Project not found.</div>
 
   const sheetList = (project.sheetIds || []).map(id => sheets[id]).filter(Boolean)
+
+  // Sheets not assigned to any folder
+  const assignedIds = new Set((project.sheetSets || []).flatMap(s => s.sheetIds || []))
+  const unassignedSheets = sheetList.filter(sh => !assignedIds.has(sh.id))
+
+  const onDragStart = (e, sheetId) => {
+    setDraggingSheetId(sheetId)
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('sheetId', sheetId)
+  }
+  const onDragEnd = () => { setDraggingSheetId(null); setDragOverTarget(null) }
+
+  const onFolderDragOver = (e, targetId) => {
+    e.preventDefault(); e.dataTransfer.dropEffect = 'move'
+    setDragOverTarget(targetId)
+  }
+  const onFolderDrop = (e, targetId) => {
+    e.preventDefault()
+    const sheetId = e.dataTransfer.getData('sheetId')
+    if (!sheetId) return
+    // null → removes from all sets (unassigned); setId → moves to that folder
+    moveSheetToSet(projectId, sheetId, targetId === 'unassigned' ? null : targetId)
+    setDraggingSheetId(null); setDragOverTarget(null)
+  }
 
   const openDlg = () => setWizardOpen(true)
 
@@ -196,16 +222,24 @@ export default function ProjectPage() {
         </div>}
         {activeTab === 'sheets' && <>
         {/* Sheet Sets / Folders */}
+        {/* Folders */}
         {(project.sheetSets || []).map(set => {
           const setSheets = (set.sheetIds || []).map(id => sheets[id]).filter(Boolean)
           const expanded = expandedSets[set.id] !== false
+          const isOver = dragOverTarget === set.id
           return (
             <div key={set.id} style={{ marginBottom: 16 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'var(--surface-sunken)', borderRadius: 'var(--radius-md)', cursor: 'pointer', marginBottom: 8 }}
-                onClick={() => setExpandedSets(p => ({ ...p, [set.id]: !expanded }))}>
+              <div
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 'var(--radius-md)', cursor: 'pointer', marginBottom: expanded ? 8 : 0, transition: 'background 0.12s', background: isOver ? 'var(--brand-100, #d1fae5)' : 'var(--surface-sunken)', outline: isOver ? '2px dashed var(--brand-600)' : '2px solid transparent', outlineOffset: -2 }}
+                onClick={() => setExpandedSets(p => ({ ...p, [set.id]: !expanded }))}
+                onDragOver={e => onFolderDragOver(e, set.id)}
+                onDragLeave={() => setDragOverTarget(null)}
+                onDrop={e => onFolderDrop(e, set.id)}
+              >
                 {expanded ? <FolderOpen size={16} style={{ color: 'var(--brand-600)' }} /> : <Folder size={16} style={{ color: 'var(--brand-600)' }} />}
                 <span style={{ flex: 1, fontWeight: 600, fontSize: 14, color: 'var(--text-strong)' }}>{set.name}</span>
-                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{setSheets.length} sheet{setSheets.length !== 1 ? 's' : ''}</span>
+                {isOver && <span style={{ fontSize: 11, color: 'var(--brand-600)', fontWeight: 600 }}>Drop to add</span>}
+                {!isOver && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{setSheets.length} sheet{setSheets.length !== 1 ? 's' : ''}</span>}
                 <button onClick={e => { e.stopPropagation(); deleteSheetSet(projectId, set.id) }}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', padding: 2 }}>
                   <X size={14} />
@@ -213,77 +247,74 @@ export default function ProjectPage() {
               </div>
               {expanded && setSheets.length > 0 && (
                 <div className={s.grid} style={{ marginLeft: 24 }}>
-                  {setSheets.map(sheet => {
-                    const c = countByKind(sheet)
-                    return (
-                      <div key={sheet.id} className={s.sheetCard} onClick={() => navigate(`/project/${projectId}/sheet/${sheet.id}`)}>
-                        <div className={s.sheetThumb}><SheetPreview sheet={sheet} /><div className={s.sheetCodeBadge}>{sheet.code}</div></div>
-                        <div className={s.sheetInfo}>
-                          <div className={s.sheetName}>{sheet.name}</div>
-                          <div className={s.sheetCode}>{sheet.code}</div>
-                        </div>
+                  {setSheets.map(sheet => (
+                    <div key={sheet.id} className={s.sheetCard}
+                      draggable
+                      onDragStart={e => onDragStart(e, sheet.id)}
+                      onDragEnd={onDragEnd}
+                      onClick={() => navigate(`/project/${projectId}/sheet/${sheet.id}`)}
+                      style={{ opacity: draggingSheetId === sheet.id ? 0.4 : 1, cursor: 'grab' }}>
+                      <div className={s.sheetThumb}><SheetPreview sheet={sheet} /><div className={s.sheetCodeBadge}>{sheet.code}</div></div>
+                      <div className={s.sheetInfo}>
+                        <div className={s.sheetName}>{sheet.name}</div>
+                        <div className={s.sheetCode}>{sheet.code}</div>
                       </div>
-                    )
-                  })}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
           )
         })}
 
+        {/* Unassigned sheets */}
         {sheetList.length === 0 ? (
           <div style={{ padding: '48px 0', textAlign: 'center', color: 'var(--text-muted)' }}>
             <p style={{ marginBottom: 16 }}>No sheets yet.</p>
             <Button variant="primary" iconLeft={<Plus size={15} />} onClick={openDlg}>Add first sheet</Button>
           </div>
-        ) : (
-          <div className={s.grid}>
-            {sheetList.map(sheet => {
-              const counts = countByKind(sheet)
-              return (
-                <div
-                  key={sheet.id}
-                  className={s.sheetCard}
-                  onClick={() => navigate(`/project/${projectId}/sheet/${sheet.id}`)}
-                >
-                  <div className={s.sheetThumb}>
-                    <SheetPreview sheet={sheet} />
-                    <div className={s.sheetCodeBadge}>{sheet.code}</div>
-                  </div>
-                  <div className={s.sheetInfo}>
-                    <div className={s.sheetName}>{sheet.name}</div>
-                    <div className={s.sheetCode}>{sheet.code}</div>
-                    <div className={s.sheetCounts}>
-                      {counts.areas > 0 && (
-                        <span className={s.countChip} style={{ color: 'var(--takeoff-area)' }}>
-                          {counts.areas} area{counts.areas !== 1 ? 's' : ''}
-                        </span>
-                      )}
-                      {counts.lines > 0 && (
-                        <span className={s.countChip} style={{ color: 'var(--takeoff-linear)' }}>
-                          {counts.lines} wall{counts.lines !== 1 ? 's' : ''}
-                        </span>
-                      )}
-                      {counts.points > 0 && (
-                        <span className={s.countChip} style={{ color: 'var(--takeoff-count)' }}>
-                          {counts.points} items
-                        </span>
-                      )}
-                      {counts.areas === 0 && counts.lines === 0 && counts.points === 0 && (
-                        <span className={s.countChip} style={{ color: 'var(--text-subtle)' }}>Empty sheet</span>
-                      )}
+        ) : unassignedSheets.length > 0 && (
+          <>
+            {(project.sheetSets || []).length > 0 && (
+              <div
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', borderRadius: 'var(--radius-md)', marginBottom: 8, transition: 'background 0.12s', background: dragOverTarget === 'unassigned' ? 'var(--surface-sunken)' : 'transparent', outline: dragOverTarget === 'unassigned' ? '2px dashed var(--border-strong)' : '2px solid transparent', outlineOffset: -2 }}
+                onDragOver={e => onFolderDragOver(e, 'unassigned')}
+                onDragLeave={() => setDragOverTarget(null)}
+                onDrop={e => onFolderDrop(e, 'unassigned')}
+              >
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Unassigned</span>
+                {dragOverTarget === 'unassigned' && <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>Drop to remove from folder</span>}
+              </div>
+            )}
+            <div className={s.grid}>
+              {unassignedSheets.map(sheet => {
+                const counts = countByKind(sheet)
+                return (
+                  <div key={sheet.id} className={s.sheetCard}
+                    draggable
+                    onDragStart={e => onDragStart(e, sheet.id)}
+                    onDragEnd={onDragEnd}
+                    onClick={() => navigate(`/project/${projectId}/sheet/${sheet.id}`)}
+                    style={{ opacity: draggingSheetId === sheet.id ? 0.4 : 1, cursor: 'grab' }}>
+                    <div className={s.sheetThumb}>
+                      <SheetPreview sheet={sheet} />
+                      <div className={s.sheetCodeBadge}>{sheet.code}</div>
                     </div>
-                    {(project.sheetSets || []).length > 0 && (
-                      <button onClick={e => { e.stopPropagation(); setMoveSheetDlg(sheet.id) }}
-                        style={{ marginTop: 4, background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4, padding: 0 }}>
-                        <Folder size={11} /> Move to folder
-                      </button>
-                    )}
+                    <div className={s.sheetInfo}>
+                      <div className={s.sheetName}>{sheet.name}</div>
+                      <div className={s.sheetCode}>{sheet.code}</div>
+                      <div className={s.sheetCounts}>
+                        {counts.areas > 0 && <span className={s.countChip} style={{ color: 'var(--takeoff-area)' }}>{counts.areas} area{counts.areas !== 1 ? 's' : ''}</span>}
+                        {counts.lines > 0 && <span className={s.countChip} style={{ color: 'var(--takeoff-linear)' }}>{counts.lines} wall{counts.lines !== 1 ? 's' : ''}</span>}
+                        {counts.points > 0 && <span className={s.countChip} style={{ color: 'var(--takeoff-count)' }}>{counts.points} items</span>}
+                        {counts.areas === 0 && counts.lines === 0 && counts.points === 0 && <span className={s.countChip} style={{ color: 'var(--text-subtle)' }}>Empty sheet</span>}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              )
-            })}
-          </div>
+                )
+              })}
+            </div>
+          </>
         )}
         </>}
       </main>

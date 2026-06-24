@@ -529,7 +529,7 @@ function SheetRow({ page, field, checked, onCheck, onUpdate, onRemove, rowH, onP
           value={field === 'sheetNum' ? page.sheetNum : page.title}
           onChange={e => onUpdate(page.id, field === 'sheetNum' ? 'sheetNum' : 'title', e.target.value)}
           placeholder={field === 'sheetNum' ? 'e.g. L0.00' : 'Sheet title…'}
-          style={{ width: '100%', padding: '6px 10px', fontSize: 13, fontFamily: field === 'sheetNum' ? 'var(--font-mono)' : undefined, border: '1px solid var(--border-default)', borderRadius: 6, background: 'var(--surface-input)', color: 'var(--text-strong)', outline: 'none', boxSizing: 'border-box' }}
+          style={{ width: '100%', padding: '6px 10px', fontSize: 13, fontFamily: field === 'sheetNum' ? 'var(--font-mono)' : undefined, border: '1px solid var(--border-default)', borderRadius: 6, background: 'var(--surface-card)', color: 'var(--text-strong)', outline: 'none', boxSizing: 'border-box' }}
         />
       </div>
       {/* Remove */}
