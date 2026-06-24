@@ -279,9 +279,12 @@ export default function SheetPage() {
   const sheet   = sheets[sheetId]
 
   // ---- Smooth zoom to cursor ----
-  const zoomTargetRef = useRef(100)
-  const zoomRafRef = useRef(null)
-  const zoomCurrentRef = useRef(100) // tracks actual zoom for pan calc
+  const zoomTargetRef   = useRef(100)
+  const panTargetRef    = useRef({ x: 0, y: 0 })
+  const zoomCurrentRef  = useRef(100)
+  const panCurrentRef   = useRef({ x: 0, y: 0 })
+  const zoomRafRef      = useRef(null)
+
   useEffect(() => {
     const el = canvasRef.current
     if (!el) return
@@ -292,24 +295,43 @@ export default function SheetPage() {
       const oldZ = zoomTargetRef.current
       const newZ = Math.max(25, Math.min(1600, oldZ * factor))
       zoomTargetRef.current = newZ
-      // Zoom to cursor: adjust pan so point under cursor stays fixed
+      // Zoom to cursor: adjust pan target so point under cursor stays fixed
       const rect = el.getBoundingClientRect()
       const cx = e.clientX - rect.left - rect.width / 2
       const cy = e.clientY - rect.top - rect.height / 2
-      const scale = FIT / 100
-      setPanOffset(p => ({
-        x: cx - (cx - p.x) * (newZ / oldZ),
-        y: cy - (cy - p.y) * (newZ / oldZ),
-      }))
+      const ratio = newZ / oldZ
+      panTargetRef.current = {
+        x: cx - (cx - panTargetRef.current.x) * ratio,
+        y: cy - (cy - panTargetRef.current.y) * ratio,
+      }
+      // Single RAF loop that animates zoom + pan together
       if (!zoomRafRef.current) {
         const animate = () => {
-          setZoom(z => {
-            const next = z + (zoomTargetRef.current - z) * 0.45
-            zoomCurrentRef.current = next
-            if (Math.abs(next - zoomTargetRef.current) < 0.1) { zoomRafRef.current = null; return zoomTargetRef.current }
-            zoomRafRef.current = requestAnimationFrame(animate)
-            return next
-          })
+          const z  = zoomCurrentRef.current
+          const px = panCurrentRef.current.x
+          const py = panCurrentRef.current.y
+          const tz = zoomTargetRef.current
+          const tx = panTargetRef.current.x
+          const ty = panTargetRef.current.y
+          const EPS = 0.08
+          const dz = Math.abs(tz - z), dx = Math.abs(tx - px), dy = Math.abs(ty - py)
+          if (dz < EPS && dx < EPS && dy < EPS) {
+            zoomCurrentRef.current = tz
+            panCurrentRef.current  = { x: tx, y: ty }
+            setZoom(tz)
+            setPanOffset({ x: tx, y: ty })
+            zoomRafRef.current = null
+            return
+          }
+          const EASE = 0.18
+          const nz = z + (tz - z) * EASE
+          const nx = px + (tx - px) * EASE
+          const ny = py + (ty - py) * EASE
+          zoomCurrentRef.current = nz
+          panCurrentRef.current  = { x: nx, y: ny }
+          setZoom(nz)
+          setPanOffset({ x: nx, y: ny })
+          zoomRafRef.current = requestAnimationFrame(animate)
         }
         zoomRafRef.current = requestAnimationFrame(animate)
       }
@@ -598,7 +620,9 @@ export default function SheetPage() {
     if (isPanningRef.current && panStartRef.current) {
       const dx = e.clientX - panStartRef.current.x
       const dy = e.clientY - panStartRef.current.y
-      setPanOffset({ x: panOriginRef.current.x + dx, y: panOriginRef.current.y + dy })
+      const np = { x: panOriginRef.current.x + dx, y: panOriginRef.current.y + dy }
+      panTargetRef.current = np; panCurrentRef.current = np
+      setPanOffset(np)
       if (activeTool === 'pan' || e.buttons === 2) return
     }
     const rawP = toSheet(e)
@@ -1294,7 +1318,7 @@ export default function SheetPage() {
             )}
           </div>
 
-          <div className={s.sheetWrap} style={{ transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${(zoom / 100) * FIT})`, transition: isPanningRef.current ? 'none' : undefined }}>
+          <div className={s.sheetWrap} style={{ transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${(zoom / 100) * FIT})` }}>
             <div className={s.sheet} style={{ width: SHEET_W, height: SHEET_H, backgroundImage: sheet.pdfUrl ? 'none' : undefined }}>
               {sheet.pdfUrl && (
                 <PdfCanvas url={sheet.pdfUrl} width={SHEET_W} height={SHEET_H} pageNumber={sheet.pdfPage || 1}
