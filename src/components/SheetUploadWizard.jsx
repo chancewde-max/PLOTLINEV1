@@ -123,53 +123,45 @@ async function extractEmbeddedText(fileId, bytes, pageNum, rect) {
   return items.map(i => i.str).join(' ').trim()
 }
 
-// OCR a rect directly from a high-res canvas element.
-async function ocrFromPickerCanvas(pickerCanvas, rect) {
-  const sx = Math.round(rect.x * pickerCanvas.width)
-  const sy = Math.round(rect.y * pickerCanvas.height)
-  const sw = Math.max(1, Math.round(rect.w * pickerCanvas.width))
-  const sh = Math.max(1, Math.round(rect.h * pickerCanvas.height))
+// Cache full-page OCR word results so multiple rect draws don't re-OCR.
+// Key: `${fileId}:${pageNum}`, value: Promise<{ words, W, H }>
+const ocrPageCache = new Map()
 
-  // Ensure crop is large enough for Tesseract (~800px wide minimum)
-  const outW = Math.max(sw, 800)
-  const outH = Math.round(sh * outW / sw)
-
-  const crop = document.createElement('canvas')
-  crop.width = outW; crop.height = outH
-  const ctx = crop.getContext('2d')
-  ctx.fillStyle = '#fff'
-  ctx.fillRect(0, 0, outW, outH)
-  ctx.imageSmoothingEnabled = true
-  ctx.imageSmoothingQuality = 'high'
-  ctx.drawImage(pickerCanvas, sx, sy, sw, sh, 0, 0, outW, outH)
-
-  const worker = await getOcrWorker()
-  // Try PSM 6 (block) first; fall back to PSM 7 (single line) if empty
-  for (const psm of ['6', '7', '3']) {
-    try {
-      await worker.setParameters({ tessedit_pagesegmode: psm })
-    } catch (_) { /* ignore if API differs */ }
-    const { data } = await worker.recognize(crop)
-    const text = data.text.replace(/\s+/g, ' ').trim()
-    if (text) return text
-  }
-  return ''
+async function getPageOcrWords(fileId, bytes, pageNum, existingCanvas = null) {
+  const key = `${fileId}:${pageNum}`
+  if (ocrPageCache.has(key)) return ocrPageCache.get(key)
+  const promise = (async () => {
+    let canvas = existingCanvas
+    if (!canvas) {
+      const pdf = await getPdfDoc(fileId, bytes)
+      const page = await pdf.getPage(pageNum)
+      const vp0 = page.getViewport({ scale: 1 })
+      const vp = page.getViewport({ scale: 1600 / vp0.width })
+      canvas = document.createElement('canvas')
+      canvas.width = Math.round(vp.width); canvas.height = Math.round(vp.height)
+      const ctx = canvas.getContext('2d')
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height)
+      await page.render({ canvasContext: ctx, viewport: vp }).promise
+    }
+    const worker = await getOcrWorker()
+    const { data } = await worker.recognize(canvas)
+    return { words: data.words || [], W: canvas.width, H: canvas.height }
+  })()
+  ocrPageCache.set(key, promise)
+  return promise
 }
 
-// OCR a rect from a PDF page — used for pages not currently shown in the picker.
-async function ocrFromPdfRect(fileId, bytes, pageNum, rect) {
-  const pdf = await getPdfDoc(fileId, bytes)
-  const page = await pdf.getPage(pageNum)
-  const vp0 = page.getViewport({ scale: 1 })
-  const targetW = 1600
-  const scale = targetW / (rect.w * vp0.width)
-  const vp = page.getViewport({ scale })
-  const full = document.createElement('canvas')
-  full.width = Math.round(vp.width); full.height = Math.round(vp.height)
-  const fctx = full.getContext('2d')
-  fctx.fillStyle = '#fff'; fctx.fillRect(0, 0, full.width, full.height)
-  await page.render({ canvasContext: fctx, viewport: vp }).promise
-  return ocrFromPickerCanvas(full, rect)
+// OCR a rect on a page by scanning the full page and filtering word bboxes.
+// Full-page OCR gives Tesseract better context than a small crop.
+async function ocrRect(fileId, bytes, pageNum, rect, existingCanvas = null) {
+  const { words, W, H } = await getPageOcrWords(fileId, bytes, pageNum, existingCanvas)
+  const matched = words.filter(w => {
+    if (!w.bbox) return false
+    const cx = (w.bbox.x0 + w.bbox.x1) / 2 / W
+    const cy = (w.bbox.y0 + w.bbox.y1) / 2 / H
+    return cx >= rect.x && cx <= rect.x + rect.w && cy >= rect.y && cy <= rect.y + rect.h
+  })
+  return matched.map(w => w.text).join(' ').replace(/\s+/g, ' ').trim()
 }
 
 function guessSheetNumber(items) {
@@ -413,11 +405,10 @@ function FullPageAreaPicker({ pages, startIndex = 0, field, onSave, onCancel }) 
     setRect(r); setPreview(r)
     setExtracting(true)
     try {
-      // 1. Try fast embedded text extraction from PDF
       const bytes = pdfCache.get(page.fileId)
+      // Try embedded text first; fall back to full-page OCR filtered by rect
       let t = bytes ? await extractEmbeddedText(page.fileId, bytes, page.pageIndex, r) : ''
-      // 2. Fall back to OCR on the picker's already-rendered canvas
-      if (!t && canvas) t = await ocrFromPickerCanvas(canvas, r)
+      if (!t) t = await ocrRect(page.fileId, bytes, page.pageIndex, r, canvas)
       setExtracted(t)
     } finally { setExtracting(false) }
   }, [panning, dragging, clientToNorm, page])
@@ -611,7 +602,7 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
       const bytes = pdfCache.get(p.fileId)
       if (!bytes) return
       let t = await extractEmbeddedText(p.fileId, bytes, p.pageIndex, rect)
-      if (!t) t = await ocrFromPdfRect(p.fileId, bytes, p.pageIndex, rect)
+      if (!t) t = await ocrRect(p.fileId, bytes, p.pageIndex, rect)
       if (t) setPages(ps => ps.map(pg => pg.id === p.id ? { ...pg, [field === 'sheetNum' ? 'sheetNum' : 'title']: t } : pg))
     })
   }
