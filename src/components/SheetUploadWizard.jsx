@@ -16,6 +16,7 @@ function getOcrWorker() {
   if (ocrWorker) return Promise.resolve(ocrWorker)
   if (ocrWorkerLoading) return ocrWorkerLoading
   ocrWorkerLoading = createWorker('eng').then(w => { ocrWorker = w; ocrWorkerLoading = null; return w })
+    .catch(err => { ocrWorkerLoading = null; return Promise.reject(err) })
   return ocrWorkerLoading
 }
 // Call this early so OCR is ready by the time user draws a rect
@@ -148,6 +149,7 @@ async function getPageOcrWords(fileId, bytes, pageNum, existingCanvas = null) {
     return { words: data.words || [], W: canvas.width, H: canvas.height }
   })()
   ocrPageCache.set(key, promise)
+  promise.catch(() => ocrPageCache.delete(key))
   return promise
 }
 
@@ -291,6 +293,7 @@ function FullPageAreaPicker({ pages, startIndex = 0, field, onSave, onCancel }) 
   const canvasHostRef = useRef(null)
   const scaleRef = useRef(1)
   const panRef = useRef({ x: 0, y: 0 })
+  const canvasCssSizeRef = useRef({ w: 1, h: 1 }) // logical CSS px dimensions of the rendered page
 
   scaleRef.current = scale
   panRef.current = pan
@@ -315,7 +318,10 @@ function FullPageAreaPicker({ pages, startIndex = 0, field, onSave, onCancel }) 
     if (!bytes) { setLoading(false); return }
     let cancelled = false
     renderPageFull(page.fileId, bytes, page.pageIndex).then(c => {
-      if (!cancelled) { setCanvas(c); setLoading(false) }
+      if (!cancelled) {
+        canvasCssSizeRef.current = { w: parseFloat(c.style.width) || c.width, h: parseFloat(c.style.height) || c.height }
+        setCanvas(c); setLoading(false)
+      }
     })
     return () => { cancelled = true }
   }, [page?.fileId, page?.pageIndex])
@@ -357,8 +363,7 @@ function FullPageAreaPicker({ pages, startIndex = 0, field, onSave, onCancel }) 
   // Convert client coords → normalized canvas coords, accounting for zoom/pan
   const clientToNorm = useCallback((clientX, clientY) => {
     const container = containerRef.current
-    const wrap = canvasWrapRef.current
-    if (!container || !wrap) return { x: 0, y: 0 }
+    if (!container) return { x: 0, y: 0 }
     const cr = container.getBoundingClientRect()
     // Position in container space
     const cx = clientX - cr.left
@@ -366,9 +371,8 @@ function FullPageAreaPicker({ pages, startIndex = 0, field, onSave, onCancel }) 
     // Undo pan+scale to get position in canvas CSS pixel space
     const canvasX = (cx - panRef.current.x) / scaleRef.current
     const canvasY = (cy - panRef.current.y) / scaleRef.current
-    // Normalize by canvas CSS size (style.width / style.height)
-    const cssW = parseFloat(wrap.firstChild?.style?.width || wrap.offsetWidth)
-    const cssH = parseFloat(wrap.firstChild?.style?.height || wrap.offsetHeight)
+    // Normalize by canvas CSS size (stored in ref when canvas is rendered)
+    const { w: cssW, h: cssH } = canvasCssSizeRef.current
     return {
       x: Math.max(0, Math.min(1, canvasX / cssW)),
       y: Math.max(0, Math.min(1, canvasY / cssH)),
@@ -408,7 +412,7 @@ function FullPageAreaPicker({ pages, startIndex = 0, field, onSave, onCancel }) 
       const bytes = pdfCache.get(page.fileId)
       // Try embedded text first; fall back to full-page OCR filtered by rect
       let t = bytes ? await extractEmbeddedText(page.fileId, bytes, page.pageIndex, r) : ''
-      if (!t) t = await ocrRect(page.fileId, bytes, page.pageIndex, r, canvas)
+      if (!t) t = await ocrRect(page.fileId, bytes, page.pageIndex, r)
       setExtracted(t)
     } finally { setExtracting(false) }
   }, [panning, dragging, clientToNorm, page])
