@@ -170,6 +170,22 @@ async function ocrFromPickerCanvas(pickerCanvas, rect) {
   return data.text.replace(/\s+/g, ' ').trim()
 }
 
+// OCR a rect from a PDF page — used for pages not currently shown in the picker.
+async function ocrFromPdfRect(fileId, bytes, pageNum, rect) {
+  const pdf = await getPdfDoc(fileId, bytes)
+  const page = await pdf.getPage(pageNum)
+  const vp0 = page.getViewport({ scale: 1 })
+  const targetW = 1600
+  const scale = targetW / (rect.w * vp0.width)
+  const vp = page.getViewport({ scale })
+  const full = document.createElement('canvas')
+  full.width = Math.round(vp.width); full.height = Math.round(vp.height)
+  const fctx = full.getContext('2d')
+  fctx.fillStyle = '#fff'; fctx.fillRect(0, 0, full.width, full.height)
+  await page.render({ canvasContext: fctx, viewport: vp }).promise
+  return ocrFromPickerCanvas(full, rect)
+}
+
 function guessSheetNumber(items) {
   const text = items.map(i => i.str).join(' ')
   const patterns = [
@@ -421,7 +437,7 @@ function FullPageAreaPicker({ pages, startIndex = 0, field, onSave, onCancel }) 
   }, [panning, dragging, clientToNorm, page])
 
   const handleSave = () => {
-    onSave(rect, extracted || '', pages.map(p => p.id))
+    onSave(rect, extracted || '', pages.map(p => p.id), page.id)
   }
 
   const rectStyle = r => r ? ({
@@ -589,19 +605,29 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
   // Pages to show in the picker = currently selected (or all if none selected)
   const pickerPages = pages.filter(p => selected.size === 0 || selected.has(p.id))
 
-  const handlePickerSave = (rect, text, pageIds) => {
+  const handlePickerSave = (rect, text, pageIds, currentPageId) => {
     const rectField = pickerField === 'sheetNum' ? 'sheetNumRect' : 'titleRect'
+    const textField = pickerField === 'sheetNum' ? 'sheetNum' : 'title'
     const idSet = new Set(pageIds)
+
+    // Apply rect immediately; text only for the page that was displayed in picker
     setPages(ps => ps.map(p => {
       if (!idSet.has(p.id)) return p
       const updated = { ...p, [rectField]: rect }
-      if (text) {
-        if (pickerField === 'sheetNum') updated.sheetNum = text
-        if (pickerField === 'title') updated.title = text
-      }
+      if (text && p.id === currentPageId) updated[textField] = text
       return updated
     }))
     setPickerField(null)
+
+    // Background-OCR every other selected page using its own PDF content
+    const field = pickerField // capture before async
+    pages.filter(p => idSet.has(p.id) && p.id !== currentPageId).forEach(async p => {
+      const bytes = pdfCache.get(p.fileId)
+      if (!bytes) return
+      let t = await extractEmbeddedText(p.fileId, bytes, p.pageIndex, rect)
+      if (!t) t = await ocrFromPdfRect(p.fileId, bytes, p.pageIndex, rect)
+      if (t) setPages(ps => ps.map(pg => pg.id === p.id ? { ...pg, [field === 'sheetNum' ? 'sheetNum' : 'title']: t } : pg))
+    })
   }
 
   const handleImport = () => {
