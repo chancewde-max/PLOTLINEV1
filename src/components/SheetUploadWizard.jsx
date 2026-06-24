@@ -11,11 +11,23 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
 ).toString()
 
 let ocrWorker = null
-async function getOcrWorker() {
-  if (!ocrWorker) {
-    ocrWorker = await createWorker('eng')
-  }
-  return ocrWorker
+let ocrWorkerLoading = null
+function getOcrWorker() {
+  if (ocrWorker) return Promise.resolve(ocrWorker)
+  if (ocrWorkerLoading) return ocrWorkerLoading
+  ocrWorkerLoading = createWorker('eng').then(w => { ocrWorker = w; ocrWorkerLoading = null; return w })
+  return ocrWorkerLoading
+}
+// Call this early so OCR is ready by the time user draws a rect
+export function preloadOcrWorker() { getOcrWorker() }
+
+// pdfjs document cache — keyed by fileId, avoids re-parsing bytes on every render
+const pdfDocCache = new Map()
+async function getPdfDoc(fileId, bytes) {
+  if (pdfDocCache.has(fileId)) return pdfDocCache.get(fileId)
+  const promise = pdfjsLib.getDocument({ data: bytes.slice(0) }).promise
+  pdfDocCache.set(fileId, promise)
+  return promise
 }
 
 // ---- Helpers ----------------------------------------------------------------
@@ -50,8 +62,8 @@ async function renderPageThumb(page, thumbW = 220) {
 // Render just the rect region of a PDF page at high res, returns a dataURL.
 // Renders the full page at a scale where rect.w fills cropW pixels, then
 // uses drawImage to extract just that region — handles rotated pages correctly.
-async function renderRectCrop(bytes, pageNum, rect, cropW = 320) {
-  const pdf = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise
+async function renderRectCrop(fileId, bytes, pageNum, rect, cropW = 320) {
+  const pdf = await getPdfDoc(fileId, bytes)
   const page = await pdf.getPage(pageNum)
   const dpr = Math.max(window.devicePixelRatio || 1, 2)
   const vp0 = page.getViewport({ scale: 1 })
@@ -81,8 +93,8 @@ async function renderRectCrop(bytes, pageNum, rect, cropW = 320) {
   return out.toDataURL('image/png')
 }
 
-async function renderPageFull(bytes, pageNum, targetW = 1600) {
-  const pdf = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise
+async function renderPageFull(fileId, bytes, pageNum, targetW = 1600) {
+  const pdf = await getPdfDoc(fileId, bytes)
   const page = await pdf.getPage(pageNum)
   const vp0 = page.getViewport({ scale: 1 })
   const dpr = Math.max(window.devicePixelRatio || 1, 2) // at least 2× for crispness
@@ -98,8 +110,8 @@ async function renderPageFull(bytes, pageNum, targetW = 1600) {
   return canvas
 }
 
-async function extractTextInRect(bytes, pageNum, rect) {
-  const pdf = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise
+async function extractTextInRect(fileId, bytes, pageNum, rect) {
+  const pdf = await getPdfDoc(fileId, bytes)
   const page = await pdf.getPage(pageNum)
   const vp = page.getViewport({ scale: 1 })
   const textContent = await page.getTextContent()
@@ -167,7 +179,7 @@ async function processPdfFile(file, onPageDone) {
   const bytes = dataUrlToUint8Array(dataUrl)
   const fileId = `pdf-${Date.now()}-${Math.random().toString(36).slice(2)}`
   pdfCache.set(fileId, bytes)
-  const pdf = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise
+  const pdf = await getPdfDoc(fileId, bytes)
   const pages = []
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i)
@@ -285,7 +297,7 @@ function FullPageAreaPicker({ pages, startIndex = 0, field, onSave, onCancel }) 
     const bytes = pdfCache.get(page.fileId)
     if (!bytes) { setLoading(false); return }
     let cancelled = false
-    renderPageFull(bytes, page.pageIndex).then(c => {
+    renderPageFull(page.fileId, bytes, page.pageIndex).then(c => {
       if (!cancelled) { setCanvas(c); setLoading(false) }
     })
     return () => { cancelled = true }
@@ -377,7 +389,7 @@ function FullPageAreaPicker({ pages, startIndex = 0, field, onSave, onCancel }) 
     const bytes = pdfCache.get(page.fileId)
     if (bytes) {
       setExtracting(true)
-      try { const t = await extractTextInRect(bytes, page.pageIndex, r); setExtracted(t) }
+      try { const t = await extractTextInRect(page.fileId, bytes, page.pageIndex, r); setExtracted(t) }
       finally { setExtracting(false) }
     }
   }, [panning, dragging, clientToNorm, page])
@@ -457,7 +469,7 @@ function CropPreview({ page, rect }) {
     let cancelled = false
     const bytes = pdfCache.get(page.fileId)
     if (!bytes) return
-    renderRectCrop(bytes, page.pageIndex, rect, 320).then(url => {
+    renderRectCrop(page.fileId, bytes, page.pageIndex, rect, 320).then(url => {
       if (!cancelled) setDataUrl(url)
     })
     return () => { cancelled = true }
@@ -520,6 +532,9 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
   const [selected, setSelected] = useState(new Set()) // selected page ids
   const [pickerField, setPickerField] = useState(null) // 'sheetNum' | 'title'
   const [rowH, setRowH] = useState(80)
+
+  // Pre-load OCR worker as soon as wizard opens so it's ready when user draws a rect
+  useEffect(() => { if (open) getOcrWorker() }, [open])
 
   const reset = () => { setStep(0); setPages([]); setProcessing(false); setPickerField(null); setSelected(new Set()) }
   const handleClose = () => { reset(); onClose() }
