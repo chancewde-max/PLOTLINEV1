@@ -125,6 +125,9 @@ export default function SheetPage() {
   const [activeTool, setActiveTool] = useState('region')
   const [leftPanel, setLeftPanel]   = useState('layers')
   const [hidden, setHidden]     = useState({})
+  // ---- Display settings ----
+  const [dotSize, setDotSize]     = useState(3)   // count dot radius (svg units)
+  const [strokeW, setStrokeW]     = useState(1)   // area/linear stroke multiplier
   const [exportOpen, setExportOpen] = useState(false)
   const [quoteOpen, setQuoteOpen]   = useState(false)
   const [quoteVendor, setQuoteVendor] = useState('')
@@ -284,7 +287,7 @@ export default function SheetPage() {
       const delta = e.deltaMode === 1 ? e.deltaY * 20 : e.deltaMode === 2 ? e.deltaY * 300 : e.deltaY
       const factor = Math.pow(0.999, delta)
       const oldZ = zoomTargetRef.current
-      const newZ = Math.max(25, Math.min(400, oldZ * factor))
+      const newZ = Math.max(25, Math.min(1600, oldZ * factor))
       zoomTargetRef.current = newZ
       // Zoom to cursor: adjust pan so point under cursor stays fixed
       const rect = el.getBoundingClientRect()
@@ -1068,7 +1071,7 @@ export default function SheetPage() {
           <div className={s.zoomCtrl}>
             <button className={s.zoomBtn} onClick={() => setZoom(z => Math.max(25, z - 25))}><Minus size={14} /></button>
             <span className={s.zoomVal}>{Math.round(zoom)}%</span>
-            <button className={s.zoomBtn} onClick={() => setZoom(z => Math.min(400, z + 25))}><Plus size={14} /></button>
+            <button className={s.zoomBtn} onClick={() => setZoom(z => Math.min(1600, z + 25))}><Plus size={14} /></button>
           </div>
           <Badge variant="success" dot>Synced</Badge>
           <button className={s.iconBtn} data-on={settings} onClick={() => setSettings(v => !v)}>
@@ -1109,6 +1112,28 @@ export default function SheetPage() {
                 onChange={e => setFs(parseFloat(e.target.value))} />
               <span style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-strong)' }}>A</span>
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, minWidth: 38, textAlign: 'right' }}>{Math.round(fs * 100)}%</span>
+            </div>
+          </div>
+          <div>
+            <div className={s.popHead}>Icon size</div>
+            <div className={s.fsRow}>
+              <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>●</span>
+              <input type="range" min="1.5" max="7" step="0.5" value={dotSize}
+                style={{ flex: 1, accentColor: 'var(--brand-600)' }}
+                onChange={e => setDotSize(parseFloat(e.target.value))} />
+              <span style={{ fontSize: 18, color: 'var(--text-muted)' }}>●</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, minWidth: 38, textAlign: 'right' }}>{dotSize.toFixed(1)}</span>
+            </div>
+          </div>
+          <div>
+            <div className={s.popHead}>Line weight</div>
+            <div className={s.fsRow}>
+              <span style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1 }}>—</span>
+              <input type="range" min="0.4" max="3" step="0.2" value={strokeW}
+                style={{ flex: 1, accentColor: 'var(--brand-600)' }}
+                onChange={e => setStrokeW(parseFloat(e.target.value))} />
+              <span style={{ fontSize: 15, fontWeight: 900, color: 'var(--text-muted)', lineHeight: 1 }}>—</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, minWidth: 38, textAlign: 'right' }}>{strokeW.toFixed(1)}×</span>
             </div>
           </div>
         </div>
@@ -1315,7 +1340,7 @@ export default function SheetPage() {
                   const sharedProps = {
                     fill: areaColor, fillOpacity: fillOp,
                     stroke: isSelected ? '#000' : areaColor,
-                    strokeOpacity: strokeOp, strokeWidth: isSelected ? '1.5' : '0.75',
+                    strokeOpacity: strokeOp, strokeWidth: isSelected ? strokeW * 2 : strokeW * 0.75,
                     strokeDasharray: isSelected ? '0' : undefined,
                   }
                   return hasArcs
@@ -1348,7 +1373,7 @@ export default function SheetPage() {
                     <polyline key={l.id}
                       points={l.pts.map(p => `${p.x},${p.y}`).join(' ')}
                       fill="none" stroke={CAT_COLOR[l.type]}
-                      strokeOpacity={dim ? 0.25 : 1} strokeWidth={isIn ? 2.5 : 1.5}
+                      strokeOpacity={dim ? 0.25 : 1} strokeWidth={strokeW * (isIn ? 2.5 : 1.5)}
                       strokeLinecap="round" strokeLinejoin="round" />
                   )
                 })}
@@ -1365,7 +1390,7 @@ export default function SheetPage() {
                   const sharedProps = {
                     fill: 'none', stroke: lineColor,
                     strokeOpacity: dim ? 0.25 : 1,
-                    strokeWidth: isSelected ? 2.5 : (isIn ? 2.5 : 1.5),
+                    strokeWidth: strokeW * (isSelected ? 2.5 : (isIn ? 2.5 : 1.5)),
                     strokeLinecap: 'round', strokeLinejoin: 'round',
                     strokeDasharray: isSelected ? '6 3' : undefined,
                   }
@@ -1379,14 +1404,15 @@ export default function SheetPage() {
                   const isIn = inPoints[p.id]
                   const isSelected = selectedId === p.id
                   const dim = (activeTool === 'region' && hasRegion && !isIn) || !catActive.has(p.type)
-                  const col = CAT_COLOR[p.type]
+                  const col = p.color || CAT_COLOR[p.type]
+                  const dr = dotSize
                   return (
                     <g key={p.id} opacity={dim ? 0.22 : 1}>
-                      {(isIn || isSelected) && <circle cx={p.x} cy={p.y} r="7" fill={col} opacity="0.15" />}
-                      <circle cx={p.x} cy={p.y} r={isIn || isSelected ? 4 : 3}
+                      {(isIn || isSelected) && <circle cx={p.x} cy={p.y} r={dr * 2.3} fill={col} opacity="0.15" />}
+                      <circle cx={p.x} cy={p.y} r={isIn || isSelected ? dr * 1.33 : dr}
                         fill={(isIn || isSelected) ? col : '#fff'} stroke={isSelected ? '#000' : col}
-                        strokeWidth={(isIn || isSelected) ? 1.5 : 1} />
-                      {(isIn || isSelected) && <circle cx={p.x} cy={p.y} r="1.2" fill="#fff" />}
+                        strokeWidth={(isIn || isSelected) ? strokeW * 1.5 : strokeW} />
+                      {(isIn || isSelected) && <circle cx={p.x} cy={p.y} r={dr * 0.4} fill="#fff" />}
                     </g>
                   )
                 })}
@@ -1587,7 +1613,7 @@ export default function SheetPage() {
           <div className={s.zoomPanel}>
             <button className={s.zoomPanBtn} onClick={() => setZoom(z => Math.max(25, z - 25))}><Minus size={14} /></button>
             <span className={s.zoomPanVal}>{Math.round(zoom)}%</span>
-            <button className={s.zoomPanBtn} onClick={() => setZoom(z => Math.min(400, z + 25))}><Plus size={14} /></button>
+            <button className={s.zoomPanBtn} onClick={() => setZoom(z => Math.min(1600, z + 25))}><Plus size={14} /></button>
           </div>
         </main>
 

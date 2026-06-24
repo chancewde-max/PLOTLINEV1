@@ -44,7 +44,9 @@ export default function PdfCanvas({ url, width, height, onReuploadNeeded }) {
         const viewport0 = page.getViewport({ scale: 1 })
         const scaleX = width / viewport0.width
         const scaleY = height / viewport0.height
-        const scale = Math.min(scaleX, scaleY) * (window.devicePixelRatio || 1)
+        // Render at 3× display pixels so the plan stays crisp when zoomed in
+        const dpr = window.devicePixelRatio || 1
+        const scale = Math.min(scaleX, scaleY) * dpr * 3
 
         const viewport = page.getViewport({ scale })
         canvas.width = viewport.width
