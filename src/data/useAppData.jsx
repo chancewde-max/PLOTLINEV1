@@ -63,6 +63,30 @@ export function AppDataProvider({ children }) {
   const deleteCustomCat = (catId) =>
     setCustomCats(prev => prev.filter(c => c.id !== catId))
 
+  const addRegion = (projectId, region) =>
+    setProjects(p => ({
+      ...p,
+      [projectId]: { ...p[projectId], regions: [...(p[projectId]?.regions || []), region] },
+    }))
+
+  const updateRegion = (projectId, regionId, updates) =>
+    setProjects(p => ({
+      ...p,
+      [projectId]: {
+        ...p[projectId],
+        regions: (p[projectId]?.regions || []).map(r => r.id === regionId ? { ...r, ...updates } : r),
+      },
+    }))
+
+  const deleteRegion = (projectId, regionId) =>
+    setProjects(p => ({
+      ...p,
+      [projectId]: {
+        ...p[projectId],
+        regions: (p[projectId]?.regions || []).filter(r => r.id !== regionId),
+      },
+    }))
+
   const addSheetSet = (projectId, setName) => {
     const id = `set-${Date.now()}`
     setProjects(p => ({
@@ -114,6 +138,7 @@ export function AppDataProvider({ children }) {
       addProject, updateProject,
       addSheet, addSheets, updateSheet,
       addCustomCat, deleteCustomCat,
+      addRegion, updateRegion, deleteRegion,
       addSheetSet, renameSheetSet, deleteSheetSet, moveSheetToSet,
     }}>
       {children}

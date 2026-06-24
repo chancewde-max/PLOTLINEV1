@@ -112,7 +112,7 @@ function buildLinePath(pts, arcSegs = {}) {
 export default function SheetPage() {
   const { projectId, sheetId } = useParams()
   const navigate = useNavigate()
-  const { projects, sheets, updateSheet } = useAppData()
+  const { projects, sheets, updateSheet, addRegion, updateRegion, deleteRegion } = useAppData()
   const { theme, setTheme, accent, setAccent } = useSettings()
 
   // ---- UI state ----
@@ -148,8 +148,8 @@ export default function SheetPage() {
   const [regionClosed, setRegionClosed] = useState(null)
   const [regionCursor, setRegionCursor] = useState(null)
   const [catActive, setCatActive]   = useState(() => new Set(CATS.map(c => c.id)))
-  const [folders, setFolders]       = useState([{ id: 'f1', name: 'Region 1', poly: null, color: FOLDER_PALETTE[0] }])
-  const [activeFolderId, setActiveFolderId] = useState('f1')
+  // folders = project.regions enriched with this sheet's poly
+  const [activeFolderId, setActiveFolderId] = useState(null)
   const [renamingId, setRenamingId] = useState(null)
   const [renameVal, setRenameVal]   = useState('')
 
@@ -354,9 +354,12 @@ export default function SheetPage() {
   useEffect(() => { if (sheetId) updateSheet(sheetId, { savedAreas: addedAreas }) }, [addedAreas])
   useEffect(() => { if (sheetId) updateSheet(sheetId, { savedLines: addedLines }) }, [addedLines])
 
-  // Sync active folder's poly whenever regionClosed changes
+  // Save active region poly to sheet whenever regionClosed changes
   useEffect(() => {
-    setFolders(prev => prev.map(f => f.id === activeFolderId ? { ...f, poly: regionClosed } : f))
+    if (!sheetId || !activeFolderId) return
+    updateSheet(sheetId, {
+      regionPolys: { ...(sheet?.regionPolys || {}), [activeFolderId]: regionClosed },
+    })
   }, [regionClosed, activeFolderId])
 
   // ---- Keyboard shortcuts ----
@@ -1023,37 +1026,63 @@ export default function SheetPage() {
 
   const px2pct = (v, dim) => `calc(50% + ${(v - dim / 2) * (zoom / 100) * FIT}px)`
 
-  const activeFolder = folders.find(f => f.id === activeFolderId)
+  // Derive folders from project-level regions + this sheet's polys
+  const projectRegions = project?.regions || []
+  // Seed a default region if none exist yet
+  const folders = projectRegions.length > 0
+    ? projectRegions.map(r => ({ ...r, poly: (sheet?.regionPolys || {})[r.id] || null }))
+    : [{ id: 'default-r1', name: 'Region 1', color: FOLDER_PALETTE[0], poly: null }]
+
+  // Bootstrap: if project has no regions yet, ensure at least one exists
+  useEffect(() => {
+    if (projectId && (project?.regions || []).length === 0) {
+      addRegion(projectId, { id: 'default-r1', name: 'Region 1', color: FOLDER_PALETTE[0] })
+    }
+  }, [projectId])
+
+  // Ensure activeFolderId is always valid
+  const safeFolderId = activeFolderId && folders.find(f => f.id === activeFolderId)
+    ? activeFolderId
+    : folders[0]?.id || null
+
+  const activeFolder = folders.find(f => f.id === safeFolderId)
 
   const switchFolder = (folderId) => {
-    if (folderId === activeFolderId) return
+    if (folderId === safeFolderId) return
     const target = folders.find(f => f.id === folderId)
     setActiveFolderId(folderId)
     setRegionClosed(target?.poly || null)
     setRegionVerts([]); setRegionCursor(null)
   }
   const addFolder = () => {
-    const id = `f${Date.now()}`
+    const id = `r${Date.now()}`
     const color = FOLDER_PALETTE[folders.length % FOLDER_PALETTE.length]
-    setFolders(prev => [...prev, { id, name: `Region ${prev.length + 1}`, poly: null, color }])
+    const name = `Region ${folders.length + 1}`
+    addRegion(projectId, { id, name, color })
     setActiveFolderId(id)
     setRegionClosed(null); setRegionVerts([]); setRegionCursor(null)
   }
   const deleteFolder = (folderId) => {
     if (folders.length <= 1) return
-    const remaining = folders.filter(f => f.id !== folderId)
-    setFolders(remaining)
-    if (folderId === activeFolderId) {
-      const next = remaining[0]
-      setActiveFolderId(next.id)
-      setRegionClosed(next.poly)
+    deleteRegion(projectId, folderId)
+    if (folderId === safeFolderId) {
+      const next = folders.find(f => f.id !== folderId)
+      if (next) { setActiveFolderId(next.id); setRegionClosed(next.poly || null) }
       setRegionVerts([]); setRegionCursor(null)
     }
   }
   const startRename = (folder) => { setRenamingId(folder.id); setRenameVal(folder.name) }
   const commitRename = () => {
-    if (renameVal.trim()) setFolders(prev => prev.map(f => f.id === renamingId ? { ...f, name: renameVal.trim() } : f))
+    if (renameVal.trim()) updateRegion(projectId, renamingId, { name: renameVal.trim() })
     setRenamingId(null)
+  }
+
+  // Save the active region's poly to the sheet whenever regionClosed changes
+  const saveRegionPoly = (folderId, poly) => {
+    if (!sheetId || !folderId) return
+    updateSheet(sheetId, {
+      regionPolys: { ...(sheet?.regionPolys || {}), [folderId]: poly },
+    })
   }
 
   const selectedArea  = selectedKind === 'area'  ? addedAreas.find(a => a.id === selectedId) : null
@@ -1197,6 +1226,7 @@ export default function SheetPage() {
             <Tabs variant="pill" value={leftPanel} onChange={setLeftPanel}
               items={[
                 { value: 'layers', label: 'Layers', count: projectLayers.length },
+                { value: 'regions', label: 'Regions', count: projectRegions.length },
                 { value: 'sheets', label: 'Sheets', count: (project.sheetIds || []).length },
               ]}
             />
@@ -1245,6 +1275,59 @@ export default function SheetPage() {
                   </div>
                 </div>
               ))}
+            </div>
+          ) : leftPanel === 'regions' ? (
+            <div className={s.scroll}>
+              <div style={{ padding: '8px 10px 4px', fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-subtle)' }}>Project regions</div>
+              {projectRegions.length === 0 && (
+                <div style={{ padding: '24px 8px', textAlign: 'center', color: 'var(--text-subtle)', fontSize: 12 }}>No regions yet — use the Region tool to draw one</div>
+              )}
+              {projectRegions.map(r => (
+                <div key={r.id} style={{ position: 'relative' }}
+                  onMouseEnter={e => e.currentTarget.querySelector('[data-flyout]').style.display = 'block'}
+                  onMouseLeave={e => e.currentTarget.querySelector('[data-flyout]').style.display = 'none'}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', cursor: 'pointer',
+                    background: r.id === safeFolderId ? 'var(--surface-muted)' : 'transparent',
+                    borderLeft: `3px solid ${r.id === safeFolderId ? r.color : 'transparent'}` }}
+                    onClick={() => { setActiveTool('region'); switchFolder(r.id) }}>
+                    <span style={{ width: 10, height: 10, borderRadius: 3, background: r.color, flexShrink: 0 }} />
+                    <span style={{ flex: 1, fontSize: 12, fontWeight: r.id === safeFolderId ? 700 : 500, color: 'var(--text-strong)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
+                    <span style={{ fontSize: 10, color: 'var(--text-subtle)', fontFamily: 'var(--font-mono)' }}>
+                      {(project.sheetIds || []).filter(sid => sheets[sid]?.regionPolys?.[r.id]?.length >= 3).length} sheets
+                    </span>
+                  </div>
+                  {/* Per-sheet flyout */}
+                  <div data-flyout="" style={{
+                    display: 'none', position: 'absolute', left: '100%', top: 0, zIndex: 200,
+                    background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8,
+                    boxShadow: '0 4px 16px rgba(0,0,0,0.14)', minWidth: 200, padding: '6px 0',
+                  }}>
+                    <div style={{ padding: '4px 12px 6px', fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-subtle)', borderBottom: '1px solid var(--border)', marginBottom: 2 }}>
+                      {r.name}
+                    </div>
+                    {(project.sheetIds || []).map(sid => {
+                      const sh = sheets[sid]
+                      if (!sh) return null
+                      const hasPoly = (sh.regionPolys?.[r.id] || []).length >= 3
+                      return (
+                        <div key={sid}
+                          onClick={() => { navigate(`/project/${projectId}/sheet/${sid}`); setActiveFolderId(r.id); setActiveTool('region') }}
+                          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 12,
+                            background: sid === sheetId ? 'var(--brand-50)' : 'transparent' }}
+                          onMouseEnter={e => { if (sid !== sheetId) e.currentTarget.style.background = 'var(--surface-hover)' }}
+                          onMouseLeave={e => { e.currentTarget.style.background = sid === sheetId ? 'var(--brand-50)' : 'transparent' }}>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700, color: 'var(--text-subtle)', minWidth: 28 }}>{sh.code}</span>
+                          <span style={{ flex: 1, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{sh.name}</span>
+                          <span style={{ fontSize: 10, color: hasPoly ? r.color : 'var(--text-subtle)' }}>{hasPoly ? '●' : '○'}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+              <button onClick={addFolder} style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '7px 10px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)' }}>
+                <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> Add region
+              </button>
             </div>
           ) : (
             <div className={s.scroll}>
@@ -1380,7 +1463,7 @@ export default function SheetPage() {
                 })()}
 
                 {/* Ghost polygons for non-active folders */}
-                {activeTool === 'region' && folders.filter(f => f.id !== activeFolderId && f.poly).map(f => (
+                {activeTool === 'region' && folders.filter(f => f.id !== safeFolderId && f.poly).map(f => (
                   <polygon key={f.id}
                     points={f.poly.map(p => `${p.x},${p.y}`).join(' ')}
                     fill={f.color} fillOpacity="0.06"
@@ -1752,7 +1835,7 @@ export default function SheetPage() {
             />
           ) : activeTool === 'region' ? (
             <RegionPanel
-              folders={folders} activeFolderId={activeFolderId} renamingId={renamingId} renameVal={renameVal}
+              folders={folders} activeFolderId={safeFolderId} renamingId={renamingId} renameVal={renameVal}
               onSwitch={switchFolder} onAdd={addFolder} onDelete={deleteFolder}
               onStartRename={startRename} onCommitRename={commitRename} onRenameVal={setRenameVal}
               regionRes={regionRes} hasRegion={hasRegion} regionSqft={regionSqft} regionPerim={regionPerim}
