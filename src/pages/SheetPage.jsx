@@ -1778,7 +1778,7 @@ export default function SheetPage() {
                 if (!sh) return null
                 return (
                   <button key={id} onClick={() => setOverlaySheetId(id)}
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 'var(--radius-md)', border: `1.5px solid ${overlaySheetId === id ? 'var(--brand-500)' : 'var(--border-subtle)'}`, background: overlaySheetId === id ? 'var(--brand-50)' : 'transparent', cursor: 'pointer', textAlign: 'left' }}>
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 'var(--radius-md)', border: `1.5px solid ${overlaySheetId === id ? 'var(--brand-500)' : 'var(--border-subtle)'}`, background: overlaySheetId === id ? 'var(--surface-muted)' : 'transparent', cursor: 'pointer', textAlign: 'left' }}>
                     <Map size={14} style={{ color: 'var(--text-muted)' }} />
                     <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: 'var(--text-strong)' }}>{sh.name}</span>
                     <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{sh.code}</span>
@@ -2288,7 +2288,7 @@ function RegionPanel({ folders, activeFolderId, renamingId, renameVal, onSwitch,
       <div style={{ borderBottom: '1px solid var(--border-subtle)', maxHeight: 160, overflowY: 'auto' }}>
         {folders.map(f => (
           <div key={f.id}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', cursor: 'pointer', background: f.id === activeFolderId ? 'var(--brand-50)' : 'transparent', borderLeft: `3px solid ${f.id === activeFolderId ? f.color : 'transparent'}` }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', cursor: 'pointer', background: f.id === activeFolderId ? 'var(--surface-muted)' : 'transparent', borderLeft: `3px solid ${f.id === activeFolderId ? f.color : 'transparent'}` }}
             onClick={() => onSwitch(f.id)}>
             <div style={{ width: 12, height: 12, borderRadius: 3, background: f.color, flexShrink: 0 }} />
             {renamingId === f.id ? (
@@ -2562,7 +2562,7 @@ function CountPanel({ countType, onSetCountType, addedPoints, countGroups, activ
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 160, overflowY: 'auto' }}>
             {countGroups.map(g => (
               <button key={g.id} onClick={() => onSetActiveGroup(g.id)}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 'var(--radius-md)', border: `1.5px solid ${g.id === activeCountGroupId ? 'var(--brand-500)' : 'transparent'}`, background: g.id === activeCountGroupId ? 'var(--brand-50)' : 'transparent', cursor: 'pointer', textAlign: 'left' }}>
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 'var(--radius-md)', border: `1.5px solid ${g.id === activeCountGroupId ? 'var(--brand-500)' : 'transparent'}`, background: g.id === activeCountGroupId ? 'var(--surface-muted)' : 'transparent', cursor: 'pointer', textAlign: 'left' }}>
                 <span style={{ width: 10, height: 10, borderRadius: '50%', background: CAT_COLOR[g.type] || 'var(--brand-500)', flexShrink: 0 }} />
                 <span style={{ flex: 1, fontSize: `calc(12px * ${fs})`, fontWeight: 500, color: 'var(--text-strong)' }}>{g.name}</span>
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(12px * ${fs})`, fontWeight: 700, color: 'var(--text-muted)' }}>{g.points.length}</span>
