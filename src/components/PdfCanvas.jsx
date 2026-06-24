@@ -14,7 +14,7 @@ function dataUrlToUint8Array(dataUrl) {
   return bytes
 }
 
-export default function PdfCanvas({ url, width, height, onReuploadNeeded }) {
+export default function PdfCanvas({ url, width, height, onReuploadNeeded, pageNumber = 1 }) {
   const canvasRef = useRef(null)
   const [error, setError] = useState(null)
   const [stale, setStale] = useState(false)
@@ -35,7 +35,7 @@ export default function PdfCanvas({ url, width, height, onReuploadNeeded }) {
         const src = url.startsWith('data:') ? { data: dataUrlToUint8Array(url) } : url
         const pdf = await pdfjsLib.getDocument(src).promise
         if (cancelled) return
-        const page = await pdf.getPage(1)
+        const page = await pdf.getPage(pageNumber)
         if (cancelled) return
 
         const canvas = canvasRef.current
@@ -63,7 +63,7 @@ export default function PdfCanvas({ url, width, height, onReuploadNeeded }) {
 
     render()
     return () => { cancelled = true }
-  }, [url, width, height])
+  }, [url, width, height, pageNumber])
 
   const msgStyle = { position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, fontSize: 12, color: '#999' }
 

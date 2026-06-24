@@ -7,6 +7,7 @@ import { Avatar } from '../components/ui/Avatar.jsx'
 import { Input } from '../components/ui/Input.jsx'
 import { Dialog } from '../components/ui/Dialog.jsx'
 import { Tabs } from '../components/ui/Tabs.jsx'
+import SheetUploadWizard from '../components/SheetUploadWizard.jsx'
 import { useAppData } from '../data/useAppData.jsx'
 import { STATUS_LABEL, STATUS_VARIANT, CATS, CAT_COLOR, SHEET_W, SHEET_H } from '../data/sampleData.js'
 import s from './ProjectPage.module.css'
@@ -67,8 +68,9 @@ const EMPTY_FORM = { name: '', code: '' }
 export default function ProjectPage() {
   const { projectId } = useParams()
   const navigate = useNavigate()
-  const { projects, sheets, addSheet, addSheetSet, renameSheetSet, deleteSheetSet, moveSheetToSet } = useAppData()
+  const { projects, sheets, addSheet, addSheets, addSheetSet, renameSheetSet, deleteSheetSet, moveSheetToSet } = useAppData()
   const [dlgOpen, setDlgOpen] = useState(false)
+  const [wizardOpen, setWizardOpen] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
   const [pdfFile, setPdfFile] = useState(null)
   const pdfInputRef = useRef(null)
@@ -84,7 +86,11 @@ export default function ProjectPage() {
 
   const sheetList = (project.sheetIds || []).map(id => sheets[id]).filter(Boolean)
 
-  const openDlg = () => { setForm(EMPTY_FORM); setPdfFile(null); setDlgOpen(true) }
+  const openDlg = () => setWizardOpen(true)
+
+  const handleWizardImport = (sheetArray) => {
+    addSheets(projectId, sheetArray)
+  }
 
   const handlePdfSelect = (e) => {
     const file = e.target.files?.[0]
@@ -295,38 +301,11 @@ export default function ProjectPage() {
         </>}
       </main>
 
-      <Dialog
-        open={dlgOpen}
-        onClose={() => setDlgOpen(false)}
-        title="Add sheet"
-        description="Add a blank takeoff sheet to this project."
-        width={400}
-        footer={<>
-          <Button variant="ghost" onClick={() => setDlgOpen(false)}>Cancel</Button>
-          <Button variant="primary" iconLeft={<Plus size={15} />} onClick={createSheet}
-            disabled={!form.name.trim()}>
-            Add sheet
-          </Button>
-        </>}
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, paddingBottom: 6 }}>
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>PDF background (optional)</div>
-            <input ref={pdfInputRef} type="file" accept=".pdf" style={{ display: 'none' }} onChange={handlePdfSelect} />
-            <button onClick={() => pdfInputRef.current?.click()}
-              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', border: '1.5px dashed var(--border-strong)', borderRadius: 'var(--radius-md)', background: pdfFile ? 'var(--surface-sunken)' : 'transparent', cursor: 'pointer', width: '100%', textAlign: 'left' }}>
-              {pdfFile ? <FileText size={16} style={{ color: 'var(--brand-600)' }} /> : <Upload size={16} style={{ color: 'var(--text-muted)' }} />}
-              <span style={{ fontSize: 13, color: pdfFile ? 'var(--text-strong)' : 'var(--text-muted)' }}>
-                {pdfFile ? pdfFile.name : 'Upload PDF plan…'}
-              </span>
-            </button>
-          </div>
-          <Input label="Sheet name" placeholder="Planting Plan…" value={form.name}
-            onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
-          <Input label="Sheet code" placeholder="L-1, SP-2…" value={form.code}
-            onChange={e => setForm(f => ({ ...f, code: e.target.value }))} />
-        </div>
-      </Dialog>
+      <SheetUploadWizard
+        open={wizardOpen}
+        onClose={() => setWizardOpen(false)}
+        onImport={handleWizardImport}
+      />
 
       {/* Add folder dialog */}
       <Dialog open={folderDlg} onClose={() => setFolderDlg(false)} title="Add folder"

@@ -39,6 +39,21 @@ export function AppDataProvider({ children }) {
     }))
   }
 
+  const addSheets = (projectId, sheetArray) => {
+    setSheets(s => {
+      const next = { ...s }
+      for (const sh of sheetArray) next[sh.id] = { ...sh, projectId }
+      return next
+    })
+    setProjects(p => ({
+      ...p,
+      [projectId]: {
+        ...p[projectId],
+        sheetIds: [...(p[projectId]?.sheetIds || []), ...sheetArray.map(s => s.id)],
+      },
+    }))
+  }
+
   const updateSheet = (sheetId, updates) =>
     setSheets(s => ({ ...s, [sheetId]: { ...s[sheetId], ...updates } }))
 
@@ -97,7 +112,7 @@ export function AppDataProvider({ children }) {
     <Ctx.Provider value={{
       projects, sheets, customCats,
       addProject, updateProject,
-      addSheet, updateSheet,
+      addSheet, addSheets, updateSheet,
       addCustomCat, deleteCustomCat,
       addSheetSet, renameSheetSet, deleteSheetSet, moveSheetToSet,
     }}>

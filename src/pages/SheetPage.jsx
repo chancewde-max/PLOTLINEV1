@@ -1246,7 +1246,7 @@ export default function SheetPage() {
           <div className={s.sheetWrap} style={{ transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${(zoom / 100) * FIT})`, transition: isPanningRef.current ? 'none' : undefined }}>
             <div className={s.sheet} style={{ width: SHEET_W, height: SHEET_H, backgroundImage: sheet.pdfUrl ? 'none' : undefined }}>
               {sheet.pdfUrl && (
-                <PdfCanvas url={sheet.pdfUrl} width={SHEET_W} height={SHEET_H}
+                <PdfCanvas url={sheet.pdfUrl} width={SHEET_W} height={SHEET_H} pageNumber={sheet.pdfPage || 1}
                   onReuploadNeeded={() => {
                     const input = document.createElement('input')
                     input.type = 'file'; input.accept = 'application/pdf'
@@ -1554,21 +1554,22 @@ export default function SheetPage() {
                 )
               })}
 
-              {/* Count group dots - colored by group */}
+              {/* Count group dots - colored by group, sized by dotSize */}
               {countGroups.map(g =>
                 g.points.map(p => {
                   const isSelected = selectedId === p.id
+                  const sz = dotSize * 2 * (isSelected ? 1.5 : 1)
                   return (
                     <div key={p.id + '-dot'} style={{
                       position: 'absolute',
                       left: `${(p.x/SHEET_W)*100}%`,
                       top: `${(p.y/SHEET_H)*100}%`,
                       transform: 'translate(-50%, -50%)',
-                      width: isSelected ? 9 : 6,
-                      height: isSelected ? 9 : 6,
-                      borderRadius: g.shape === 'square' ? 1 : g.shape === 'diamond' ? 0 : '50%',
+                      width: sz,
+                      height: sz,
+                      borderRadius: g.shape === 'square' ? Math.max(1, sz * 0.1) : g.shape === 'diamond' ? 0 : '50%',
                       background: g.color,
-                      border: isSelected ? `1.5px solid #000` : `1px solid ${g.color}`,
+                      border: isSelected ? `${strokeW * 1.5}px solid #000` : `${strokeW}px solid ${g.color}`,
                       pointerEvents: 'none',
                       rotate: g.shape === 'diamond' ? '45deg' : undefined,
                       boxShadow: '0 0 0 1px #fff',
