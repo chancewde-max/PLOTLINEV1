@@ -883,7 +883,7 @@ export default function SheetPage() {
     ...areaGroups.map(g => ({ id: g.id, color: g.color, kind: 'areaGroup', label: g.name, count: addedAreas.filter(a => a.groupId === g.id).length })),
   ]
 
-  // Project-wide totals aggregated across all sheets
+  // Project-wide totals aggregated across all sheets, with per-sheet breakdown for hover
   const projectLayers = (() => {
     const byName = {}
     ;(project.sheetIds || []).forEach(sid => {
@@ -891,21 +891,26 @@ export default function SheetPage() {
       if (!sh) return
       ;(sh.savedCountGroups || []).forEach(g => {
         const key = `count::${g.name}`
-        if (!byName[key]) byName[key] = { label: g.name, kind: 'count', color: g.color || 'var(--takeoff-count)', count: 0, sheets: 0 }
+        if (!byName[key]) byName[key] = { label: g.name, kind: 'count', color: g.color || 'var(--takeoff-count)', count: 0, sheets: 0, sheetList: [] }
         byName[key].count += g.points?.length || 0
         byName[key].sheets += 1
+        byName[key].sheetList.push({ sid, name: sh.name, code: sh.code, count: g.points?.length || 0 })
       })
       ;(sh.savedAreaGroups || []).forEach(g => {
         const key = `area::${g.name}`
-        if (!byName[key]) byName[key] = { label: g.name, kind: 'area', color: g.color || 'var(--takeoff-area)', count: 0, sheets: 0 }
-        byName[key].count += (sh.savedAreas || []).filter(a => a.groupId === g.id).length
+        if (!byName[key]) byName[key] = { label: g.name, kind: 'area', color: g.color || 'var(--takeoff-area)', count: 0, sheets: 0, sheetList: [] }
+        const n = (sh.savedAreas || []).filter(a => a.groupId === g.id).length
+        byName[key].count += n
         byName[key].sheets += 1
+        byName[key].sheetList.push({ sid, name: sh.name, code: sh.code, count: n })
       })
       ;(sh.savedLinearGroups || []).forEach(g => {
         const key = `linear::${g.name}`
-        if (!byName[key]) byName[key] = { label: g.name, kind: 'linear', color: g.color || 'var(--takeoff-linear)', count: 0, sheets: 0 }
-        byName[key].count += (sh.savedLines || []).filter(l => l.groupId === g.id).length
+        if (!byName[key]) byName[key] = { label: g.name, kind: 'linear', color: g.color || 'var(--takeoff-linear)', count: 0, sheets: 0, sheetList: [] }
+        const n = (sh.savedLines || []).filter(l => l.groupId === g.id).length
+        byName[key].count += n
         byName[key].sheets += 1
+        byName[key].sheetList.push({ sid, name: sh.name, code: sh.code, count: n })
       })
     })
     return Object.values(byName)
@@ -1179,7 +1184,9 @@ export default function SheetPage() {
                 <div style={{ padding: '24px 8px', textAlign: 'center', color: 'var(--text-subtle)', fontSize: 12 }}>No takeoffs yet</div>
               )}
               {projectLayers.map((item, i) => (
-                <div key={i} className={s.layerRow}>
+                <div key={i} className={s.layerRow} style={{ position: 'relative' }}
+                  onMouseEnter={e => e.currentTarget.querySelector('[data-flyout]').style.display = 'block'}
+                  onMouseLeave={e => e.currentTarget.querySelector('[data-flyout]').style.display = 'none'}>
                   <span className={`${s.layerDot} ${item.kind === 'linear' ? s.layerLine : ''}`}
                     style={{ background: item.color, borderRadius: item.kind === 'count' ? '50%' : '3px', flexShrink: 0 }} />
                   <span className={s.layerLabel}>{item.label}</span>
@@ -1187,6 +1194,31 @@ export default function SheetPage() {
                     {item.count}
                     {item.sheets > 1 && <span style={{ fontWeight: 400, color: 'var(--text-subtle)', marginLeft: 3 }}>({item.sheets})</span>}
                   </span>
+                  {/* Hover flyout — sheet list */}
+                  <div data-flyout="" style={{
+                    display: 'none', position: 'absolute', left: '100%', top: 0, zIndex: 200,
+                    background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8,
+                    boxShadow: '0 4px 16px rgba(0,0,0,0.14)', minWidth: 200, padding: '6px 0',
+                  }}>
+                    <div style={{ padding: '4px 12px 6px', fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-subtle)', borderBottom: '1px solid var(--border)', marginBottom: 2 }}>
+                      {item.label}
+                    </div>
+                    {item.sheetList.map(sh => (
+                      <div key={sh.sid}
+                        onClick={() => navigate(`/project/${projectId}/sheet/${sh.sid}`)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px',
+                          cursor: 'pointer', fontSize: 12,
+                          background: sh.sid === sheetId ? 'var(--brand-50)' : 'transparent',
+                        }}
+                        onMouseEnter={e => { if (sh.sid !== sheetId) e.currentTarget.style.background = 'var(--surface-hover)' }}
+                        onMouseLeave={e => { e.currentTarget.style.background = sh.sid === sheetId ? 'var(--brand-50)' : 'transparent' }}>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700, color: 'var(--text-subtle)', minWidth: 28 }}>{sh.code}</span>
+                        <span style={{ flex: 1, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{sh.name}</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>{sh.count}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ))}
             </div>
