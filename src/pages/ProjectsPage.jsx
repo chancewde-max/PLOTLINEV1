@@ -10,6 +10,7 @@ import { Select } from '../components/ui/Select.jsx'
 import { useAppData } from '../data/useAppData.jsx'
 import { useSettings } from '../data/useSettings.jsx'
 import { STATUS_LABEL, STATUS_VARIANT } from '../data/sampleData.js'
+import PdfCanvas from '../components/PdfCanvas.jsx'
 import s from './ProjectsPage.module.css'
 
 const ACCENTS = [
@@ -42,7 +43,7 @@ const EMPTY_FORM = { name: '', client: '', address: '', status: 'draft' }
 
 export default function ProjectsPage() {
   const navigate = useNavigate()
-  const { projects: allProjects, addProject } = useAppData()
+  const { projects: allProjects, sheets, addProject } = useAppData()
   const { theme, setTheme, accent, setAccent } = useSettings()
   const [search, setSearch] = useState('')
   const [dlgOpen, setDlgOpen] = useState(false)
@@ -172,32 +173,32 @@ export default function ProjectsPage() {
               onClick={() => navigate(`/project/${project.id}`)}
             >
               <div className={s.preview}>
-                <svg viewBox="0 0 220 160" fill="none" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>
-                  {PREVIEW_POLY[project.id] && (
-                    <polygon
-                      points={PREVIEW_POLY[project.id]}
-                      fill={PREVIEW_COLOR[project.id] || 'var(--takeoff-area)'}
-                      fillOpacity="0.16"
-                      stroke={PREVIEW_COLOR[project.id] || 'var(--takeoff-area)'}
-                      strokeWidth="2.5"
-                    />
-                  )}
-                  {PREVIEW_LINE[project.id] && (
-                    <polyline
-                      points={PREVIEW_LINE[project.id]}
-                      fill="none"
-                      stroke={PREVIEW_COLOR[project.id] || 'var(--takeoff-linear)'}
-                      strokeWidth="3"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  )}
-                  {!PREVIEW_POLY[project.id] && !PREVIEW_LINE[project.id] && (
-                    <rect x="40" y="40" width="140" height="80" rx="6"
-                      fill="var(--takeoff-area)" fillOpacity="0.1"
-                      stroke="var(--takeoff-area)" strokeWidth="2" strokeDasharray="6 4" />
-                  )}
-                </svg>
+                {(() => {
+                  const firstSheetId = (project.sheetIds || [])[0]
+                  const firstSheet = firstSheetId ? sheets[firstSheetId] : null
+                  if (firstSheet?.pdfUrl) {
+                    return <PdfCanvas url={firstSheet.pdfUrl} width={220} height={160} pageNumber={firstSheet.pdfPage || 1} />
+                  }
+                  return (
+                    <svg viewBox="0 0 220 160" fill="none" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>
+                      {PREVIEW_POLY[project.id] && (
+                        <polygon points={PREVIEW_POLY[project.id]}
+                          fill={PREVIEW_COLOR[project.id] || 'var(--takeoff-area)'} fillOpacity="0.16"
+                          stroke={PREVIEW_COLOR[project.id] || 'var(--takeoff-area)'} strokeWidth="2.5" />
+                      )}
+                      {PREVIEW_LINE[project.id] && (
+                        <polyline points={PREVIEW_LINE[project.id]}
+                          fill="none" stroke={PREVIEW_COLOR[project.id] || 'var(--takeoff-linear)'}
+                          strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                      )}
+                      {!PREVIEW_POLY[project.id] && !PREVIEW_LINE[project.id] && (
+                        <rect x="40" y="40" width="140" height="80" rx="6"
+                          fill="var(--takeoff-area)" fillOpacity="0.1"
+                          stroke="var(--takeoff-area)" strokeWidth="2" strokeDasharray="6 4" />
+                      )}
+                    </svg>
+                  )
+                })()}
                 <span className={s.statusBadge}>
                   <Badge variant={STATUS_VARIANT[project.status] || 'neutral'} dot={project.status === 'bid_sent'}>
                     {STATUS_LABEL[project.status] || project.status}

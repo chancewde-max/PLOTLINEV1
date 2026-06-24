@@ -8,6 +8,7 @@ import { Input } from '../components/ui/Input.jsx'
 import { Dialog } from '../components/ui/Dialog.jsx'
 import { Tabs } from '../components/ui/Tabs.jsx'
 import SheetUploadWizard from '../components/SheetUploadWizard.jsx'
+import PdfCanvas from '../components/PdfCanvas.jsx'
 import { useAppData } from '../data/useAppData.jsx'
 import { STATUS_LABEL, STATUS_VARIANT, CATS, CAT_COLOR, SHEET_W, SHEET_H } from '../data/sampleData.js'
 import s from './ProjectPage.module.css'
@@ -15,40 +16,26 @@ import s from './ProjectPage.module.css'
 function SheetPreview({ sheet }) {
   const scale = 0.22
   const w = SHEET_W * scale, h = SHEET_H * scale
+  if (sheet.pdfUrl) {
+    return (
+      <div className={s.sheetPreview} style={{ width: w, height: h, position: 'relative', overflow: 'hidden', borderRadius: 4, background: '#f5f5f3' }}>
+        <PdfCanvas url={sheet.pdfUrl} width={w} height={h} pageNumber={sheet.pdfPage || 1} />
+      </div>
+    )
+  }
   return (
     <div className={s.sheetPreview} style={{ width: w, height: h }}>
       <svg width={w} height={h} viewBox={`0 0 ${SHEET_W} ${SHEET_H}`} fill="none">
         {(sheet.areas || []).map(a => (
-          <polygon
-            key={a.id}
-            points={a.poly.map(p => `${p.x},${p.y}`).join(' ')}
-            fill={CAT_COLOR[a.type]}
-            fillOpacity="0.2"
-            stroke={CAT_COLOR[a.type]}
-            strokeWidth="2"
-          />
+          <polygon key={a.id} points={a.poly.map(p => `${p.x},${p.y}`).join(' ')}
+            fill={CAT_COLOR[a.type]} fillOpacity="0.2" stroke={CAT_COLOR[a.type]} strokeWidth="2" />
         ))}
         {(sheet.lines || []).map(l => (
-          <polyline
-            key={l.id}
-            points={l.pts.map(p => `${p.x},${p.y}`).join(' ')}
-            fill="none"
-            stroke={CAT_COLOR[l.type]}
-            strokeWidth="3"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
+          <polyline key={l.id} points={l.pts.map(p => `${p.x},${p.y}`).join(' ')}
+            fill="none" stroke={CAT_COLOR[l.type]} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
         ))}
         {(sheet.points || []).map(p => (
-          <circle
-            key={p.id}
-            cx={p.x}
-            cy={p.y}
-            r="5"
-            fill="white"
-            stroke={CAT_COLOR[p.type]}
-            strokeWidth="2"
-          />
+          <circle key={p.id} cx={p.x} cy={p.y} r="5" fill="white" stroke={CAT_COLOR[p.type]} strokeWidth="2" />
         ))}
       </svg>
     </div>
