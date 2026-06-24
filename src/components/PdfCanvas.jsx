@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
+import { pdfCache } from './pdfCache.js'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
@@ -21,21 +22,38 @@ export default function PdfCanvas({ url, width, height, onReuploadNeeded, pageNu
 
   useEffect(() => {
     if (!url) return
-    // blob: URLs die on page reload — prompt re-upload instead of erroring
-    if (url.startsWith('blob:')) {
-      setStale(true)
-      return
+    // blob: URLs die on page reload
+    if (url.startsWith('blob:')) { setStale(true); return }
+
+    // plotline-pdf: references in-memory pdfCache; stale after reload
+    let resolvedBytes = null
+    let resolvedPage = pageNumber
+    if (url.startsWith('plotline-pdf:')) {
+      const [, fileId, pageStr] = url.split(':')
+      const bytes = pdfCache.get(fileId)
+      if (!bytes) { setStale(true); return }
+      resolvedBytes = bytes.slice(0) // copy so pdfjs doesn't consume it
+      resolvedPage = parseInt(pageStr) || 1
     }
+
     let cancelled = false
     setError(null)
+    setStale(false)
 
     const render = async () => {
       try {
-        // data: URLs are decoded to binary for reliable pdfjs parsing
-        const src = url.startsWith('data:') ? { data: dataUrlToUint8Array(url) } : url
+        let src
+        if (resolvedBytes) {
+          src = { data: resolvedBytes }
+        } else if (url.startsWith('data:')) {
+          src = { data: dataUrlToUint8Array(url) }
+        } else {
+          src = url
+        }
+
         const pdf = await pdfjsLib.getDocument(src).promise
         if (cancelled) return
-        const page = await pdf.getPage(pageNumber)
+        const page = await pdf.getPage(resolvedPage)
         if (cancelled) return
 
         const canvas = canvasRef.current
@@ -44,7 +62,6 @@ export default function PdfCanvas({ url, width, height, onReuploadNeeded, pageNu
         const viewport0 = page.getViewport({ scale: 1 })
         const scaleX = width / viewport0.width
         const scaleY = height / viewport0.height
-        // Render at 3× display pixels so the plan stays crisp when zoomed in
         const dpr = window.devicePixelRatio || 1
         const scale = Math.min(scaleX, scaleY) * dpr * 3
 

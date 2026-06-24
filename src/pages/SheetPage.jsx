@@ -153,9 +153,11 @@ export default function SheetPage() {
   const [renameVal, setRenameVal]   = useState('')
 
   // ---- Measure tool ----
+  const [measureSessions, setMeasureSessions] = useState([]) // completed measurement lines [{pts, color}]
   const [measurePts, setMeasurePts]     = useState([])
   const [measureDone, setMeasureDone]   = useState(false)
   const [measureCursor, setMeasureCursor] = useState(null)
+  const [measureColor, setMeasureColor] = useState('#e11d48')
 
   // ---- Area tool ----
   const [areaVerts, setAreaVerts]   = useState([])
@@ -387,7 +389,7 @@ export default function SheetPage() {
       if (key === 'ESCAPE') {
         setRegionVerts([]); setRegionClosed(null); setRegionCursor(null)
         setScalePts([]); setScaleDlg(null)
-        setMeasurePts([]); setMeasureDone(false); setMeasureCursor(null)
+        setMeasurePts([]); setMeasureDone(false); setMeasureCursor(null); setMeasureSessions([])
         setAreaVerts([]); setAreaCursor(null)
         setLinearVerts([]); setLinearCursor(null)
         setArcMode(false); setPendingArcThrough(null)
@@ -405,7 +407,9 @@ export default function SheetPage() {
           : v)
       }
       if (activeTool === 'measure' && !measureDone && measurePts.length >= 2) {
-        setMeasureDone(true); setMeasureCursor(null)
+        // Save current session and start a new one
+        setMeasureSessions(prev => [...prev, { pts: measurePts, color: measureColor }])
+        setMeasurePts([]); setMeasureCursor(null)
       }
       if (activeTool === 'area' && areaVerts.length >= 3) finishArea()
       if (activeTool === 'linear' && linearVerts.length >= 2) finishLine()
@@ -757,7 +761,8 @@ export default function SheetPage() {
       setRegionClosed(regionVerts); setRegionCursor(null)
     }
     if (activeTool === 'measure' && !measureDone && measurePts.length >= 2) {
-      setMeasureDone(true); setMeasureCursor(null)
+      setMeasureSessions(prev => [...prev, { pts: measurePts, color: measureColor }])
+      setMeasurePts([]); setMeasureCursor(null)
     }
     if (activeTool === 'linear' && linearVerts.length >= 2) finishLine()
   }
@@ -1213,11 +1218,11 @@ export default function SheetPage() {
                   ? <><Check size={14} style={{ color: 'var(--brand-600)' }} /><b>{fSq(regionSqft)} sq ft</b><span> · {totalPointCount} items. Draw again to recount.</span></>
                   : <><Lasso size={14} /><span>Draw a region to count items inside</span></>
             ) : activeTool === 'measure' ? (
-              measureDone
-                ? <><Ruler size={14} /><span><b>{fLn(measureTotalFt)} ln ft</b> total · {measureSegments.length} seg. <kbd>Esc</kbd> to clear.</span></>
+              measurePts.length === 0 && measureSessions.length === 0
+                ? <><Ruler size={14} /><span><b>Click</b> to start measuring · <kbd>Enter</kbd> or double-click to save and start new · <kbd>Esc</kbd> to clear all</span></>
                 : measurePts.length === 0
-                  ? <><Ruler size={14} /><span><b>Click</b> to start measuring. Double-click or <kbd>Enter</kbd> to finish.</span></>
-                  : <><Ruler size={14} /><span>Click to add points · <kbd>Enter</kbd> to finish</span></>
+                  ? <><Ruler size={14} style={{ color: measureColor }} /><span>Click to start a new measurement · <kbd>Esc</kbd> to clear all · <b>{measureSessions.length}</b> saved</span></>
+                  : <><Ruler size={14} style={{ color: measureColor }} /><span>Click to add points · <kbd>Enter</kbd> to save &amp; start new · <b>{fLn(measureTotalFt)}</b> ft so far</span></>
             ) : activeTool === 'area' ? (
               arcMode && pendingArcThrough
                 ? <><SquareDashed size={14} /><span>Arc: now click the <b>endpoint</b> of the arc</span></>
@@ -1495,25 +1500,55 @@ export default function SheetPage() {
                   </g>
                 ))}
 
-                {/* Measure tool */}
+                {/* Measure tool — completed sessions */}
+                {activeTool === 'measure' && measureSessions.map((sess, si) => {
+                  const col = sess.color
+                  const segs = sess.pts.slice(0, -1).map((a, k) => ({ a, b: sess.pts[k+1], ft: lnft(dist(a, sess.pts[k+1])) }))
+                  const total = segs.reduce((s, sg) => s + sg.ft, 0)
+                  return (
+                    <g key={si}>
+                      <polyline points={sess.pts.map(p => `${p.x},${p.y}`).join(' ')}
+                        fill="none" stroke={col} strokeWidth="2.5" strokeLinecap="round" />
+                      {segs.map((seg, i) => (
+                        <text key={i} x={(seg.a.x+seg.b.x)/2} y={(seg.a.y+seg.b.y)/2 - 8}
+                          textAnchor="middle" fill={col}
+                          fontFamily="var(--font-mono)" fontSize="10" fontWeight="600">
+                          {fLn(seg.ft)} ft
+                        </text>
+                      ))}
+                      {sess.pts.map((p, i) => (
+                        <g key={i}>
+                          <line x1={p.x} y1={p.y-8} x2={p.x} y2={p.y+8} stroke={col} strokeWidth="1.5" />
+                          <circle cx={p.x} cy={p.y} r="3.5" fill={col} />
+                        </g>
+                      ))}
+                      {segs.length > 0 && (() => {
+                        const last = sess.pts[sess.pts.length - 1]
+                        return <text x={last.x + 6} y={last.y - 6} fill={col} fontFamily="var(--font-mono)" fontSize="11" fontWeight="700">{fLn(total)} ft</text>
+                      })()}
+                    </g>
+                  )
+                })}
+
+                {/* Measure tool — current in-progress */}
                 {activeTool === 'measure' && (
                   <g>
                     {measureAllPts.length >= 2 && (
                       <polyline points={measureAllPts.map(p => `${p.x},${p.y}`).join(' ')}
-                        fill="none" stroke="var(--brand-600)" strokeWidth="2.5"
-                        strokeDasharray={measureDone ? '0' : '6 4'} strokeLinecap="round" />
+                        fill="none" stroke={measureColor} strokeWidth="2.5"
+                        strokeDasharray="6 4" strokeLinecap="round" />
                     )}
                     {measureSegments.map((seg, i) => (
                       <text key={i} x={(seg.a.x+seg.b.x)/2} y={(seg.a.y+seg.b.y)/2 - 8}
-                        textAnchor="middle" fill="var(--brand-700)"
+                        textAnchor="middle" fill={measureColor}
                         fontFamily="var(--font-mono)" fontSize="11" fontWeight="600">
                         {fLn(seg.ft)} ft
                       </text>
                     ))}
                     {measureAllPts.map((p, i) => (
                       <g key={i}>
-                        <line x1={p.x} y1={p.y-9} x2={p.x} y2={p.y+9} stroke="var(--brand-600)" strokeWidth="2" />
-                        <circle cx={p.x} cy={p.y} r="4" fill="var(--brand-600)" />
+                        <line x1={p.x} y1={p.y-9} x2={p.x} y2={p.y+9} stroke={measureColor} strokeWidth="2" />
+                        <circle cx={p.x} cy={p.y} r="4" fill={measureColor} />
                       </g>
                     ))}
                   </g>
@@ -1594,7 +1629,7 @@ export default function SheetPage() {
           {activeTool === 'measure' && measureAllPts.length >= 2 && (() => {
             const last = measureAllPts[measureAllPts.length - 1]
             return (
-              <div className={s.bubble} style={{ left: px2pct(last.x, SHEET_W), top: px2pct(last.y - 28, SHEET_H) }}>
+              <div className={s.bubble} style={{ left: px2pct(last.x, SHEET_W), top: px2pct(last.y - 28, SHEET_H), background: measureColor }}>
                 {fLn(measureTotalFt)} ln ft
               </div>
             )
@@ -1622,7 +1657,18 @@ export default function SheetPage() {
         <aside className={s.rightPanel} style={{ width: rightPanelW, minWidth: 240, maxWidth: 600 }}>
           <div className={s.resizeHandle} style={{ left: -3 }}
             onMouseDown={e => { e.preventDefault(); const startX = e.clientX, startW = rightPanelW; const move = ev => setRightPanelW(Math.max(240, Math.min(600, startW - (ev.clientX - startX)))); const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }; window.addEventListener('mousemove', move); window.addEventListener('mouseup', up) }} />
-          {activeTool === 'region' ? (
+          {activeTool === 'measure' ? (
+            <MeasurePanel
+              sessions={measureSessions}
+              segments={measureSegments}
+              totalFt={measureTotalFt}
+              fLn={fLn} lnft={lnft} dist={dist}
+              color={measureColor}
+              onColorChange={setMeasureColor}
+              onReset={() => { setMeasurePts([]); setMeasureDone(false); setMeasureCursor(null); setMeasureSessions([]) }}
+              fs={fs}
+            />
+          ) : activeTool === 'region' ? (
             <RegionPanel
               folders={folders} activeFolderId={activeFolderId} renamingId={renamingId} renameVal={renameVal}
               onSwitch={switchFolder} onAdd={addFolder} onDelete={deleteFolder}
@@ -2624,40 +2670,96 @@ function CountPanel({ countType, onSetCountType, addedPoints, countGroups, activ
   )
 }
 
+const MEASURE_COLORS = ['#e11d48','#2563eb','#16a34a','#d97706','#7c3aed','#0891b2','#ea580c','#0f172a']
+
 // ---- Measure panel ---------------------------------------------------------
-function MeasurePanel({ segments, totalFt, fLn, onReset, fs }) {
+function MeasurePanel({ sessions, segments, totalFt, fLn, lnft, dist, onReset, fs, color, onColorChange }) {
+  const grandTotal = sessions.reduce((s, sess) => {
+    const segs = sess.pts.slice(0, -1).map((a, k) => lnft(dist(a, sess.pts[k+1])))
+    return s + segs.reduce((x, v) => x + v, 0)
+  }, 0) + totalFt
+
   return (
     <>
       <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid var(--border-subtle)' }}>
         <h2 style={{ fontFamily: 'var(--font-display)', fontSize: `calc(18px * ${fs})`, fontWeight: 600, color: 'var(--text-strong)', margin: '0 0 3px', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Ruler size={18} style={{ color: 'var(--brand-600)', flexShrink: 0 }} /> Measure
+          <Ruler size={18} style={{ color, flexShrink: 0 }} /> Measure
         </h2>
         <p style={{ margin: 0, fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-          Click to place points. Double-click or <b>Enter</b> to finish.
+          Click points · <b>Enter</b> to save &amp; start new · <b>Esc</b> to clear all
         </p>
       </div>
-      <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)' }}>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(32px * ${fs})`, fontWeight: 700, color: segments.length > 0 ? 'var(--text-strong)' : 'var(--border-strong)', letterSpacing: '-0.02em', lineHeight: 1 }}>
-          {fLn(totalFt)}
-        </div>
-        <div style={{ fontSize: `calc(13px * ${fs})`, color: 'var(--text-muted)', marginTop: 4 }}>
-          total ln ft · {segments.length} segment{segments.length !== 1 ? 's' : ''}
+
+      {/* Color picker */}
+      <div style={{ padding: '10px 20px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ fontSize: `calc(11px * ${fs})`, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Color</span>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {MEASURE_COLORS.map(c => (
+            <button key={c} onClick={() => onColorChange(c)}
+              style={{ width: 22, height: 22, borderRadius: '50%', background: c, border: `3px solid ${color === c ? 'var(--text-strong)' : 'transparent'}`, cursor: 'pointer', padding: 0, outline: 'none', flexShrink: 0 }} />
+          ))}
         </div>
       </div>
+
+      <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--border-subtle)' }}>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(30px * ${fs})`, fontWeight: 700, color: grandTotal > 0 ? 'var(--text-strong)' : 'var(--border-strong)', letterSpacing: '-0.02em', lineHeight: 1 }}>
+          {fLn(grandTotal)}
+        </div>
+        <div style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)', marginTop: 3 }}>
+          total ln ft · {sessions.length + (segments.length > 0 ? 1 : 0)} measurement{sessions.length !== 1 ? 's' : ''}
+        </div>
+      </div>
+
       <div style={{ flex: '1 1 auto', overflow: 'auto', padding: '8px 12px 12px' }}>
-        {segments.length === 0 ? (
+        {/* Completed sessions */}
+        {sessions.map((sess, si) => {
+          const segs = sess.pts.slice(0, -1).map((a, k) => ({ a, b: sess.pts[k+1], ft: lnft(dist(a, sess.pts[k+1])) }))
+          const total = segs.reduce((s, sg) => s + sg.ft, 0)
+          return (
+            <div key={si} style={{ marginBottom: 8, borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', overflow: 'hidden' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: 'var(--surface-sunken)' }}>
+                <div style={{ width: 10, height: 10, borderRadius: '50%', background: sess.color, flexShrink: 0 }} />
+                <span style={{ flex: 1, fontSize: `calc(12px * ${fs})`, fontWeight: 600, color: 'var(--text-muted)' }}>Measurement {si + 1}</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(13px * ${fs})`, fontWeight: 700, color: 'var(--text-strong)' }}>{fLn(total)} ft</span>
+              </div>
+              {segs.map((seg, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '5px 10px', borderTop: '1px solid var(--border-subtle)' }}>
+                  <span style={{ fontSize: `calc(11px * ${fs})`, color: 'var(--text-subtle)' }}>Seg {i + 1}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)' }}>{fLn(seg.ft)} ft</span>
+                </div>
+              ))}
+            </div>
+          )
+        })}
+
+        {/* In-progress */}
+        {segments.length > 0 && (
+          <div style={{ borderRadius: 'var(--radius-md)', border: `1.5px dashed ${color}`, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: `${color}12` }}>
+              <div style={{ width: 10, height: 10, borderRadius: '50%', background: color, flexShrink: 0 }} />
+              <span style={{ flex: 1, fontSize: `calc(12px * ${fs})`, fontWeight: 600, color: 'var(--text-muted)' }}>In progress…</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(13px * ${fs})`, fontWeight: 700, color }}>
+                {fLn(totalFt)} ft
+              </span>
+            </div>
+            {segments.map((seg, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 10px', borderTop: '1px solid var(--border-subtle)' }}>
+                <span style={{ fontSize: `calc(11px * ${fs})`, color: 'var(--text-subtle)' }}>Seg {i + 1}</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)' }}>{fLn(seg.ft)} ft</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {sessions.length === 0 && segments.length === 0 && (
           <div style={{ padding: '24px 8px', textAlign: 'center', color: 'var(--text-subtle)', fontSize: `calc(13px * ${fs})` }}>
-            No segments yet — click on the plan to start.
+            No measurements yet — click on the plan to start.
           </div>
-        ) : segments.map((seg, i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', borderRadius: 'var(--radius-md)' }}>
-            <span style={{ fontSize: `calc(13px * ${fs})`, color: 'var(--text-muted)' }}>Segment {i + 1}</span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(14px * ${fs})`, fontWeight: 600, color: 'var(--text-strong)' }}>{fLn(seg.ft)} ft</span>
-          </div>
-        ))}
+        )}
       </div>
+
       <div style={{ padding: '12px 14px', borderTop: '1px solid var(--border-subtle)' }}>
-        <Button variant="ghost" fullWidth iconLeft={<Eraser size={14} />} onClick={onReset}>Clear measurement</Button>
+        <Button variant="ghost" fullWidth iconLeft={<Eraser size={14} />} onClick={onReset}>Clear all measurements</Button>
       </div>
     </>
   )
