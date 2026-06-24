@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Plus, ChevronRight, Upload, FileText, Folder, FolderPlus, FolderOpen, X, LayoutDashboard } from 'lucide-react'
+import { ArrowLeft, Plus, ChevronRight, Upload, FileText, Folder, FolderPlus, FolderOpen, X, LayoutDashboard, CheckSquare, Square, MoveRight } from 'lucide-react'
 import { Button } from '../components/ui/Button.jsx'
 import { Badge } from '../components/ui/Badge.jsx'
 import { Avatar } from '../components/ui/Avatar.jsx'
@@ -68,6 +68,7 @@ export default function ProjectPage() {
   const [activeTab, setActiveTab] = useState('sheets')
   const [draggingSheetId, setDraggingSheetId] = useState(null)
   const [dragOverTarget, setDragOverTarget] = useState(null) // setId or 'unassigned'
+  const [selectedSheetIds, setSelectedSheetIds] = useState(new Set())
 
   const project = projects[projectId]
 
@@ -223,10 +224,49 @@ export default function ProjectPage() {
         {activeTab === 'sheets' && <>
         {/* Sheet Sets / Folders */}
         {/* Folders */}
+        {selectedSheetIds.size > 0 && (
+          <div style={{ position: 'sticky', top: 0, zIndex: 20, display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', marginBottom: 12, borderRadius: 'var(--radius-md)', background: 'var(--brand-600)', color: '#fff', boxShadow: '0 2px 12px rgba(0,0,0,0.18)' }}>
+            <span style={{ fontSize: 13, fontWeight: 600, flex: 1 }}>{selectedSheetIds.size} sheet{selectedSheetIds.size !== 1 ? 's' : ''} selected</span>
+            <span style={{ fontSize: 12, opacity: 0.8, marginRight: 4 }}>Move to:</span>
+            {(project.sheetSets || []).map(set => (
+              <button key={set.id}
+                onClick={() => {
+                  selectedSheetIds.forEach(id => moveSheetToSet(projectId, id, set.id))
+                  setSelectedSheetIds(new Set())
+                }}
+                style={{ background: 'rgba(255,255,255,0.18)', border: '1px solid rgba(255,255,255,0.35)', borderRadius: 'var(--radius-sm)', padding: '3px 10px', fontSize: 12, fontWeight: 600, color: '#fff', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                {set.name}
+              </button>
+            ))}
+            <button
+              onClick={() => {
+                selectedSheetIds.forEach(id => moveSheetToSet(projectId, id, null))
+                setSelectedSheetIds(new Set())
+              }}
+              style={{ background: 'rgba(255,255,255,0.18)', border: '1px solid rgba(255,255,255,0.35)', borderRadius: 'var(--radius-sm)', padding: '3px 10px', fontSize: 12, fontWeight: 600, color: '#fff', cursor: 'pointer' }}>
+              Unassigned
+            </button>
+            <button onClick={() => setSelectedSheetIds(new Set())}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff', padding: 2, opacity: 0.7, display: 'flex', alignItems: 'center' }}>
+              <X size={15} />
+            </button>
+          </div>
+        )}
+
         {(project.sheetSets || []).map(set => {
           const setSheets = (set.sheetIds || []).map(id => sheets[id]).filter(Boolean)
           const expanded = expandedSets[set.id] !== false
           const isOver = dragOverTarget === set.id
+          const allSelected = setSheets.length > 0 && setSheets.every(sh => selectedSheetIds.has(sh.id))
+          const toggleSelectAll = (e) => {
+            e.stopPropagation()
+            setSelectedSheetIds(prev => {
+              const next = new Set(prev)
+              if (allSelected) setSheets.forEach(sh => next.delete(sh.id))
+              else setSheets.forEach(sh => next.add(sh.id))
+              return next
+            })
+          }
           return (
             <div key={set.id} style={{ marginBottom: 16 }}>
               <div
@@ -240,6 +280,13 @@ export default function ProjectPage() {
                 <span style={{ flex: 1, fontWeight: 600, fontSize: 14, color: 'var(--text-strong)' }}>{set.name}</span>
                 {isOver && <span style={{ fontSize: 11, color: 'var(--brand-600)', fontWeight: 600 }}>Drop to add</span>}
                 {!isOver && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{setSheets.length} sheet{setSheets.length !== 1 ? 's' : ''}</span>}
+                {setSheets.length > 0 && (
+                  <button onClick={toggleSelectAll}
+                    title={allSelected ? 'Deselect all' : 'Select all'}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: allSelected ? 'var(--brand-600)' : 'var(--text-subtle)', padding: 2, display: 'flex', alignItems: 'center' }}>
+                    {allSelected ? <CheckSquare size={15} /> : <Square size={15} />}
+                  </button>
+                )}
                 <button onClick={e => { e.stopPropagation(); deleteSheetSet(projectId, set.id) }}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', padding: 2 }}>
                   <X size={14} />
@@ -247,20 +294,23 @@ export default function ProjectPage() {
               </div>
               {expanded && setSheets.length > 0 && (
                 <div className={s.grid} style={{ marginLeft: 24 }}>
-                  {setSheets.map(sheet => (
-                    <div key={sheet.id} className={s.sheetCard}
-                      draggable
-                      onDragStart={e => onDragStart(e, sheet.id)}
-                      onDragEnd={onDragEnd}
-                      onClick={() => navigate(`/project/${projectId}/sheet/${sheet.id}`)}
-                      style={{ opacity: draggingSheetId === sheet.id ? 0.4 : 1, cursor: 'grab' }}>
-                      <div className={s.sheetThumb}><SheetPreview sheet={sheet} /><div className={s.sheetCodeBadge}>{sheet.code}</div></div>
-                      <div className={s.sheetInfo}>
-                        <div className={s.sheetName}>{sheet.name}</div>
-                        <div className={s.sheetCode}>{sheet.code}</div>
+                  {setSheets.map(sheet => {
+                    const isSel = selectedSheetIds.has(sheet.id)
+                    return (
+                      <div key={sheet.id} className={s.sheetCard}
+                        draggable
+                        onDragStart={e => onDragStart(e, sheet.id)}
+                        onDragEnd={onDragEnd}
+                        onClick={() => navigate(`/project/${projectId}/sheet/${sheet.id}`)}
+                        style={{ opacity: draggingSheetId === sheet.id ? 0.4 : 1, cursor: 'grab', outline: isSel ? '2px solid var(--brand-600)' : undefined, outlineOffset: -2 }}>
+                        <div className={s.sheetThumb}><SheetPreview sheet={sheet} /><div className={s.sheetCodeBadge}>{sheet.code}</div></div>
+                        <div className={s.sheetInfo}>
+                          <div className={s.sheetName}>{sheet.name}</div>
+                          <div className={s.sheetCode}>{sheet.code}</div>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>
