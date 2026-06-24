@@ -123,10 +123,10 @@ export default function SheetPage() {
   const [leftPanelW, setLeftPanelW]   = useState(264)
   const [rightPanelW, setRightPanelW] = useState(320)
   const [activeTool, setActiveTool] = useState('region')
-  const [leftPanel, setLeftPanel]   = useState('layers')
+  const [leftPanel, setLeftPanel]   = useState(() => sessionStorage.getItem('sheetLeftPanel') || 'layers')
   const [hidden, setHidden]     = useState({})
   // ---- Display settings ----
-  const [dotSize, setDotSize]     = useState(3)   // count dot radius (svg units)
+  const [dotSize, setDotSize]     = useState(1)   // count dot radius multiplier (screen px base)
   const [strokeW, setStrokeW]     = useState(1)   // area/linear stroke multiplier
   const [measureSize, setMeasureSize] = useState(1) // measure label/tick size multiplier
   const [exportOpen, setExportOpen] = useState(false)
@@ -293,7 +293,7 @@ export default function SheetPage() {
       const delta = e.deltaMode === 1 ? e.deltaY * 20 : e.deltaMode === 2 ? e.deltaY * 300 : e.deltaY
       const factor = Math.pow(0.999, delta)
       const oldZ = zoomTargetRef.current
-      const newZ = Math.max(25, Math.min(1600, oldZ * factor))
+      const newZ = Math.max(25, Math.min(6400, oldZ * factor))
       zoomTargetRef.current = newZ
       // Zoom to cursor: adjust pan target so point under cursor stays fixed
       const rect = el.getBoundingClientRect()
@@ -346,6 +346,9 @@ export default function SheetPage() {
     window.addEventListener('mouseup', up)
     return () => window.removeEventListener('mouseup', up)
   }, [])
+
+  // Persist active left panel tab across sheet navigations (component remounts with key=sheetId)
+  useEffect(() => { sessionStorage.setItem('sheetLeftPanel', leftPanel) }, [leftPanel])
 
   // Persist drawing data after every change
   useEffect(() => { if (sheetId) updateSheet(sheetId, { savedCountGroups: countGroups }) }, [countGroups])
@@ -423,6 +426,14 @@ export default function SheetPage() {
         setSettings(false)
         setSelectedId(null); setSelectedKind(null)
       }
+      if (key === 'DELETE' || e.key === 'Backspace') {
+        if (selectedId && selectedKind) {
+          if (selectedKind === 'area') setAddedAreas(prev => prev.filter(a => a.id !== selectedId))
+          else if (selectedKind === 'point') setCountGroups(prev => prev.map(g => ({ ...g, points: g.points.filter(p => p.id !== selectedId) })))
+          else if (selectedKind === 'line') setAddedLines(prev => prev.filter(l => l.id !== selectedId))
+          setSelectedId(null); setSelectedKind(null)
+        }
+      }
     }
     const onEnter = (e) => {
       if (e.key !== 'Enter') return
@@ -446,7 +457,7 @@ export default function SheetPage() {
       window.removeEventListener('keydown', onKey)
       window.removeEventListener('keydown', onEnter)
     }
-  }, [project, sheet, activeTool, regionVerts, measureDone, measurePts, areaVerts, areaType, linearVerts, linearType, arcMode])
+  }, [project, sheet, activeTool, regionVerts, measureDone, measurePts, areaVerts, areaType, linearVerts, linearType, arcMode, selectedId, selectedKind])
 
   if (!project || !sheet) {
     return <div style={{ padding: 40, color: 'var(--text-muted)' }}>Sheet not found.</div>
@@ -1161,7 +1172,7 @@ export default function SheetPage() {
           <div className={s.zoomCtrl}>
             <button className={s.zoomBtn} onClick={() => setZoom(z => Math.max(25, z - 25))}><Minus size={14} /></button>
             <span className={s.zoomVal}>{Math.round(zoom)}%</span>
-            <button className={s.zoomBtn} onClick={() => setZoom(z => Math.min(1600, z + 25))}><Plus size={14} /></button>
+            <button className={s.zoomBtn} onClick={() => setZoom(z => Math.min(6400, z + 25))}><Plus size={14} /></button>
           </div>
           <Badge variant="success" dot>Synced</Badge>
           <button className={s.iconBtn} data-on={settings} onClick={() => setSettings(v => !v)}>
@@ -1753,12 +1764,12 @@ export default function SheetPage() {
                   )
                 })()}
 
-                {/* Count group dots — SVG so they scale with plan zoom/scale */}
+                {/* Count group dots — zoom-invariant so size stays consistent at any zoom */}
                 {countGroups.map(g =>
                   g.points.map(p => {
                     const isSelected = selectedId === p.id
-                    const r = dotSize * mk * (isSelected ? 1.5 : 1)
-                    const sw = strokeW * mk * (isSelected ? 1.5 : 1)
+                    const r = dotSize * u * 7 * (isSelected ? 1.5 : 1)
+                    const sw = strokeW * u * 1.5 * (isSelected ? 1.5 : 1)
                     const col = g.color
                     const bdr = isSelected ? '#000' : col
                     if (g.shape === 'circle') {
@@ -1840,7 +1851,7 @@ export default function SheetPage() {
           <div className={s.zoomPanel}>
             <button className={s.zoomPanBtn} onClick={() => setZoom(z => Math.max(25, z - 25))}><Minus size={14} /></button>
             <span className={s.zoomPanVal}>{Math.round(zoom)}%</span>
-            <button className={s.zoomPanBtn} onClick={() => setZoom(z => Math.min(1600, z + 25))}><Plus size={14} /></button>
+            <button className={s.zoomPanBtn} onClick={() => setZoom(z => Math.min(6400, z + 25))}><Plus size={14} /></button>
           </div>
         </main>
 

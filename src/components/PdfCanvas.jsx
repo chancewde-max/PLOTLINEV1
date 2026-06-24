@@ -61,8 +61,8 @@ export default function PdfCanvas({ url, width, height, onReuploadNeeded, pageNu
 
         const viewport0 = page.getViewport({ scale: 1 })
         const dpr = window.devicePixelRatio || 1
-        // Render at 3× DPR so the plan is crisp when zoomed in
-        const scale = Math.min(width / viewport0.width, height / viewport0.height) * dpr * 3
+        // Render at high resolution so the plan stays crisp when zoomed in
+        const scale = Math.min(width / viewport0.width, height / viewport0.height) * dpr * 8
 
         const viewport = page.getViewport({ scale })
         canvas.width = viewport.width
