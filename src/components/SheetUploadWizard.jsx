@@ -404,9 +404,9 @@ function FullPageAreaPicker({ pages, startIndex = 0, field, onSave, onCancel }) 
     setExtracting(true)
     try {
       const bytes = pdfCache.get(page.fileId)
-      // Try embedded text first; fall back to full-page OCR filtered by rect
-      let t = await ocrRect(page.fileId, bytes, page.pageIndex, r)
-      if (!t) t = bytes ? await extractEmbeddedText(page.fileId, bytes, page.pageIndex, r) : ''
+      // Try embedded text first (accurate for CAD/vector PDFs); OCR only as fallback for scanned pages
+      let t = bytes ? await extractEmbeddedText(page.fileId, bytes, page.pageIndex, r) : ''
+      if (!t) t = await ocrRect(page.fileId, bytes, page.pageIndex, r)
       setExtracted(t)
     } finally { setExtracting(false) }
   }, [panning, dragging, clientToNorm, page])
@@ -599,8 +599,8 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
     pages.filter(p => idSet.has(p.id) && p.id !== currentPageId).forEach(async p => {
       const bytes = pdfCache.get(p.fileId)
       if (!bytes) return
-      let t = await ocrRect(p.fileId, bytes, p.pageIndex, rect)
-      if (!t) t = await extractEmbeddedText(p.fileId, bytes, p.pageIndex, rect)
+      let t = await extractEmbeddedText(p.fileId, bytes, p.pageIndex, rect)
+      if (!t) t = await ocrRect(p.fileId, bytes, p.pageIndex, rect)
       if (t) setPages(ps => ps.map(pg => pg.id === p.id ? { ...pg, [field === 'sheetNum' ? 'sheetNum' : 'title']: t } : pg))
     })
   }
