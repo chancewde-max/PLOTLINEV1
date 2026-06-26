@@ -67,20 +67,23 @@ function singularize(name) {
 
 // True circular arc SVG segment through 3 points S, T (through-point), E
 function circularArcSeg(S, T, E) {
-  // Find circumcircle of S, T, E
   const ax = S.x, ay = S.y, bx = T.x, by = T.y, cx = E.x, cy = E.y
   const D = 2 * (ax*(by-cy) + bx*(cy-ay) + cx*(ay-by))
   if (Math.abs(D) < 1e-10) return ` L ${E.x} ${E.y}` // collinear → straight line
   const ux = ((ax*ax+ay*ay)*(by-cy) + (bx*bx+by*by)*(cy-ay) + (cx*cx+cy*cy)*(ay-by)) / D
   const uy = ((ax*ax+ay*ay)*(cx-bx) + (bx*bx+by*by)*(ax-cx) + (cx*cx+cy*cy)*(bx-ax)) / D
   const r = Math.hypot(ax-ux, ay-uy)
-  // Determine sweep: cross product (S→T) × (S→E) > 0 → counter-clockwise
-  const cross = (bx-ax)*(cy-ay) - (by-ay)*(cx-ax)
-  const sweep = cross > 0 ? 1 : 0
-  // Large arc: if T is on the major arc (center is on same side as T relative to SE)
-  const midSE = { x: (ax+cx)/2, y: (ay+cy)/2 }
-  const tSide = (bx-midSE.x)*(uy-midSE.y) - (by-midSE.y)*(ux-midSE.x)
-  const large = tSide < 0 ? 0 : 1
+  // In SVG y-down coords, CW on screen = increasing atan2 angle.
+  // Determine sweep/large by checking which arc (CW vs CCW) T falls on.
+  const n2pi = a => ((a % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI)
+  const angS = Math.atan2(ay - uy, ax - ux)
+  const angT = Math.atan2(by - uy, bx - ux)
+  const angE = Math.atan2(cy - uy, cx - ux)
+  const cwSE = n2pi(angE - angS) // CW span from S to E
+  const cwST = n2pi(angT - angS) // CW span from S to T
+  const sweep = cwST < cwSE ? 1 : 0 // T reached before E going CW → use CW
+  const span = sweep === 1 ? cwSE : (2 * Math.PI - cwSE)
+  const large = span > Math.PI ? 1 : 0
   return ` A ${r} ${r} 0 ${large} ${sweep} ${E.x} ${E.y}`
 }
 
