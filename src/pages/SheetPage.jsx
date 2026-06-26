@@ -1543,7 +1543,7 @@ export default function SheetPage() {
                   const sharedProps = {
                     fill: areaColor, fillOpacity: fillOp,
                     stroke: isSelected ? '#000' : areaColor,
-                    strokeOpacity: strokeOp, strokeWidth: isSelected ? strokeW * mk * 2 : strokeW * mk * 0.75,
+                    strokeOpacity: strokeOp, strokeWidth: isSelected ? strokeW * u * 2 : strokeW * u * 0.75,
                     strokeDasharray: isSelected ? '0' : undefined,
                   }
                   return hasArcs
@@ -1559,10 +1559,10 @@ export default function SheetPage() {
                       return hasArcs
                         ? <path key={a.id} d={buildAreaPath(a.poly, a.arcSegs)}
                             fill={CAT_COLOR[a.type]} fillOpacity="0.28"
-                            stroke={CAT_COLOR[a.type]} strokeWidth={mk} />
+                            stroke={CAT_COLOR[a.type]} strokeWidth={u} />
                         : <polygon key={a.id} points={a.poly.map(p => `${p.x},${p.y}`).join(' ')}
                             fill={CAT_COLOR[a.type]} fillOpacity="0.28"
-                            stroke={CAT_COLOR[a.type]} strokeWidth={mk} />
+                            stroke={CAT_COLOR[a.type]} strokeWidth={u} />
                     })}
                   </g>
                 )}
@@ -1576,7 +1576,7 @@ export default function SheetPage() {
                     <polyline key={l.id}
                       points={l.pts.map(p => `${p.x},${p.y}`).join(' ')}
                       fill="none" stroke={CAT_COLOR[l.type]}
-                      strokeOpacity={dim ? 0.25 : 1} strokeWidth={strokeW * mk * (isIn ? 2.5 : 1.5)}
+                      strokeOpacity={dim ? 0.25 : 1} strokeWidth={strokeW * u * (isIn ? 2.5 : 1.5)}
                       strokeLinecap="round" strokeLinejoin="round" />
                   )
                 })}
@@ -1593,7 +1593,7 @@ export default function SheetPage() {
                   const sharedProps = {
                     fill: 'none', stroke: lineColor,
                     strokeOpacity: dim ? 0.25 : 1,
-                    strokeWidth: strokeW * mk * (isSelected ? 2.5 : (isIn ? 2.5 : 1.5)),
+                    strokeWidth: strokeW * u * (isSelected ? 2.5 : (isIn ? 2.5 : 1.5)),
                     strokeLinecap: 'round', strokeLinejoin: 'round',
                     strokeDasharray: isSelected ? '6 3' : undefined,
                   }
@@ -1608,13 +1608,13 @@ export default function SheetPage() {
                   const isSelected = selectedId === p.id
                   const dim = (activeTool === 'region' && hasRegion && !isIn) || !catActive.has(p.type)
                   const col = p.color || CAT_COLOR[p.type]
-                  const dr = dotSize * mk
+                  const dr = dotSize * u * 5
                   return (
                     <g key={p.id} opacity={dim ? 0.22 : 1}>
                       {(isIn || isSelected) && <circle cx={p.x} cy={p.y} r={dr * 2.3} fill={col} opacity="0.15" />}
                       <circle cx={p.x} cy={p.y} r={isIn || isSelected ? dr * 1.33 : dr}
                         fill={(isIn || isSelected) ? col : '#fff'} stroke={isSelected ? '#000' : col}
-                        strokeWidth={(isIn || isSelected) ? strokeW * mk * 1.5 : strokeW * mk} />
+                        strokeWidth={(isIn || isSelected) ? strokeW * u * 1.5 : strokeW * u} />
                       {(isIn || isSelected) && <circle cx={p.x} cy={p.y} r={dr * 0.4} fill="#fff" />}
                     </g>
                   )
@@ -1632,17 +1632,17 @@ export default function SheetPage() {
                     points={previewPoly.map(p => `${p.x},${p.y}`).join(' ')}
                     fill={activeFolder?.color || 'var(--brand-600)'} fillOpacity="0.04"
                     stroke={activeFolder?.color || 'var(--brand-600)'}
-                    strokeWidth={2.5*mk} strokeDasharray={isDrawingRegion ? `${7*mk} ${5*mk}` : '0'} strokeLinejoin="round" />
+                    strokeWidth={2*u} strokeDasharray={isDrawingRegion ? `${7*u} ${5*u}` : '0'} strokeLinejoin="round" />
                 )}
                 {activeTool === 'region' && isDrawingRegion && regionVerts.map((v, i) => (
                   <circle key={i} cx={v.x} cy={v.y}
-                    r={i === 0 && regionVerts.length >= 3 ? 7*mk : 4.5*mk}
+                    r={i === 0 && regionVerts.length >= 3 ? 7*u : 4.5*u}
                     fill={i === 0 && regionVerts.length >= 3 ? '#fff' : (activeFolder?.color || 'var(--brand-600)')}
-                    stroke={activeFolder?.color || 'var(--brand-600)'} strokeWidth={2.5*mk} />
+                    stroke={activeFolder?.color || 'var(--brand-600)'} strokeWidth={2*u} />
                 ))}
                 {activeTool === 'region' && !isDrawingRegion && regionPoly.map((v, i) => (
-                  <rect key={i} x={v.x - 6*mk} y={v.y - 6*mk} width={12*mk} height={12*mk}
-                    fill="#fff" stroke={activeFolder?.color || 'var(--brand-600)'} strokeWidth={2*mk}
+                  <rect key={i} x={v.x - 6*u} y={v.y - 6*u} width={12*u} height={12*u}
+                    fill="#fff" stroke={activeFolder?.color || 'var(--brand-600)'} strokeWidth={2*u}
                     style={{ cursor: 'move' }}
                     onMouseDown={e => { e.stopPropagation(); dragRegionVertRef.current = i }}
                   />
@@ -1655,24 +1655,24 @@ export default function SheetPage() {
                     <>
                       <path d={pathD}
                         fill={CAT_COLOR[areaType] || '#888'} fillOpacity="0.15"
-                        stroke={CAT_COLOR[areaType] || '#888'} strokeWidth={2*mk}
-                        strokeDasharray={`${6*mk} ${4*mk}`} strokeLinejoin="round" />
+                        stroke={CAT_COLOR[areaType] || '#888'} strokeWidth={2*u}
+                        strokeDasharray={`${6*u} ${4*u}`} strokeLinejoin="round" />
                       {pendingArcThrough && (
-                        <circle cx={pendingArcThrough.x} cy={pendingArcThrough.y} r={6*mk}
+                        <circle cx={pendingArcThrough.x} cy={pendingArcThrough.y} r={6*u}
                           fill={CAT_COLOR[areaType] || '#888'} opacity="0.8" />
                       )}
                       {arcMode && !pendingArcThrough && areaCursor && (
-                        <circle cx={areaCursor.x} cy={areaCursor.y} r={5*mk}
-                          fill="none" stroke={CAT_COLOR[areaType] || '#888'} strokeWidth={2*mk} strokeDasharray={`${3*mk} ${2*mk}`} />
+                        <circle cx={areaCursor.x} cy={areaCursor.y} r={5*u}
+                          fill="none" stroke={CAT_COLOR[areaType] || '#888'} strokeWidth={2*u} strokeDasharray={`${3*u} ${2*u}`} />
                       )}
                     </>
                   )
                 })()}
                 {activeTool === 'area' && areaVerts.map((v, i) => (
                   <circle key={i} cx={v.x} cy={v.y}
-                    r={i === 0 && areaVerts.length >= 3 ? 7*mk : 4*mk}
+                    r={i === 0 && areaVerts.length >= 3 ? 7*u : 4*u}
                     fill={i === 0 && areaVerts.length >= 3 ? '#fff' : (CAT_COLOR[areaType] || '#888')}
-                    stroke={CAT_COLOR[areaType] || '#888'} strokeWidth={2*mk} />
+                    stroke={CAT_COLOR[areaType] || '#888'} strokeWidth={2*u} />
                 ))}
 
                 {/* Linear drawing overlay */}
@@ -1682,10 +1682,10 @@ export default function SheetPage() {
                     <>
                       <path d={pathD}
                         fill="none"
-                        stroke={CAT_COLOR[linearType] || '#888'} strokeWidth={3*mk}
-                        strokeDasharray={`${6*mk} ${4*mk}`} strokeLinecap="round" strokeLinejoin="round" />
+                        stroke={CAT_COLOR[linearType] || '#888'} strokeWidth={2*u}
+                        strokeDasharray={`${6*u} ${4*u}`} strokeLinecap="round" strokeLinejoin="round" />
                       {pendingArcThrough && (
-                        <circle cx={pendingArcThrough.x} cy={pendingArcThrough.y} r={6*mk}
+                        <circle cx={pendingArcThrough.x} cy={pendingArcThrough.y} r={6*u}
                           fill={CAT_COLOR[linearType] || '#888'} opacity="0.8" />
                       )}
                     </>
@@ -1693,8 +1693,8 @@ export default function SheetPage() {
                 })()}
                 {activeTool === 'linear' && linearVerts.map((v, i) => (
                   <g key={i}>
-                    <line x1={v.x} y1={v.y - 7*mk} x2={v.x} y2={v.y + 7*mk} stroke={CAT_COLOR[linearType] || '#888'} strokeWidth={2*mk} />
-                    <circle cx={v.x} cy={v.y} r={4*mk} fill={CAT_COLOR[linearType] || '#888'} />
+                    <line x1={v.x} y1={v.y - 7*u} x2={v.x} y2={v.y + 7*u} stroke={CAT_COLOR[linearType] || '#888'} strokeWidth={2*u} />
+                    <circle cx={v.x} cy={v.y} r={4*u} fill={CAT_COLOR[linearType] || '#888'} />
                   </g>
                 ))}
 
@@ -1778,8 +1778,8 @@ export default function SheetPage() {
                 {countGroups.map(g =>
                   g.points.map(p => {
                     const isSelected = selectedId === p.id
-                    const r = dotSize * u * 7 * (isSelected ? 1.5 : 1)
-                    const sw = strokeW * u * 1.5 * (isSelected ? 1.5 : 1)
+                    const r = dotSize * u * 5 * (isSelected ? 1.5 : 1)
+                    const sw = strokeW * u * (isSelected ? 1.5 : 1)
                     const col = g.color
                     const bdr = isSelected ? '#000' : col
                     if (g.shape === 'circle') {
