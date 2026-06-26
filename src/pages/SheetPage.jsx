@@ -4,7 +4,7 @@ import {
   Minus, Plus, Hand, SquareDashed, Spline, MapPin,
   Ruler, Lasso, Eye, EyeOff, Check, TriangleAlert, Sun, Moon,
   Settings2, FileDown, Share2, ChevronRight, Eraser, Sparkles,
-  X as XIcon, Map, Pencil, Trash2, MousePointer2, Layers, Download,
+  X as XIcon, Map, Pencil, Trash2, MousePointer2, Layers, Download, GripVertical,
 } from 'lucide-react'
 import { Button } from '../components/ui/Button.jsx'
 import { Badge } from '../components/ui/Badge.jsx'
@@ -1909,6 +1909,9 @@ export default function SheetPage() {
               onDeleteCountGroup={id => setCountGroups(prev => prev.filter(g => g.id !== id))}
               onDeleteAreaGroup={id => setAreaGroups(prev => prev.filter(g => g.id !== id))}
               onDeleteLinearGroup={id => setLinearGroups(prev => prev.filter(g => g.id !== id))}
+              onReorderCountGroups={order => setCountGroups(prev => order.map(id => prev.find(g => g.id === id)).filter(Boolean))}
+              onReorderLinearGroups={order => setLinearGroups(prev => order.map(id => prev.find(g => g.id === id)).filter(Boolean))}
+              onReorderAreaGroups={order => setAreaGroups(prev => order.map(id => prev.find(g => g.id === id)).filter(Boolean))}
               onEditGroup={openEditGroup}
               fs={fs}
             />
@@ -3026,8 +3029,24 @@ function DefaultPanel({ sheet, allAreas, allPoints, allLines, onActivate, onExpo
 }
 
 // ---- Conditions (always-visible counts/areas) panel ------------------------
-function ConditionsPanel({ countGroups, activeCountGroupId, onSetActiveCountGroup, linearGroups, activeLinearGroupId, onSetActiveLinearGroup, areaGroups, activeAreaGroupId, onSetActiveAreaGroup, addedAreas, addedPoints, addedLines, sqft, fSq, lnft, fLn, areaDepth, topsoilType, topsoilCustom, onNewCount, onNewArea, onNewLinear, onDeleteCountGroup, onDeleteAreaGroup, onDeleteLinearGroup, onEditGroup, fs }) {
+function ConditionsPanel({ countGroups, activeCountGroupId, onSetActiveCountGroup, linearGroups, activeLinearGroupId, onSetActiveLinearGroup, areaGroups, activeAreaGroupId, onSetActiveAreaGroup, addedAreas, addedPoints, addedLines, sqft, fSq, lnft, fLn, areaDepth, topsoilType, topsoilCustom, onNewCount, onNewArea, onNewLinear, onDeleteCountGroup, onDeleteAreaGroup, onDeleteLinearGroup, onReorderCountGroups, onReorderLinearGroups, onReorderAreaGroups, onEditGroup, fs }) {
   const depthIn = parseFloat(areaDepth) || 0
+  const dragIdRef = React.useRef(null)
+  const makeDragHandlers = (groups, onReorder) => ({
+    onDragStart: (id) => { dragIdRef.current = id },
+    onDragOver: (e) => { e.preventDefault() },
+    onDrop: (targetId) => {
+      if (!dragIdRef.current || dragIdRef.current === targetId) return
+      const ids = groups.map(g => g.id)
+      const from = ids.indexOf(dragIdRef.current)
+      const to = ids.indexOf(targetId)
+      const next = [...ids]
+      next.splice(from, 1)
+      next.splice(to, 0, dragIdRef.current)
+      onReorder(next)
+      dragIdRef.current = null
+    },
+  })
   const totalCountItems = addedPoints.length
   const totalAreaSqft = addedAreas.reduce((s, a) => s + sqft(polyAreaPx(a.poly)), 0)
   const totalLinearFt = addedLines.reduce((s, l) => s + (l.pts ? perimPx(l.pts) / 4 : 0), 0)
@@ -3058,22 +3077,29 @@ function ConditionsPanel({ countGroups, activeCountGroupId, onSetActiveCountGrou
         {countGroups.length > 0 && (
           <>
             <div style={{ fontSize: `calc(10px * ${fs})`, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-subtle)', padding: '8px 4px 4px' }}>Counts</div>
-            {countGroups.map(g => (
-              <div key={g.id} onClick={() => onSetActiveCountGroup(g.id)}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, marginBottom: 2, border: `1.5px solid ${g.id === activeCountGroupId ? g.color : 'transparent'}`, background: g.id === activeCountGroupId ? `${g.color}18` : 'transparent', cursor: 'pointer' }}>
-                <span style={{ width: 12, height: 12, borderRadius: g.shape === 'square' ? 2 : g.shape === 'diamond' ? 0 : '50%', background: g.color, flexShrink: 0, rotate: g.shape === 'diamond' ? '45deg' : undefined }} />
-                <span style={{ flex: 1, fontSize: `calc(13px * ${fs})`, fontWeight: 600, color: 'var(--text-strong)' }}>{g.name}</span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(13px * ${fs})`, fontWeight: 700, color: g.color }}>{g.points.length}</span>
-                <button onClick={e => { e.stopPropagation(); onEditGroup('count', g) }}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', padding: 2, display: 'inline-flex' }}>
-                  <Pencil size={11} />
-                </button>
-                <button onClick={e => { e.stopPropagation(); onDeleteCountGroup(g.id) }}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', padding: 2, display: 'inline-flex' }}>
-                  <XIcon size={12} />
-                </button>
-              </div>
-            ))}
+            {countGroups.map(g => {
+              const dh = makeDragHandlers(countGroups, onReorderCountGroups)
+              return (
+                <div key={g.id} draggable onClick={() => onSetActiveCountGroup(g.id)}
+                  onDragStart={() => dh.onDragStart(g.id)}
+                  onDragOver={dh.onDragOver}
+                  onDrop={() => dh.onDrop(g.id)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, marginBottom: 2, border: `1.5px solid ${g.id === activeCountGroupId ? g.color : 'transparent'}`, background: g.id === activeCountGroupId ? `${g.color}18` : 'transparent', cursor: 'grab' }}>
+                  <GripVertical size={12} style={{ color: 'var(--text-muted)', flexShrink: 0, cursor: 'grab' }} />
+                  <span style={{ width: 12, height: 12, borderRadius: g.shape === 'square' ? 2 : g.shape === 'diamond' ? 0 : '50%', background: g.color, flexShrink: 0, rotate: g.shape === 'diamond' ? '45deg' : undefined }} />
+                  <span style={{ flex: 1, fontSize: `calc(13px * ${fs})`, fontWeight: 600, color: 'var(--text-strong)' }}>{g.name}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(13px * ${fs})`, fontWeight: 700, color: g.color }}>{g.points.length}</span>
+                  <button onClick={e => { e.stopPropagation(); onEditGroup('count', g) }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', padding: 2, display: 'inline-flex' }}>
+                    <Pencil size={11} />
+                  </button>
+                  <button onClick={e => { e.stopPropagation(); onDeleteCountGroup(g.id) }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', padding: 2, display: 'inline-flex' }}>
+                    <XIcon size={12} />
+                  </button>
+                </div>
+              )
+            })}
           </>
         )}
 
@@ -3084,9 +3110,14 @@ function ConditionsPanel({ countGroups, activeCountGroupId, onSetActiveCountGrou
             {linearGroups.map(g => {
               const groupLines = addedLines.filter(l => l.groupId === g.id)
               const groupLnft = groupLines.reduce((s, l) => s + (l.pts ? perimPx(l.pts) / 4 : 0), 0)
+              const dh = makeDragHandlers(linearGroups, onReorderLinearGroups)
               return (
-                <div key={g.id} onClick={() => onSetActiveLinearGroup(g.id)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, marginBottom: 2, border: `1.5px solid ${g.id === activeLinearGroupId ? g.color : 'transparent'}`, background: g.id === activeLinearGroupId ? `${g.color}18` : 'transparent', cursor: 'pointer' }}>
+                <div key={g.id} draggable onClick={() => onSetActiveLinearGroup(g.id)}
+                  onDragStart={() => dh.onDragStart(g.id)}
+                  onDragOver={dh.onDragOver}
+                  onDrop={() => dh.onDrop(g.id)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, marginBottom: 2, border: `1.5px solid ${g.id === activeLinearGroupId ? g.color : 'transparent'}`, background: g.id === activeLinearGroupId ? `${g.color}18` : 'transparent', cursor: 'grab' }}>
+                  <GripVertical size={12} style={{ color: 'var(--text-muted)', flexShrink: 0, cursor: 'grab' }} />
                   <span style={{ width: 20, height: 4, borderRadius: 2, background: g.color, flexShrink: 0 }} />
                   <span style={{ flex: 1, fontSize: `calc(13px * ${fs})`, fontWeight: 600, color: 'var(--text-strong)' }}>{g.name}</span>
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(11px * ${fs})`, fontWeight: 700, color: g.color }}>{groupLnft > 0 ? `${groupLnft.toFixed(0)} ft` : '0'}</span>
@@ -3111,9 +3142,14 @@ function ConditionsPanel({ countGroups, activeCountGroupId, onSetActiveCountGrou
             {areaGroups.map(g => {
               const groupAreas = addedAreas.filter(a => a.groupId === g.id)
               const groupSqft = groupAreas.reduce((s, a) => s + sqft(polyAreaPx(a.poly)), 0)
+              const dh = makeDragHandlers(areaGroups, onReorderAreaGroups)
               return (
-                <div key={g.id} onClick={() => onSetActiveAreaGroup(g.id)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, marginBottom: 2, border: `1.5px solid ${g.id === activeAreaGroupId ? g.color : 'transparent'}`, background: g.id === activeAreaGroupId ? `${g.color}18` : 'transparent', cursor: 'pointer' }}>
+                <div key={g.id} draggable onClick={() => onSetActiveAreaGroup(g.id)}
+                  onDragStart={() => dh.onDragStart(g.id)}
+                  onDragOver={dh.onDragOver}
+                  onDrop={() => dh.onDrop(g.id)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, marginBottom: 2, border: `1.5px solid ${g.id === activeAreaGroupId ? g.color : 'transparent'}`, background: g.id === activeAreaGroupId ? `${g.color}18` : 'transparent', cursor: 'grab' }}>
+                  <GripVertical size={12} style={{ color: 'var(--text-muted)', flexShrink: 0, cursor: 'grab' }} />
                   <span style={{ width: 12, height: 12, borderRadius: 3, background: g.color, flexShrink: 0 }} />
                   <span style={{ flex: 1, fontSize: `calc(13px * ${fs})`, fontWeight: 600, color: 'var(--text-strong)' }}>{g.name}</span>
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(11px * ${fs})`, fontWeight: 700, color: g.color }}>{groupSqft > 0 ? `${fSq(groupSqft)} ft²` : '0'}</span>
