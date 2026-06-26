@@ -41,6 +41,16 @@ function dataUrlToUint8Array(dataUrl) {
   return bytes
 }
 
+// Read file directly as bytes — avoids the wasteful data URL → base64 → binary roundtrip
+async function fileToBytes(file) {
+  return new Promise((res, rej) => {
+    const reader = new FileReader()
+    reader.onload = e => res(new Uint8Array(e.target.result))
+    reader.onerror = rej
+    reader.readAsArrayBuffer(file)
+  })
+}
+
 async function fileToDataUrl(file) {
   return new Promise((res, rej) => {
     const reader = new FileReader()
@@ -188,15 +198,16 @@ function guessTitle(items) {
 }
 
 async function processPdfFile(file, onPageDone) {
-  const dataUrl = await fileToDataUrl(file)
-  const bytes = dataUrlToUint8Array(dataUrl)
+  // Read directly as ArrayBuffer — no base64 roundtrip
+  const bytes = await fileToBytes(file)
   const fileId = `pdf-${Date.now()}-${Math.random().toString(36).slice(2)}`
   pdfCache.set(fileId, bytes)
   const pdf = await getPdfDoc(fileId, bytes)
   const pages = []
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i)
-    const [thumbData, textContent] = await Promise.all([renderPageThumb(page), page.getTextContent()])
+    // Render thumbnail at 160px (faster than 220) and extract text concurrently
+    const [thumbData, textContent] = await Promise.all([renderPageThumb(page, 160), page.getTextContent()])
     pages.push({
       id: `sheet-${Date.now()}-${i}`,
       fileName: file.name,
@@ -210,7 +221,9 @@ async function processPdfFile(file, onPageDone) {
       sheetNumRect: null,
       titleRect: null,
     })
-    onPageDone && onPageDone(pages.length)
+    onPageDone && onPageDone(pages.length, pdf.numPages)
+    // Yield to browser between pages so UI stays responsive
+    await new Promise(r => setTimeout(r, 0))
   }
   return pages
 }
@@ -560,8 +573,11 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
     setProcessing(true)
     const allPages = []
     for (let i = 0; i < files.length; i++) {
-      setProcessingMsg(`Processing ${files[i].name} (${i + 1}/${files.length})…`)
-      const pgs = await processPdfFile(files[i])
+      const fileName = files[i].name
+      setProcessingMsg(`Reading ${fileName}…`)
+      const pgs = await processPdfFile(files[i], (done, total) => {
+        setProcessingMsg(`${fileName} — page ${done} of ${total}…`)
+      })
       allPages.push(...pgs)
     }
     setPages(allPages)
