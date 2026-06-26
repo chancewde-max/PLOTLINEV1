@@ -367,9 +367,9 @@ export default function SheetPage() {
     return () => clearTimeout(saveTimerRef.current)
   }, [sheetId, countGroups, linearGroups, areaGroups, addedAreas, addedLines])
 
-  // Save active region poly to sheet whenever regionClosed changes
+  // Save active region poly to sheet whenever regionClosed changes (skip null to avoid Escape wiping saved regions)
   useEffect(() => {
-    if (!sheetId || !activeFolderId) return
+    if (!sheetId || !activeFolderId || regionClosed === null) return
     updateSheet(sheetId, {
       regionPolys: { ...(sheet?.regionPolys || {}), [activeFolderId]: regionClosed },
     })
