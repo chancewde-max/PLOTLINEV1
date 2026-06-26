@@ -491,11 +491,13 @@ export default function SheetPage() {
   const toSheet = (e) => {
     const svg = svgRef.current
     if (!svg) return { x: 0, y: 0 }
-    const pt = svg.createSVGPoint()
-    pt.x = e.clientX; pt.y = e.clientY
-    const m = svg.getScreenCTM()
-    if (!m) return { x: 0, y: 0 }
-    return pt.matrixTransform(m.inverse())
+    // getBoundingClientRect accounts for all CSS transforms (including zoom scale)
+    // whereas getScreenCTM() misses CSS transforms on ancestor divs
+    const rect = svg.getBoundingClientRect()
+    return {
+      x: (e.clientX - rect.left) * (SHEET_W / rect.width),
+      y: (e.clientY - rect.top) * (SHEET_H / rect.height),
+    }
   }
 
   const applySnap = (p, prevPt) => {
