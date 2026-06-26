@@ -126,9 +126,9 @@ export default function SheetPage() {
   const [leftPanel, setLeftPanel]   = useState(() => sessionStorage.getItem('sheetLeftPanel') || 'layers')
   const [hidden, setHidden]     = useState({})
   // ---- Display settings ----
-  const [dotSize, setDotSize]     = useState(1)   // count dot radius multiplier (screen px base)
-  const [strokeW, setStrokeW]     = useState(1)   // area/linear stroke multiplier
-  const [measureSize, setMeasureSize] = useState(1) // measure label/tick size multiplier
+  const [dotSize, setDotSize]     = useState(0.5)  // count dot radius multiplier (screen px base)
+  const [strokeW, setStrokeW]     = useState(0.4)  // area/linear stroke multiplier
+  const [measureSize, setMeasureSize] = useState(0.5) // measure label/tick size multiplier
   const [exportOpen, setExportOpen] = useState(false)
   const [quoteOpen, setQuoteOpen]   = useState(false)
   const [quoteVendor, setQuoteVendor] = useState('')
@@ -1229,7 +1229,7 @@ export default function SheetPage() {
             <div className={s.popHead}>Icon size</div>
             <div className={s.fsRow}>
               <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>●</span>
-              <input type="range" min="1.5" max="7" step="0.5" value={dotSize}
+              <input type="range" min="0.1" max="7" step="0.1" value={dotSize}
                 style={{ flex: 1, accentColor: 'var(--brand-600)' }}
                 onChange={e => setDotSize(parseFloat(e.target.value))} />
               <span style={{ fontSize: 18, color: 'var(--text-muted)' }}>●</span>
@@ -1240,7 +1240,7 @@ export default function SheetPage() {
             <div className={s.popHead}>Line weight</div>
             <div className={s.fsRow}>
               <span style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1 }}>—</span>
-              <input type="range" min="0.4" max="3" step="0.2" value={strokeW}
+              <input type="range" min="0.1" max="3" step="0.1" value={strokeW}
                 style={{ flex: 1, accentColor: 'var(--brand-600)' }}
                 onChange={e => setStrokeW(parseFloat(e.target.value))} />
               <span style={{ fontSize: 15, fontWeight: 900, color: 'var(--text-muted)', lineHeight: 1 }}>—</span>
@@ -1251,7 +1251,7 @@ export default function SheetPage() {
             <div className={s.popHead}>Measure label size</div>
             <div className={s.fsRow}>
               <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>ft</span>
-              <input type="range" min="0.3" max="3" step="0.1" value={measureSize}
+              <input type="range" min="0.1" max="3" step="0.1" value={measureSize}
                 style={{ flex: 1, accentColor: 'var(--brand-600)' }}
                 onChange={e => setMeasureSize(parseFloat(e.target.value))} />
               <span style={{ fontSize: 13, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>ft</span>
@@ -2916,7 +2916,7 @@ function MeasurePanel({ sessions, segments, totalFt, fLn, lnft, dist, onReset, f
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: `calc(11px * ${fs})`, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', minWidth: 42 }}>Size</span>
           <span style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>ft</span>
-          <input type="range" min="0.3" max="3" step="0.1" value={measureSize}
+          <input type="range" min="0.1" max="3" step="0.1" value={measureSize}
             style={{ flex: 1, accentColor: color }}
             onChange={e => onMeasureSizeChange(parseFloat(e.target.value))} />
           <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-muted)' }}>ft</span>
