@@ -421,6 +421,9 @@ export default function SheetPage() {
       if (e.key === 'F8') { e.preventDefault(); setOrthoEnabled(v => !v) }
       if (e.ctrlKey && key === 'Z') {
         e.preventDefault()
+        // Undo last in-progress vertex first
+        if (activeTool === 'area' && areaVerts.length > 0) { setAreaVerts(v => v.slice(0, -1)); return }
+        if (activeTool === 'linear' && linearVerts.length > 0) { setLinearVerts(v => v.slice(0, -1)); return }
         const stack = undoStackRef.current
         if (stack.length > 0) {
           const last = stack[stack.length - 1]
@@ -524,7 +527,8 @@ export default function SheetPage() {
     }
     // Snap to placed vertices (area verts, linear verts, existing poly vertices)
     if (snapEnabled) {
-      const SNAP_DIST = 12
+      // Keep snap radius fixed in screen pixels (12px) regardless of zoom
+      const SNAP_DIST = 12 / ((zoom / 100) * FIT)
       const snapCandidates = [
         ...addedAreas.flatMap(a => a.poly),
         ...addedLines.flatMap(l => l.pts || []),
@@ -593,21 +597,23 @@ export default function SheetPage() {
     if (e.button === 2) {
       isPanningRef.current = true
       panStartRef.current = { x: e.clientX, y: e.clientY }
-      panOriginRef.current = { x: panOffset.x, y: panOffset.y }
+      panOriginRef.current = { ...panCurrentRef.current }
       return
     }
     if (activeTool === 'pan') {
       isPanningRef.current = true
       panStartRef.current = { x: e.clientX, y: e.clientY }
-      panOriginRef.current = { ...panOffset }
+      panOriginRef.current = { ...panCurrentRef.current }
       return
     }
     if (activeTool !== 'select') return
     const p = toSheet(e)
+    // Hit thresholds fixed in screen pixels (~10px) regardless of zoom
+    const hitPx = 10 / ((zoom / 100) * FIT)
     // Check added points first
     for (let i = addedPoints.length - 1; i >= 0; i--) {
       const pt = addedPoints[i]
-      if (dist(p, { x: pt.x, y: pt.y }) < 10) {
+      if (dist(p, { x: pt.x, y: pt.y }) < hitPx) {
         pushUndo()
         setSelectedId(pt.id); setSelectedKind('point')
         isDraggingRef.current = true
@@ -620,7 +626,7 @@ export default function SheetPage() {
     for (let i = addedAreas.length - 1; i >= 0; i--) {
       const a = addedAreas[i]
       for (let j = 0; j < a.poly.length; j++) {
-        if (dist(p, a.poly[j]) < 8) {
+        if (dist(p, a.poly[j]) < hitPx) {
           pushUndo()
           setSelectedId(a.id); setSelectedKind('area')
           isDraggingRef.current = true
@@ -646,7 +652,7 @@ export default function SheetPage() {
     for (let i = addedLines.length - 1; i >= 0; i--) {
       const l = addedLines[i]
       for (let j = 0; j < l.pts.length; j++) {
-        if (dist(p, l.pts[j]) < 10) {
+        if (dist(p, l.pts[j]) < hitPx) {
           pushUndo()
           setSelectedId(l.id); setSelectedKind('line')
           isDraggingRef.current = true
@@ -1808,24 +1814,27 @@ export default function SheetPage() {
                     const sw = strokeW * u * (isSelected ? 1.5 : 1)
                     const col = g.color
                     const bdr = isSelected ? '#000' : col
+                    const halo = r + u * 1.5
                     if (g.shape === 'circle') {
                       return (
-                        <circle key={p.id} cx={p.x} cy={p.y} r={r}
-                          fill={col} stroke={bdr} strokeWidth={sw}
-                          style={{ filter: 'drop-shadow(0 0 1px #fff)' }} />
+                        <g key={p.id}>
+                          <circle cx={p.x} cy={p.y} r={halo} fill="rgba(255,255,255,0.75)" />
+                          <circle cx={p.x} cy={p.y} r={r} fill={col} stroke={bdr} strokeWidth={sw} />
+                        </g>
                       )
                     } else if (g.shape === 'square') {
                       return (
-                        <rect key={p.id} x={p.x - r} y={p.y - r} width={r*2} height={r*2}
-                          fill={col} stroke={bdr} strokeWidth={sw}
-                          style={{ filter: 'drop-shadow(0 0 1px #fff)' }} />
+                        <g key={p.id}>
+                          <rect x={p.x - halo} y={p.y - halo} width={halo*2} height={halo*2} fill="rgba(255,255,255,0.75)" />
+                          <rect x={p.x - r} y={p.y - r} width={r*2} height={r*2} fill={col} stroke={bdr} strokeWidth={sw} />
+                        </g>
                       )
                     } else { // diamond
                       return (
-                        <rect key={p.id} x={p.x - r} y={p.y - r} width={r*2} height={r*2}
-                          fill={col} stroke={bdr} strokeWidth={sw}
-                          transform={`rotate(45,${p.x},${p.y})`}
-                          style={{ filter: 'drop-shadow(0 0 1px #fff)' }} />
+                        <g key={p.id} transform={`rotate(45,${p.x},${p.y})`}>
+                          <rect x={p.x - halo} y={p.y - halo} width={halo*2} height={halo*2} fill="rgba(255,255,255,0.75)" />
+                          <rect x={p.x - r} y={p.y - r} width={r*2} height={r*2} fill={col} stroke={bdr} strokeWidth={sw} />
+                        </g>
                       )
                     }
                   })
