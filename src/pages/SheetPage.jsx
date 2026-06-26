@@ -252,6 +252,20 @@ export default function SheetPage() {
 
   // ---- Undo stack ----
   const undoStackRef = useRef([])
+  // Refs to always-current state for use inside stale event-listener closures
+  const addedAreasRef = useRef(addedAreas)
+  const addedLinesRef = useRef(addedLines)
+  const countGroupsRef = useRef(countGroups)
+  useEffect(() => { addedAreasRef.current = addedAreas }, [addedAreas])
+  useEffect(() => { addedLinesRef.current = addedLines }, [addedLines])
+  useEffect(() => { countGroupsRef.current = countGroups }, [countGroups])
+  const pushUndo = () => {
+    undoStackRef.current = [...undoStackRef.current.slice(-29), {
+      areas: addedAreasRef.current,
+      lines: addedLinesRef.current,
+      counts: countGroupsRef.current,
+    }]
+  }
 
   // flat list of all placed points from all count groups
   const addedPoints = countGroups.flatMap(g => g.points)
@@ -411,9 +425,9 @@ export default function SheetPage() {
         if (stack.length > 0) {
           const last = stack[stack.length - 1]
           undoStackRef.current = stack.slice(0, -1)
-          if (last.type === 'area') setAddedAreas(last.state)
-          if (last.type === 'line') setAddedLines(last.state)
-          if (last.type === 'countGroups') setCountGroups(last.state)
+          setAddedAreas(last.areas)
+          setAddedLines(last.lines)
+          setCountGroups(last.counts)
         }
       }
       if (key === 'A') {
@@ -441,6 +455,7 @@ export default function SheetPage() {
       }
       if (key === 'DELETE' || e.key === 'Backspace') {
         if (selectedId && selectedKind) {
+          pushUndo()
           if (selectedKind === 'area') setAddedAreas(prev => prev.filter(a => a.id !== selectedId))
           else if (selectedKind === 'point') setCountGroups(prev => prev.map(g => ({ ...g, points: g.points.filter(p => p.id !== selectedId) })))
           else if (selectedKind === 'line') setAddedLines(prev => prev.filter(l => l.id !== selectedId))
@@ -532,8 +547,8 @@ export default function SheetPage() {
     const capturedArcSegs = { ...arcSegsRef.current }
     const capturedVerts = [...areaVerts]
     const grp = areaGroups.find(g => g.id === activeAreaGroupId)
+    pushUndo()
     setAddedAreas(prev => {
-      undoStackRef.current = [...undoStackRef.current.slice(-19), { type: 'area', state: prev }]
       return [...prev, {
         id: `ua-${Date.now()}`,
         groupId: activeAreaGroupId || null,
@@ -554,8 +569,8 @@ export default function SheetPage() {
     const capturedArcSegs = { ...linearArcSegsRef.current }
     const capturedVerts = [...linearVerts]
     const grp = linearGroups.find(g => g.id === activeLinearGroupId)
+    pushUndo()
     setAddedLines(prev => {
-      undoStackRef.current = [...undoStackRef.current.slice(-19), { type: 'line', state: prev }]
       return [...prev, {
         id: `ul-${Date.now()}`,
         groupId: activeLinearGroupId || null,
@@ -593,6 +608,7 @@ export default function SheetPage() {
     for (let i = addedPoints.length - 1; i >= 0; i--) {
       const pt = addedPoints[i]
       if (dist(p, { x: pt.x, y: pt.y }) < 10) {
+        pushUndo()
         setSelectedId(pt.id); setSelectedKind('point')
         isDraggingRef.current = true
         dragStartRef.current = p
@@ -605,6 +621,7 @@ export default function SheetPage() {
       const a = addedAreas[i]
       for (let j = 0; j < a.poly.length; j++) {
         if (dist(p, a.poly[j]) < 8) {
+          pushUndo()
           setSelectedId(a.id); setSelectedKind('area')
           isDraggingRef.current = true
           dragStartRef.current = p
@@ -615,6 +632,7 @@ export default function SheetPage() {
         }
       }
       if (inside(p, a.poly)) {
+        pushUndo()
         setSelectedId(a.id); setSelectedKind('area')
         isDraggingRef.current = true
         dragStartRef.current = p
@@ -629,6 +647,7 @@ export default function SheetPage() {
       const l = addedLines[i]
       for (let j = 0; j < l.pts.length; j++) {
         if (dist(p, l.pts[j]) < 10) {
+          pushUndo()
           setSelectedId(l.id); setSelectedKind('line')
           isDraggingRef.current = true
           dragStartRef.current = p
@@ -794,6 +813,7 @@ export default function SheetPage() {
     }
 
     if (activeTool === 'count') {
+      pushUndo()
       const newPt = { id: `up-${Date.now()}`, type: addCountType, name: genName(addCountType), x: p.x, y: p.y }
       if (activeCountGroupId) {
         setCountGroups(prev => prev.map(g =>
@@ -836,6 +856,7 @@ export default function SheetPage() {
         if (d < bestDist) { bestDist = d; bestIdx = i; bestPt = { x: nx, y: ny } }
       }
       if (bestIdx !== -1 && bestDist < threshold) {
+        pushUndo()
         const newPoly = [...poly.slice(0, bestIdx + 1), bestPt, ...poly.slice(bestIdx + 1)]
         setAddedAreas(prev => prev.map(a => a.id === selectedId ? { ...a, poly: newPoly } : a))
         e.stopPropagation()
