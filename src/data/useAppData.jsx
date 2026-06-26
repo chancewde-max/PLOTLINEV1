@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react'
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react'
 import { PROJECTS as D_PROJECTS, SHEETS as D_SHEETS } from './sampleData.js'
 
 const Ctx = createContext(null)
@@ -18,8 +18,13 @@ export function AppDataProvider({ children }) {
   const [sheets, setSheets]     = useState(saved?.sheets   ?? D_SHEETS)
   const [customCats, setCustomCats] = useState(saved?.customCats ?? [])
 
+  const lsTimerRef = useRef(null)
   useEffect(() => {
-    localStorage.setItem('plotline-appdata', JSON.stringify({ v: VER, projects, sheets, customCats }))
+    if (lsTimerRef.current) clearTimeout(lsTimerRef.current)
+    lsTimerRef.current = setTimeout(() => {
+      localStorage.setItem('plotline-appdata', JSON.stringify({ v: VER, projects, sheets, customCats }))
+    }, 500)
+    return () => clearTimeout(lsTimerRef.current)
   }, [projects, sheets, customCats])
 
   const addProject = (proj) =>

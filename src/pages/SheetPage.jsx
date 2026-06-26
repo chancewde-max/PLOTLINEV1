@@ -350,12 +350,22 @@ export default function SheetPage() {
   // Persist active left panel tab across sheet navigations (component remounts with key=sheetId)
   useEffect(() => { sessionStorage.setItem('sheetLeftPanel', leftPanel) }, [leftPanel])
 
-  // Persist drawing data after every change
-  useEffect(() => { if (sheetId) updateSheet(sheetId, { savedCountGroups: countGroups }) }, [countGroups])
-  useEffect(() => { if (sheetId) updateSheet(sheetId, { savedLinearGroups: linearGroups }) }, [linearGroups])
-  useEffect(() => { if (sheetId) updateSheet(sheetId, { savedAreaGroups: areaGroups }) }, [areaGroups])
-  useEffect(() => { if (sheetId) updateSheet(sheetId, { savedAreas: addedAreas }) }, [addedAreas])
-  useEffect(() => { if (sheetId) updateSheet(sheetId, { savedLines: addedLines }) }, [addedLines])
+  // Debounce drawing saves — batch all 5 fields into one write 400ms after last change
+  const saveTimerRef = useRef(null)
+  useEffect(() => {
+    if (!sheetId) return
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => {
+      updateSheet(sheetId, {
+        savedCountGroups: countGroups,
+        savedLinearGroups: linearGroups,
+        savedAreaGroups: areaGroups,
+        savedAreas: addedAreas,
+        savedLines: addedLines,
+      })
+    }, 400)
+    return () => clearTimeout(saveTimerRef.current)
+  }, [sheetId, countGroups, linearGroups, areaGroups, addedAreas, addedLines])
 
   // Save active region poly to sheet whenever regionClosed changes
   useEffect(() => {
