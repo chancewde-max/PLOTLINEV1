@@ -446,7 +446,23 @@ export default function SheetPage() {
           setActiveTool('area')
         }
       }
+      if (key === 'N') {
+        if (activeTool === 'count') {
+          setNewItemName(`Count ${countGroupNumRef.current + 1}`)
+          setNewItemColor(randColor()); setNewItemShape('circle')
+          setNewCountDlg('count')
+        } else if (activeTool === 'area') {
+          setNewItemName(`Area ${areaGroupNumRef.current + 1}`)
+          setNewItemColor(randColor()); setNewItemShape('circle')
+          setNewCountDlg('area')
+        } else if (activeTool === 'linear') {
+          setNewItemName(`Linear ${linearGroupNumRef.current + 1}`)
+          setNewItemColor(randColor()); setNewItemShape('circle')
+          setNewCountDlg('linear')
+        }
+      }
       if (key === 'ESCAPE') {
+        const wasCountingTool = activeTool === 'count' || activeTool === 'area' || activeTool === 'linear'
         setRegionVerts([]); setRegionClosed(null); setRegionCursor(null)
         setScalePts([]); setScaleDlg(null)
         setMeasurePts([]); setMeasureDone(false); setMeasureCursor(null); setMeasureSessions([])
@@ -456,6 +472,7 @@ export default function SheetPage() {
         arcSegsRef.current = {}; linearArcSegsRef.current = {}
         setSettings(false)
         setSelectedId(null); setSelectedKind(null)
+        if (wasCountingTool) setActiveTool('select')
       }
       if (key === 'DELETE' || e.key === 'Backspace') {
         if (selectedIds.length > 0) {
@@ -574,7 +591,6 @@ export default function SheetPage() {
     setAreaVerts([]); setAreaCursor(null)
     setArcMode(false); setPendingArcThrough(null)
     arcSegsRef.current = {}
-    setActiveTool('select')
   }
 
   const finishLine = () => {
@@ -597,7 +613,6 @@ export default function SheetPage() {
     setLinearVerts([]); setLinearCursor(null)
     setArcMode(false); setPendingArcThrough(null)
     linearArcSegsRef.current = {}
-    setActiveTool('select')
   }
 
   // ---- Event handlers ----
@@ -843,7 +858,6 @@ export default function SheetPage() {
         setCountGroups(prev => [...prev, newGroup])
         setActiveCountGroupId(gid)
       }
-      setActiveTool('select')
     }
   }
 
