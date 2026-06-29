@@ -124,6 +124,7 @@ export default function SheetPage() {
   const [zoom, setZoom]         = useState(100)
   const [panOffset, setPanOffset]   = useState({ x: 0, y: 0 })
   const [leftPanelW, setLeftPanelW]   = useState(264)
+  const [bottomRailH, setBottomRailH] = useState(56)
   const [rightPanelW, setRightPanelW] = useState(320)
   const [activeTool, setActiveTool] = useState('region')
   const [leftPanel, setLeftPanel]   = useState(() => sessionStorage.getItem('sheetLeftPanel') || 'layers')
@@ -457,7 +458,14 @@ export default function SheetPage() {
         setSelectedId(null); setSelectedKind(null)
       }
       if (key === 'DELETE' || e.key === 'Backspace') {
-        if (selectedId && selectedKind) {
+        if (selectedIds.length > 0) {
+          pushUndo()
+          const idSet = new Set(selectedIds)
+          setCountGroups(prev => prev.map(g => ({ ...g, points: g.points.filter(p => !idSet.has(p.id)) })))
+          setAddedAreas(prev => prev.filter(a => !idSet.has(a.id)))
+          setAddedLines(prev => prev.filter(l => !idSet.has(l.id)))
+          setSelectedIds([])
+        } else if (selectedId && selectedKind) {
           pushUndo()
           if (selectedKind === 'area') setAddedAreas(prev => prev.filter(a => a.id !== selectedId))
           else if (selectedKind === 'point') setCountGroups(prev => prev.map(g => ({ ...g, points: g.points.filter(p => p.id !== selectedId) })))
@@ -475,9 +483,9 @@ export default function SheetPage() {
           : v)
       }
       if (activeTool === 'measure' && !measureDone && measurePts.length >= 2) {
-        // Save current session and start a new one
         setMeasureSessions(prev => [...prev, { pts: measurePts, color: measureColor }])
         setMeasurePts([]); setMeasureCursor(null)
+        setActiveTool('select')
       }
       if (activeTool === 'area' && areaVerts.length >= 3) finishArea()
       if (activeTool === 'linear' && linearVerts.length >= 2) finishLine()
@@ -488,7 +496,7 @@ export default function SheetPage() {
       window.removeEventListener('keydown', onKey)
       window.removeEventListener('keydown', onEnter)
     }
-  }, [project, sheet, activeTool, regionVerts, measureDone, measurePts, areaVerts, areaType, linearVerts, linearType, arcMode, selectedId, selectedKind])
+  }, [project, sheet, activeTool, regionVerts, measureDone, measurePts, areaVerts, areaType, linearVerts, linearType, arcMode, selectedId, selectedKind, selectedIds])
 
   if (!project || !sheet) {
     return <div style={{ padding: 40, color: 'var(--text-muted)' }}>Sheet not found.</div>
@@ -566,6 +574,7 @@ export default function SheetPage() {
     setAreaVerts([]); setAreaCursor(null)
     setArcMode(false); setPendingArcThrough(null)
     arcSegsRef.current = {}
+    setActiveTool('select')
   }
 
   const finishLine = () => {
@@ -588,6 +597,7 @@ export default function SheetPage() {
     setLinearVerts([]); setLinearCursor(null)
     setArcMode(false); setPendingArcThrough(null)
     linearArcSegsRef.current = {}
+    setActiveTool('select')
   }
 
   // ---- Event handlers ----
@@ -833,6 +843,7 @@ export default function SheetPage() {
         setCountGroups(prev => [...prev, newGroup])
         setActiveCountGroupId(gid)
       }
+      setActiveTool('select')
     }
   }
 
@@ -843,8 +854,21 @@ export default function SheetPage() {
     if (activeTool === 'measure' && !measureDone && measurePts.length >= 2) {
       setMeasureSessions(prev => [...prev, { pts: measurePts, color: measureColor }])
       setMeasurePts([]); setMeasureCursor(null)
+      setActiveTool('select')
     }
     if (activeTool === 'linear' && linearVerts.length >= 2) finishLine()
+    // Double-click count marker → open edit popup
+    if (activeTool === 'select') {
+      const p = toSheet(e)
+      const hitPx = 10 / ((zoom / 100) * FIT)
+      for (const grp of countGroups) {
+        if (grp.points.some(pt => Math.hypot(pt.x - p.x, pt.y - p.y) < hitPx)) {
+          openEditGroup('count', grp)
+          e.stopPropagation()
+          return
+        }
+      }
+    }
     // Insert vertex on double-click near edge of selected area
     if (activeTool === 'select' && selectedArea) {
       const p = toSheet(e)
@@ -1955,7 +1979,16 @@ export default function SheetPage() {
       </div>
 
       {/* Bottom toolbar rail */}
-      <div className={s.bottomRail}>
+      <div className={s.bottomRail} style={{ height: bottomRailH }}>
+        {/* Drag handle to resize height */}
+        <div className={s.railResizeHandle}
+          onMouseDown={e => {
+            e.preventDefault()
+            const startY = e.clientY, startH = bottomRailH
+            const move = ev => setBottomRailH(Math.max(44, Math.min(120, startH - (ev.clientY - startY))))
+            const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }
+            window.addEventListener('mousemove', move); window.addEventListener('mouseup', up)
+          }} />
         {TOOLS.map((t, i) => {
           if (t === 'sep') return <div key={'sep-' + i} className={s.railSepH} />
           const { Icon } = t

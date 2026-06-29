@@ -105,14 +105,30 @@
 /* ---- Bottom toolbar rail ---- */
 .bottomRail {
   flex: 0 0 auto;
+  position: relative;
   display: flex;
   flex-direction: row;
   align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
   gap: var(--space-2);
   padding: 6px 12px;
   background: var(--surface-card);
   border-top: 1px solid var(--border-default);
   z-index: 10;
+}
+
+.railResizeHandle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 5px;
+  cursor: ns-resize;
+  background: transparent;
+}
+.railResizeHandle:hover {
+  background: var(--border-subtle);
 }
 
 .railSepH {
