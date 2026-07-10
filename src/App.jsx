@@ -5,6 +5,7 @@ import { AppDataProvider } from './data/useAppData.jsx'
 import { SettingsProvider } from './data/useSettings.jsx'
 import { AuthProvider, useAuth } from './auth/AuthProvider.jsx'
 import { AuthModal } from './auth/AuthModal.jsx'
+import { RouteSkeleton } from './components/Skeleton.jsx'
 
 // Lazy-load the pdf-heavy route components so pdf.js / tesseract are not in the
 // initial bundle. SheetPage pulls in pdfjs-dist (and tesseract.js), so it is the
@@ -37,22 +38,22 @@ export default function App() {
           <Routes>
             <Route path="/" element={<LandingPage />} />
             <Route path="/pricing" element={
-              <Suspense fallback={<div className="app-loading">Loading…</div>}>
+              <Suspense fallback={<RouteSkeleton />}>
                 <LazyPricingPage />
               </Suspense>
             } />
             <Route path="/app" element={
-              <Suspense fallback={<div className="app-loading">Loading…</div>}>
+              <Suspense fallback={<RouteSkeleton />}>
                 <LazyProjectsPage />
               </Suspense>
             } />
             <Route path="/app/project/:projectId" element={
-              <Suspense fallback={<div className="app-loading">Loading…</div>}>
+              <Suspense fallback={<RouteSkeleton />}>
                 <LazyProjectPage />
               </Suspense>
             } />
             <Route path="/app/project/:projectId/sheet/:sheetId" element={
-              <Suspense fallback={<div className="app-loading">Loading…</div>}>
+              <Suspense fallback={<RouteSkeleton />}>
                 <SheetPageKeyed />
               </Suspense>
             } />

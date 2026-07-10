@@ -11,6 +11,8 @@ import { useAppData } from '../data/useAppData.jsx'
 import { useSettings } from '../data/useSettings.jsx'
 import { STATUS_LABEL, STATUS_VARIANT } from '../data/sampleData.js'
 import PdfCanvas from '../components/PdfCanvas.jsx'
+import { Tooltip } from '../components/ui/Tooltip.jsx'
+import { SaveStatus } from '../components/SaveStatus.jsx'
 import s from './ProjectsPage.module.css'
 
 const ACCENTS = [
@@ -109,7 +111,10 @@ export default function ProjectsPage() {
               leadingIcon={<Search size={14} />}
             />
           </div>
-          <Avatar name="Amy Reyes" status="online" />
+          <SaveStatus />
+          <Tooltip label="Account" side="bottom">
+            <Avatar name="Amy Reyes" status="online" />
+          </Tooltip>
         </div>
       </header>
 

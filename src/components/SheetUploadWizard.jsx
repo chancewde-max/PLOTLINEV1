@@ -3,6 +3,7 @@ import * as pdfjsLib from 'pdfjs-dist'
 import { createWorker } from 'tesseract.js'
 import { Upload, X, ChevronRight, CheckCircle, Loader, Square, ChevronLeft, Check } from 'lucide-react'
 import { Button } from './ui/Button.jsx'
+import { Skeleton } from './Skeleton.jsx'
 import { pdfCache } from './pdfCache.js'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -470,8 +471,14 @@ function FullPageAreaPicker({ pages, startIndex = 0, field, onSave, onCancel }) 
       <div ref={containerRef} style={{ flex: 1, overflow: 'hidden', position: 'relative', background: '#2a2a2a', cursor }}
         onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={e => { if (panning) setPanning(null); if (dragging) setDragging(null) }}>
         {loading && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#aaa', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)' }}>
-            <Loader size={20} style={{ animation: 'spin 1s linear infinite' }} /> Rendering…
+          <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: 'min(70vw, 640px)', display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
+            {/* Layout-shaped skeleton of the page being rendered, not a lonely spinner */}
+            <Skeleton width="100%" height={340} radius={8} style={{ background: 'rgba(255,255,255,0.08)' }} />
+            <div style={{ display: 'flex', gap: 10, width: '60%' }}>
+              <Skeleton height={16} style={{ background: 'rgba(255,255,255,0.08)' }} />
+              <Skeleton width={90} height={16} style={{ background: 'rgba(255,255,255,0.08)' }} />
+            </div>
+            <span style={{ fontSize: 12, color: '#888' }}>Rendering page…</span>
           </div>
         )}
         {!loading && canvas && (

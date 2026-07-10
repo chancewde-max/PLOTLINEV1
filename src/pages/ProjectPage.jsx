@@ -9,6 +9,8 @@ import { Dialog } from '../components/ui/Dialog.jsx'
 import { Tabs } from '../components/ui/Tabs.jsx'
 import SheetUploadWizard from '../components/SheetUploadWizard.jsx'
 import PdfCanvas from '../components/PdfCanvas.jsx'
+import { Tooltip } from '../components/ui/Tooltip.jsx'
+import { SaveStatus } from '../components/SaveStatus.jsx'
 import BidProposal from './BidProposal.jsx'
 import { useAppData } from '../data/useAppData.jsx'
 import { STATUS_LABEL, STATUS_VARIANT, CATS, CAT_COLOR, SHEET_W, SHEET_H } from '../data/sampleData.js'
@@ -168,7 +170,10 @@ export default function ProjectPage() {
           <Badge variant={STATUS_VARIANT[project.status] || 'neutral'} dot={project.status === 'bid_sent'}>
             {STATUS_LABEL[project.status] || project.status}
           </Badge>
-          <Avatar name="Amy Reyes" status="online" />
+          <SaveStatus />
+          <Tooltip label="Account" side="bottom">
+            <Avatar name="Amy Reyes" status="online" />
+          </Tooltip>
         </div>
       </header>
 
@@ -290,16 +295,21 @@ export default function ProjectPage() {
                 {isOver && <span style={{ fontSize: 11, color: 'var(--brand-600)', fontWeight: 600 }}>Drop to add</span>}
                 {!isOver && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{setSheets.length} sheet{setSheets.length !== 1 ? 's' : ''}</span>}
                 {setSheets.length > 0 && (
-                  <button onClick={toggleSelectAll}
-                    title={allSelected ? 'Deselect all' : 'Select all'}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: allSelected ? 'var(--brand-600)' : 'var(--text-subtle)', padding: 2, display: 'flex', alignItems: 'center' }}>
-                    {allSelected ? <CheckSquare size={15} /> : <Square size={15} />}
-                  </button>
+                  <Tooltip label={allSelected ? 'Deselect all' : 'Select all'} side="left">
+                    <button onClick={toggleSelectAll}
+                      aria-label={allSelected ? 'Deselect all' : 'Select all'}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: allSelected ? 'var(--brand-600)' : 'var(--text-subtle)', padding: 2, display: 'flex', alignItems: 'center' }}>
+                      {allSelected ? <CheckSquare size={15} /> : <Square size={15} />}
+                    </button>
+                  </Tooltip>
                 )}
-                <button onClick={e => { e.stopPropagation(); deleteSheetSet(projectId, set.id) }}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', padding: 2 }}>
-                  <X size={14} />
-                </button>
+                <Tooltip label="Delete folder" side="left">
+                  <button onClick={e => { e.stopPropagation(); deleteSheetSet(projectId, set.id) }}
+                    aria-label="Delete folder"
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', padding: 2 }}>
+                    <X size={14} />
+                  </button>
+                </Tooltip>
               </div>
               {expanded && setSheets.length > 0 && (
                 <div className={s.grid} style={{ marginLeft: 24 }}>

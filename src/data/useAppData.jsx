@@ -4,12 +4,22 @@ import { PROJECTS as D_PROJECTS, SHEETS as D_SHEETS } from './sampleData.js'
 const Ctx = createContext(null)
 const VER = '5'
 
+// Module-level in-memory cache. Parsed once per page-load; reused instantly on
+// any provider re-mount (rapid navigation, HMR, StrictMode double-mount) so we
+// never re-parse localStorage JSON while clicking around. "Load once, reuse
+// instantly."
+const dataCache = { loaded: false, snapshot: null }
+
 function load() {
+  if (dataCache.loaded) return dataCache.snapshot
+  let snap = null
   try {
     const d = JSON.parse(localStorage.getItem('plotline-appdata') || 'null')
-    if (d?.v === VER) return d
+    if (d?.v === VER) snap = d
   } catch {}
-  return null
+  dataCache.loaded = true
+  dataCache.snapshot = snap
+  return snap
 }
 
 export function AppDataProvider({ children }) {
@@ -17,12 +27,24 @@ export function AppDataProvider({ children }) {
   const [projects, setProjects] = useState(saved?.projects ?? D_PROJECTS)
   const [sheets, setSheets]     = useState(saved?.sheets   ?? D_SHEETS)
   const [customCats, setCustomCats] = useState(saved?.customCats ?? [])
+  // Optimistic save indicator: mutations flip this to 'saving' instantly, then
+  // back to 'saved' once the background (debounced) persist resolves.
+  const [saveStatus, setSaveStatus] = useState('saved')
 
   const lsTimerRef = useRef(null)
+  const firstRunRef = useRef(true)
   useEffect(() => {
+    // Skip the initial mount so we don't flash "Saving…" on first paint.
+    if (firstRunRef.current) { firstRunRef.current = false; return }
+    setSaveStatus('saving')
     if (lsTimerRef.current) clearTimeout(lsTimerRef.current)
     lsTimerRef.current = setTimeout(() => {
-      localStorage.setItem('plotline-appdata', JSON.stringify({ v: VER, projects, sheets, customCats }))
+      const snapshot = { v: VER, projects, sheets, customCats }
+      localStorage.setItem('plotline-appdata', JSON.stringify(snapshot))
+      // Keep the module cache in sync so remounts reuse fresh data.
+      dataCache.loaded = true
+      dataCache.snapshot = snapshot
+      setSaveStatus('saved')
     }, 500)
     return () => clearTimeout(lsTimerRef.current)
   }, [projects, sheets, customCats])
@@ -163,6 +185,7 @@ export function AppDataProvider({ children }) {
   return (
     <Ctx.Provider value={{
       projects, sheets, customCats,
+      saveStatus,
       addProject, updateProject,
       addSheet, addSheets, updateSheet,
       addCustomCat, deleteCustomCat,
