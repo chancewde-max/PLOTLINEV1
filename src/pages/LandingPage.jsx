@@ -31,7 +31,7 @@ export default function LandingPage() {
           <Button
             variant="primary"
             iconRight={<ArrowRight size={16} />}
-            onClick={() => navigate(DEMO)}
+            onClick={() => openAuth()}
           >
             Start free trial
           </Button>
@@ -55,7 +55,7 @@ export default function LandingPage() {
               variant="primary"
               size="lg"
               iconRight={<ArrowRight size={16} />}
-              onClick={() => navigate(DEMO)}
+              onClick={() => openAuth()}
             >
               Start free trial
             </Button>
@@ -216,7 +216,7 @@ export default function LandingPage() {
               variant="primary"
               size="lg"
               iconRight={<ArrowRight size={16} />}
-              onClick={() => navigate(DEMO)}
+              onClick={() => openAuth()}
             >
               Start free trial
             </Button>
@@ -224,9 +224,9 @@ export default function LandingPage() {
               variant="ghost"
               size="lg"
               className={s.ctaGhost}
-              onClick={() => navigate('/app')}
+              onClick={() => navigate(DEMO)}
             >
-              Talk to us
+              Try the demo
             </Button>
           </div>
         </div>

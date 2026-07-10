@@ -2,3 +2,8 @@ node_modules/
 dist/
 .DS_Store
 *.local
+
+# Local env secrets — never commit a real .env
+.env
+.env.local
+.env.*.local

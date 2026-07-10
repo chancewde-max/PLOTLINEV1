@@ -14,6 +14,7 @@ import {
   Github,
 } from 'lucide-react'
 import s from './PricingPage.module.css'
+import { useAuth } from '../auth/AuthProvider.jsx'
 
 // The working demo takeoff — every primary CTA routes here so a visitor
 // clicks through to a real, measured plan instead of a dead button.
@@ -98,6 +99,7 @@ const FAQ = [
 
 function Nav() {
   const navigate = useNavigate()
+  const { openAuth } = useAuth()
   return (
     <header className={s.nav}>
       <div className={`${s.container} ${s.navInner}`}>
@@ -116,14 +118,14 @@ function Nav() {
             variant="ghost"
             size="sm"
             className={s.signIn}
-            onClick={() => navigate('/app')}
+            onClick={() => openAuth()}
           >
             Sign in
           </Button>
           <Button
             variant="primary"
             size="sm"
-            onClick={() => navigate(DEMO)}
+            onClick={() => openAuth()}
           >
             Start free trial
           </Button>
@@ -154,6 +156,7 @@ function Hero() {
 
 function PricingTiers() {
   const navigate = useNavigate()
+  const { openAuth } = useAuth()
   return (
     <section className={`${s.section} ${s.container}`}>
       <div className={s.pricingGrid}>
@@ -187,7 +190,7 @@ function PricingTiers() {
               variant={tier.popular ? 'primary' : 'secondary'}
               fullWidth
               iconRight={tier.popular ? <ArrowRight size={16} /> : undefined}
-              onClick={() => navigate(tier.cta === 'Talk to sales' ? '/app' : DEMO)}
+              onClick={() => tier.cta === 'Talk to sales' ? navigate('/app') : openAuth()}
             >
               {tier.cta}
             </Button>
@@ -237,6 +240,7 @@ function Faq() {
 
 function FinalCta() {
   const navigate = useNavigate()
+  const { openAuth } = useAuth()
   return (
     <section className={`${s.section} ${s.finalCta}`}>
       <div className={s.container}>
@@ -248,16 +252,16 @@ function FinalCta() {
               variant="primary"
               size="lg"
               iconRight={<ArrowRight size={17} />}
-              onClick={() => navigate(DEMO)}
+              onClick={() => openAuth()}
             >
               Start free trial
             </Button>
             <Button
               variant="secondary"
               size="lg"
-              onClick={() => navigate('/app')}
+              onClick={() => navigate(DEMO)}
             >
-              Talk to us
+              See a demo
             </Button>
           </div>
         </div>

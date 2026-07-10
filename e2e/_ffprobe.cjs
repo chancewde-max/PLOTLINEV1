@@ -1,0 +1,12 @@
+const { firefox } = require('playwright')
+;(async () => {
+  const b = await firefox.launch({ headless: true })
+  const p = await b.newPage()
+  p.on('pageerror', e => console.log('PAGEERR:', e.message))
+  p.on('console', m => { if (m.type()==='error') console.log('CONSOLE.ERR:', m.text()) })
+  await p.goto('http://127.0.0.1:5215/', { waitUntil: 'load', timeout: 30000 })
+  await p.waitForTimeout(4000)
+  const txt = await p.evaluate(() => document.title + ' | ' + (document.body?.innerText||'').slice(0,100))
+  console.log('OK:', txt)
+  await b.close()
+})().catch(e => { console.error('ERR:', e.message); process.exit(1) })

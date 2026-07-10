@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import styles from './MarketingSite.module.css'
 import { Button } from '../components/ui/Button'
 import { Badge } from '../components/ui/Badge'
+import { useAuth } from '../auth/AuthProvider.jsx'
 import {
   Ruler,
   ArrowRight,
@@ -199,6 +200,7 @@ const WORKFLOW = [
 
 function Nav() {
   const navigate = useNavigate()
+  const { openAuth } = useAuth()
   return (
     <header className={styles.nav}>
       <div className={`${styles.container} ${styles.navInner}`}>
@@ -218,14 +220,14 @@ function Nav() {
               variant="ghost"
               size="sm"
               className={styles.signIn}
-              onClick={() => navigate('/app')}
+              onClick={() => openAuth()}
             >
               Sign in
             </Button>
             <Button
               variant="primary"
               size="sm"
-              onClick={() => navigate(DEMO)}
+              onClick={() => openAuth()}
             >
               Start free trial
             </Button>
@@ -238,6 +240,7 @@ function Nav() {
 
 function Hero() {
   const navigate = useNavigate()
+  const { openAuth } = useAuth()
   return (
     <section className={styles.hero} id="top">
       <div className={`${styles.container} ${styles.heroGrid}`}>
@@ -258,7 +261,7 @@ function Hero() {
               variant="primary"
               size="lg"
               iconRight={<ArrowRight size={17} />}
-              onClick={() => navigate(DEMO)}
+              onClick={() => openAuth()}
             >
               Start free trial
             </Button>
@@ -482,6 +485,7 @@ function StatsBand() {
 
 function Pricing() {
   const navigate = useNavigate()
+  const { openAuth } = useAuth()
   return (
     <section className={styles.section} id="pricing">
       <div className={styles.container}>
@@ -520,7 +524,7 @@ function Pricing() {
               <Button
                 variant={tier.popular ? 'primary' : 'secondary'}
                 fullWidth
-                onClick={() => navigate(DEMO)}
+                onClick={() => tier.cta === 'Talk to sales' ? navigate('/app') : openAuth()}
               >
                 {tier.cta}
               </Button>
@@ -563,6 +567,7 @@ function Testimonials() {
 
 function FinalCta() {
   const navigate = useNavigate()
+  const { openAuth } = useAuth()
   return (
     <section className={styles.finalCta} id="docs">
       <div className={styles.container}>
@@ -574,7 +579,7 @@ function FinalCta() {
               variant="primary"
               size="lg"
               iconRight={<ArrowRight size={17} />}
-              onClick={() => navigate(DEMO)}
+              onClick={() => openAuth()}
             >
               Start free trial
             </Button>

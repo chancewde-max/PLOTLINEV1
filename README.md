@@ -1,25 +1,54 @@
-# CODING AGENTS: READ THIS FIRST
+# Plotline — takeoff & estimating software for landscape and irrigation contractors
 
-This is a **handoff bundle** from Claude Design (claude.ai/design).
+Upload a plan, measure it, count it, price it, and walk out with a bid. Plotline turns PDF landscape and irrigation plans into clean takeoffs and printable proposals — no spreadsheets, no hand-scaling, no guesswork.
 
-A user mocked up designs in HTML/CSS/JS using an AI design tool, then exported this bundle so a coding agent can implement the designs for real.
+## Features
 
-## What you should do — IMPORTANT
+- **Upload PDF plans** — drop in your landscape or irrigation drawings and measure directly on the page.
+- **Measure areas, lines, and counts** — area (sq ft), linear (ft), and point counts (fixtures, plants, heads) with a calibrated scale.
+- **Materials takeoff** — attach materials, quantities, and unit costs to every measurement.
+- **Export** — printable bid/proposal plus **CSV** and **JSON** exports for your workflow.
+- **Cloud sync when signed in** — optional Supabase backend keeps projects following you across devices and crew.
+- **Zero-config local mode** — runs entirely on `localStorage` with no account and no setup.
 
-**Read the chat transcripts first.** There are 2 chat transcript(s) in `chats/`. The transcripts show the full back-and-forth between the user and the design assistant — they tell you **what the user actually wants** and **where they landed** after iterating. Don't skip them. The final HTML files are the output, but the chat is where the intent lives.
+## Tech Stack
 
-**Find the primary design file under `project/` and read it top to bottom.** The chat transcripts will tell you which file the user was last iterating on. Then **follow its imports**: open every file it pulls in (shared components, CSS, scripts) so you understand how the pieces fit together before you start implementing.
+- **React** + **Vite** (frontend, fast dev server, modern build)
+- **Supabase** (optional cloud backend — Postgres + Auth + Row Level Security)
+- PDF rendering via `pdfjs-dist`, OCR via `tesseract.js`
 
-**If anything is ambiguous, ask the user to confirm before you start implementing.** It's much cheaper to clarify scope up front than to build the wrong thing.
+## Quick Start
 
-## About the design files
+```bash
+npm install
+npm run dev
+```
 
-The design medium is **HTML/CSS/JS** — these are prototypes, not production code. Your job is to **recreate them pixel-perfectly** in whatever technology makes sense for the target codebase (React, Vue, native, whatever fits). Match the visual output; don't copy the prototype's internal structure unless it happens to fit.
+Then open <http://localhost:5173>. That's it — the app is fully usable immediately. The demo project is seeded on first load so you can try a real takeoff without importing anything.
 
-**Don't render these files in a browser or take screenshots unless the user asks you to.** Everything you need — dimensions, colors, layout rules — is spelled out in the source. Read the HTML and CSS directly; a screenshot won't tell you anything they don't.
+## Enabling Cloud Sync (optional)
 
-## Bundle contents
+Plotline works offline-first. To sync projects across devices and teammates:
 
-- `README.md` — this file
-- `chats/` — conversation transcripts (read these!)
-- `project/` — the `Plotline Design System` project files (HTML prototypes, assets, components)
+1. Create a free project at <https://supabase.com>.
+2. Run [`supabase/schema.sql`](./supabase/schema.sql) in the Supabase SQL editor.
+3. Copy `.env.example` to `.env` and set the two variables:
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY`
+4. Enable **Email** auth in Supabase (Authentication → Providers).
+
+Full step-by-step wiring, verification, and how the no-credentials fallback works are in [`SUPABASE_SETUP.md`](./SUPABASE_SETUP.md).
+
+> The `anon` key is safe to ship to the browser — Row Level Security keeps each user's data isolated. Never put the `service_role` key in a `VITE_` variable.
+
+## Scripts
+
+| Command | Purpose |
+|---------|---------|
+| `npm run dev` | Start the Vite dev server (http://localhost:5173) |
+| `npm run build` | Production build into `dist/` |
+| `npm run preview` | Preview the production build locally |
+
+## License
+
+See repository for license details.
