@@ -12,6 +12,7 @@ import PdfCanvas from '../components/PdfCanvas.jsx'
 import { Tooltip } from '../components/ui/Tooltip.jsx'
 import { SaveStatus } from '../components/SaveStatus.jsx'
 import BidProposal from './BidProposal.jsx'
+import MtoPanel from '../components/MtoPanel.jsx'
 import { useAppData } from '../data/useAppData.jsx'
 import { STATUS_LABEL, STATUS_VARIANT, CATS, CAT_COLOR, SHEET_W, SHEET_H } from '../data/sampleData.js'
 import s from './ProjectPage.module.css'
@@ -201,7 +202,11 @@ export default function ProjectPage() {
 
         <div style={{ marginBottom: 24 }}>
           <Tabs variant="pill" value={activeTab} onChange={setActiveTab}
-            items={[{ value: 'dashboard', label: 'Dashboard' }, { value: 'sheets', label: `Sheets (${sheetList.length})` }]} />
+            items={[
+              { value: 'dashboard', label: 'Dashboard' },
+              { value: 'sheets', label: `Sheets (${sheetList.length})` },
+              { value: 'mto', label: 'MTO' },
+            ]} />
         </div>
 
         {activeTab === 'dashboard' && (
@@ -235,6 +240,10 @@ export default function ProjectPage() {
           <div className={s.sectionLabel} style={{ margin: 0 }}>Sheets · {sheetList.length}</div>
           <Button variant="ghost" size="sm" iconLeft={<FolderPlus size={14} />} onClick={() => { setFolderName(''); setFolderDlg(true) }}>Add folder</Button>
         </div>}
+        {activeTab === 'mto' && (
+          <MtoPanel projectId={projectId} project={project} />
+        )}
+
         {activeTab === 'sheets' && <>
         {/* Sheet Sets / Folders */}
         {/* Folders */}
