@@ -1242,9 +1242,9 @@ export default function SheetPage() {
           <b className={s.wordmark}>Plotline<span className={s.dot}>.</span></b>
         </div>
         <div className={s.breadcrumb}>
-          <span className={s.crumbLink} onClick={() => navigate('/')}>Projects</span>
+          <span className={s.crumbLink} onClick={() => navigate('/app')}>Projects</span>
           <ChevronRight size={13} className={s.crumbSep} />
-          <span className={s.crumbLink} onClick={() => navigate(`/project/${projectId}`)}>{project.name}</span>
+          <span className={s.crumbLink} onClick={() => navigate(`/app/project/${projectId}`)}>{project.name}</span>
           <ChevronRight size={13} className={s.crumbSep} />
           <span className={s.crumbCurrent}>{sheet.code} · {sheet.name}</span>
         </div>
@@ -1374,7 +1374,7 @@ export default function SheetPage() {
                     </div>
                     {item.sheetList.map(sh => (
                       <div key={sh.sid}
-                        onClick={() => navigate(`/project/${projectId}/sheet/${sh.sid}`)}
+                        onClick={() => navigate(`/app/project/${projectId}/sheet/${sh.sid}`)}
                         style={{
                           display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px',
                           cursor: 'pointer', fontSize: 12,
@@ -1426,7 +1426,7 @@ export default function SheetPage() {
                       const hasPoly = (sh.regionPolys?.[r.id] || []).length >= 3
                       return (
                         <div key={sid}
-                          onClick={() => { navigate(`/project/${projectId}/sheet/${sid}`); setActiveFolderId(r.id); setActiveTool('region') }}
+                          onClick={() => { navigate(`/app/project/${projectId}/sheet/${sid}`); setActiveFolderId(r.id); setActiveTool('region') }}
                           style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 12,
                             background: sid === sheetId ? 'var(--brand-50)' : 'transparent' }}
                           onMouseEnter={e => { if (sid !== sheetId) e.currentTarget.style.background = 'var(--surface-hover)' }}
@@ -1452,7 +1452,7 @@ export default function SheetPage() {
                 return (
                   <div key={sid}
                     className={`${s.sheetThumbRow} ${sid === sheetId ? s.sheetThumbActive : ''}`}
-                    onClick={() => navigate(`/project/${projectId}/sheet/${sid}`)}>
+                    onClick={() => navigate(`/app/project/${projectId}/sheet/${sid}`)}>
                     <div className={s.sheetThumbMini}><Map size={12} /></div>
                     <div>
                       <div className={s.sheetThumbCode}>{sh.code}</div>

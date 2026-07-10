@@ -4,17 +4,15 @@ import {
   Ruler,
   Sprout,
   FileSpreadsheet,
-  Upload,
-  PenTool,
-  Trophy,
   ArrowRight,
 } from 'lucide-react'
 import { Button } from '../components/ui/Button.jsx'
 import { Badge } from '../components/ui/Badge.jsx'
 import s from './LandingPage.module.css'
 
-// No-op placeholder — wire to auth/routing later.
-const noop = () => {}
+// The working demo takeoff — every primary CTA routes here so a visitor
+// clicks through to a real, measured plan instead of a dead button.
+const DEMO = '/app/project/proj-1/sheet/sheet-1'
 
 export default function LandingPage() {
   const navigate = useNavigate()
@@ -26,12 +24,14 @@ export default function LandingPage() {
           <span className={s.navWordmark}>Plotline<span>.</span></span>
         </Link>
         <div className={s.navSpacer}>
-          <Button variant="ghost" onClick={noop}>Sign in</Button>
-          <Link to="/app">
-            <Button variant="primary" iconRight={<ArrowRight size={16} />} onClick={noop}>
-              Start free trial
-            </Button>
-          </Link>
+          <Button variant="ghost" onClick={() => navigate('/app')}>Sign in</Button>
+          <Button
+            variant="primary"
+            iconRight={<ArrowRight size={16} />}
+            onClick={() => navigate(DEMO)}
+          >
+            Start free trial
+          </Button>
         </div>
       </nav>
 
@@ -48,12 +48,21 @@ export default function LandingPage() {
             a clean estimate in minutes instead of hours.
           </p>
           <div className={s.ctaRow}>
-            <Link to="/app">
-              <Button variant="primary" size="lg" iconRight={<ArrowRight size={16} />} onClick={noop}>
-                Start free trial
-              </Button>
-            </Link>
-            <Button variant="secondary" size="lg" onClick={() => navigate('/app/project/proj-1/sheet/sheet-1')}>Watch demo</Button>
+            <Button
+              variant="primary"
+              size="lg"
+              iconRight={<ArrowRight size={16} />}
+              onClick={() => navigate(DEMO)}
+            >
+              Start free trial
+            </Button>
+            <Button
+              variant="secondary"
+              size="lg"
+              onClick={() => navigate(DEMO)}
+            >
+              Watch demo
+            </Button>
           </div>
         </div>
 
@@ -200,12 +209,22 @@ export default function LandingPage() {
             really is. Free to start — no card required.
           </p>
           <div className={s.ctaRow}>
-            <Link to="/app">
-              <Button variant="primary" size="lg" iconRight={<ArrowRight size={16} />} onClick={noop}>
-                Start free trial
-              </Button>
-            </Link>
-            <Button variant="ghost" size="lg" className={s.ctaGhost} onClick={noop}>Talk to us</Button>
+            <Button
+              variant="primary"
+              size="lg"
+              iconRight={<ArrowRight size={16} />}
+              onClick={() => navigate(DEMO)}
+            >
+              Start free trial
+            </Button>
+            <Button
+              variant="ghost"
+              size="lg"
+              className={s.ctaGhost}
+              onClick={() => navigate('/app')}
+            >
+              Talk to us
+            </Button>
           </div>
         </div>
       </section>
@@ -218,10 +237,10 @@ export default function LandingPage() {
         </span>
         <span className={s.footerCopy}>© {new Date().getFullYear()} Plotline. Takeoff software for landscape &amp; irrigation.</span>
         <div className={s.footerLinks}>
-          <a href="#" onClick={noop}>Product</a>
-          <a href="#" onClick={noop}>Pricing</a>
-          <a href="#" onClick={noop}>Docs</a>
-          <a href="#" onClick={noop}>Contact</a>
+          <a href="#" onClick={(e) => { e.preventDefault(); navigate(DEMO) }}>Product</a>
+          <a href="#" onClick={(e) => { e.preventDefault(); navigate(DEMO) }}>Pricing</a>
+          <a href="#" onClick={(e) => { e.preventDefault(); navigate('/app') }}>Docs</a>
+          <a href="#" onClick={(e) => { e.preventDefault(); navigate('/app') }}>Contact</a>
         </div>
       </footer>
     </div>

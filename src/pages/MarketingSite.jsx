@@ -1,4 +1,5 @@
 import React from 'react'
+import { useNavigate } from 'react-router-dom'
 import styles from './MarketingSite.module.css'
 import { Button } from '../components/ui/Button'
 import { Badge } from '../components/ui/Badge'
@@ -29,6 +30,10 @@ import {
   Github,
   Star,
 } from 'lucide-react'
+
+// The working demo takeoff — every primary CTA routes here so a visitor
+// clicks through to a real, measured plan instead of a dead button.
+const DEMO = '/app/project/proj-1/sheet/sheet-1'
 
 const FEATURES = [
   {
@@ -166,6 +171,7 @@ const TESTIMONIALS = [
 const LOGOS = ['Hilltop', 'GreenAxis', 'Oakmont', 'Vantage', 'Beacon']
 
 function Nav() {
+  const navigate = useNavigate()
   return (
     <header className={styles.nav}>
       <div className={`${styles.container} ${styles.navInner}`}>
@@ -181,10 +187,19 @@ function Nav() {
         </nav>
         <div className={styles.navRight}>
           <div className={styles.navCta}>
-            <Button variant="ghost" size="sm" className={styles.signIn}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={styles.signIn}
+              onClick={() => navigate('/app')}
+            >
               Sign in
             </Button>
-            <Button variant="primary" size="sm">
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => navigate(DEMO)}
+            >
               Start free trial
             </Button>
           </div>
@@ -195,6 +210,7 @@ function Nav() {
 }
 
 function Hero() {
+  const navigate = useNavigate()
   return (
     <section className={styles.hero} id="top">
       <div className={`${styles.container} ${styles.heroGrid}`}>
@@ -211,10 +227,20 @@ function Hero() {
             one fast, accurate workflow built for the field.
           </p>
           <div className={styles.heroCta}>
-            <Button variant="primary" size="lg" iconRight={<ArrowRight size={17} />}>
+            <Button
+              variant="primary"
+              size="lg"
+              iconRight={<ArrowRight size={17} />}
+              onClick={() => navigate(DEMO)}
+            >
               Start free trial
             </Button>
-            <Button variant="secondary" size="lg" iconLeft={<Play size={16} />}>
+            <Button
+              variant="secondary"
+              size="lg"
+              iconLeft={<Play size={16} />}
+              onClick={() => navigate(DEMO)}
+            >
               Watch 2-min demo
             </Button>
           </div>
@@ -373,6 +399,7 @@ function StatsBand() {
 }
 
 function Pricing() {
+  const navigate = useNavigate()
   return (
     <section className={styles.section} id="pricing">
       <div className={styles.container}>
@@ -411,6 +438,7 @@ function Pricing() {
               <Button
                 variant={tier.popular ? 'primary' : 'secondary'}
                 fullWidth
+                onClick={() => navigate(DEMO)}
               >
                 {tier.cta}
               </Button>
@@ -452,6 +480,7 @@ function Testimonials() {
 }
 
 function FinalCta() {
+  const navigate = useNavigate()
   return (
     <section className={styles.finalCta} id="docs">
       <div className={styles.container}>
@@ -459,10 +488,19 @@ function FinalCta() {
           <h2>Win the bid before lunch.</h2>
           <p>Start measuring in minutes. Your first project is free — no card required.</p>
           <div className={styles.finalCtaRow}>
-            <Button variant="primary" size="lg" iconRight={<ArrowRight size={17} />}>
+            <Button
+              variant="primary"
+              size="lg"
+              iconRight={<ArrowRight size={17} />}
+              onClick={() => navigate(DEMO)}
+            >
               Start free trial
             </Button>
-            <Button variant="secondary" size="lg">
+            <Button
+              variant="secondary"
+              size="lg"
+              onClick={() => navigate(DEMO)}
+            >
               Book a demo
             </Button>
           </div>
@@ -473,6 +511,7 @@ function FinalCta() {
 }
 
 function Footer() {
+  const navigate = useNavigate()
   const cols = [
     {
       title: 'Product',
@@ -497,7 +536,6 @@ function Footer() {
               <b>Plotline<span className={styles.dot}>.</span></b>
             </a>
             <p>
-              Plan markup and takeoff for landscape &amp; irrigation contractors.
               Estimate straight from the plans.
             </p>
           </div>
@@ -507,7 +545,12 @@ function Footer() {
               <ul>
                 {col.links.map((l) => (
                   <li key={l}>
-                    <a href="#top">{l}</a>
+                    <a
+                      href="#top"
+                      onClick={(e) => { e.preventDefault(); navigate(DEMO) }}
+                    >
+                      {l}
+                    </a>
                   </li>
                 ))}
               </ul>

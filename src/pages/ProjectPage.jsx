@@ -127,7 +127,7 @@ export default function ProjectPage() {
           pdfUrl: ev.target.result,
           areas: [], lines: [], points: [],
         })
-        navigate(`/project/${projectId}/sheet/${id}`)
+        navigate(`/app/project/${projectId}/sheet/${id}`)
       }
       reader.readAsDataURL(pdfFile)
     } else {
@@ -139,7 +139,7 @@ export default function ProjectPage() {
         pdfUrl: null,
         areas: [], lines: [], points: [],
       })
-      navigate(`/project/${projectId}/sheet/${id}`)
+      navigate(`/app/project/${projectId}/sheet/${id}`)
     }
     setDlgOpen(false)
   }
@@ -152,7 +152,7 @@ export default function ProjectPage() {
           <b className={s.wordmark}>Plotline<span className={s.dot}>.</span></b>
         </div>
         <div className={s.breadcrumb}>
-          <span className={s.crumbLink} onClick={() => navigate('/')}>Projects</span>
+          <span className={s.crumbLink} onClick={() => navigate('/app')}>Projects</span>
           <ChevronRight size={14} className={s.crumbSep} />
           <span className={s.crumbCurrent}>{project.name}</span>
         </div>
@@ -166,7 +166,7 @@ export default function ProjectPage() {
 
       <main className={s.main}>
         <div className={s.head}>
-          <button className={s.backBtn} onClick={() => navigate('/')}>
+          <button className={s.backBtn} onClick={() => navigate('/app')}>
             <ArrowLeft size={14} />
             All projects
           </button>
@@ -301,7 +301,7 @@ export default function ProjectPage() {
                         draggable
                         onDragStart={e => onDragStart(e, sheet.id)}
                         onDragEnd={onDragEnd}
-                        onClick={() => navigate(`/project/${projectId}/sheet/${sheet.id}`)}
+                        onClick={() => navigate(`/app/project/${projectId}/sheet/${sheet.id}`)}
                         style={{ opacity: draggingSheetId === sheet.id ? 0.4 : 1, cursor: 'grab', outline: isSel ? '2px solid var(--brand-600)' : undefined, outlineOffset: -2 }}>
                         <div className={s.sheetThumb}><SheetPreview sheet={sheet} /><div className={s.sheetCodeBadge}>{sheet.code}</div></div>
                         <div className={s.sheetInfo}>
@@ -344,7 +344,7 @@ export default function ProjectPage() {
                     draggable
                     onDragStart={e => onDragStart(e, sheet.id)}
                     onDragEnd={onDragEnd}
-                    onClick={() => navigate(`/project/${projectId}/sheet/${sheet.id}`)}
+                    onClick={() => navigate(`/app/project/${projectId}/sheet/${sheet.id}`)}
                     style={{ opacity: draggingSheetId === sheet.id ? 0.4 : 1, cursor: 'grab' }}>
                     <div className={s.sheetThumb}>
                       <SheetPreview sheet={sheet} />

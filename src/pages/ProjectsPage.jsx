@@ -76,7 +76,7 @@ export default function ProjectsPage() {
       sheetIds: [],
     })
     setDlgOpen(false)
-    navigate(`/project/${id}`)
+    navigate(`/app/project/${id}`)
   }
 
   return (
@@ -173,11 +173,11 @@ export default function ProjectsPage() {
         </div>
 
         <div className={s.grid}>
-          {projectList.map(project => (
+          {projectList.length > 0 ? projectList.map(project => (
             <div
               key={project.id}
               className={s.card}
-              onClick={() => navigate(`/project/${project.id}`)}
+              onClick={() => navigate(`/app/project/${project.id}`)}
             >
               <div className={s.preview}>
                 {(() => {
@@ -226,7 +226,13 @@ export default function ProjectsPage() {
                 </div>
               </div>
             </div>
-          ))}
+          )) : (
+            <div className={s.empty}>
+              <div className={s.emptyTitle}>No projects match “{search}”</div>
+              <div className={s.emptyHint}>Check the spelling, or start a new project.</div>
+              <Button variant="ghost" size="sm" onClick={() => setSearch('')}>Clear search</Button>
+            </div>
+          )}
         </div>
         </>
         )}
