@@ -88,9 +88,15 @@ export default function ProjectsPage() {
         </div>
         <nav className={s.nav}>
           <a className={s.navLink} data-on={activeTab === 'projects' ? 'true' : undefined} onClick={() => setActiveTab('projects')} style={{ cursor: 'pointer' }}>Projects</a>
-          <a className={s.navLink}>Templates</a>
-          <a className={s.navLink}>Pricebook</a>
-          <a className={s.navLink}>Team</a>
+          <span className={s.navLink} data-soon="true" aria-disabled="true">
+            Templates <Badge variant="neutral">Soon</Badge>
+          </span>
+          <span className={s.navLink} data-soon="true" aria-disabled="true">
+            Pricebook <Badge variant="neutral">Soon</Badge>
+          </span>
+          <span className={s.navLink} data-soon="true" aria-disabled="true">
+            Team <Badge variant="neutral">Soon</Badge>
+          </span>
           <a className={s.navLink} data-on={activeTab === 'settings' ? 'true' : undefined} onClick={() => setActiveTab('settings')} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><Settings size={13} /> Settings</a>
         </nav>
         <div className={s.topRight}>
@@ -143,6 +149,7 @@ export default function ProjectsPage() {
             <h1 className={s.title}>Projects</h1>
             <p className={s.sub}>{Object.keys(allProjects).length} projects · {openBids} bids out</p>
           </div>
+          <Button variant="secondary" iconLeft={<Map size={16} />} onClick={() => navigate('/app/project/proj-1/sheet/sheet-1')}>Try a sample takeoff</Button>
           <Button variant="primary" iconLeft={<Plus size={16} />} onClick={openDlg}>New project</Button>
         </div>
 

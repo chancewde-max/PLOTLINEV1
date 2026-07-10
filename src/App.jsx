@@ -1,24 +1,42 @@
+import { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate, useParams } from 'react-router-dom'
-import ProjectsPage from './pages/ProjectsPage.jsx'
-import ProjectPage from './pages/ProjectPage.jsx'
-import SheetPage from './pages/SheetPage.jsx'
+import LandingPage from './pages/LandingPage.jsx'
 import { AppDataProvider } from './data/useAppData.jsx'
 import { SettingsProvider } from './data/useSettings.jsx'
 
+// Lazy-load the pdf-heavy route components so pdf.js / tesseract are not in the
+// initial bundle. SheetPage pulls in pdfjs-dist (and tesseract.js), so it is the
+// most important one to split out.
+const LazySheetPage = lazy(() => import('./pages/SheetPage.jsx'))
+const LazyProjectPage = lazy(() => import('./pages/ProjectPage.jsx'))
+const LazyProjectsPage = lazy(() => import('./pages/ProjectsPage.jsx'))
+
 function SheetPageKeyed() {
   const { sheetId } = useParams()
-  return <SheetPage key={sheetId} />
+  return <LazySheetPage key={sheetId} />
 }
 
 export default function App() {
   return (
     <SettingsProvider>
       <AppDataProvider>
+        {/* Marketing landing page owns '/'. The app shell (ProjectsPage and below)
+            was moved under '/app' so the public route stays clean. LandingPage is
+            eager-loaded (no pdf/tesseract deps) for a fast first paint. */}
         <Routes>
-          <Route path="/" element={<ProjectsPage />} />
-          <Route path="/project/:projectId" element={<ProjectPage />} />
-          <Route path="/project/:projectId/sheet/:sheetId" element={<SheetPageKeyed />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/app" element={
+            <Suspense fallback={<div className="app-loading">Loading…</div>}>
+              <LazyProjectsPage />
+            </Suspense>
+          } />
+          <Route path="/app/project/:projectId" element={
+            <Suspense fallback={<div className="app-loading">Loading…</div>}>
+              <LazyProjectPage />
+            </Suspense>
+          } />
+          <Route path="/app/project/:projectId/sheet/:sheetId" element={<SheetPageKeyed />} />
+          <Route path="*" element={<Navigate to="/app" replace />} />
         </Routes>
       </AppDataProvider>
     </SettingsProvider>

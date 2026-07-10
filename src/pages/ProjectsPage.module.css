@@ -38,6 +38,9 @@
 }
 .navLink[data-on="true"] { color: var(--text-strong); background: var(--surface-muted); }
 .navLink:hover { color: var(--text-body); background: var(--surface-sunken); }
+/* Roadmap items: look intentional, not broken. No hover/click affordance. */
+.navLink[data-soon="true"] { cursor: default; color: var(--text-subtle); gap: 6px; display: inline-flex; align-items: center; }
+.navLink[data-soon="true"]:hover { color: var(--text-subtle); background: transparent; }
 
 .topRight { margin-left: auto; display: flex; align-items: center; gap: 12px; }
 

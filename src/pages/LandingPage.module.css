@@ -1,0 +1,292 @@
+/* ============================================================
+   LandingPage — Plotline marketing shell
+   Self-contained; leans on src/styles/index.css tokens only.
+   ============================================================ */
+
+.page {
+  min-height: 100%;
+  background: var(--bg-app);
+  color: var(--text-body);
+  font-family: var(--font-sans);
+}
+
+/* ---- Sticky top nav ------------------------------- */
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 28px;
+  background: color-mix(in srgb, var(--slate-0) 82%, transparent);
+  backdrop-filter: saturate(160%) blur(10px);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.navBrand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  text-decoration: none;
+}
+.navLogo { width: 28px; height: 28px; }
+.navWordmark {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+  color: var(--text-strong);
+}
+.navWordmark span { color: var(--brand-600); }
+
+.navSpacer { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+
+/* ---- Layout --------------------------------------- */
+.container {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 28px;
+}
+
+/* ---- Hero ----------------------------------------- */
+.hero {
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: 48px;
+  align-items: center;
+  padding: 72px 28px 56px;
+  max-width: 1120px;
+  margin: 0 auto;
+}
+.eyebrow { margin-bottom: 18px; }
+.h1 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(34px, 5vw, 52px);
+  line-height: 1.04;
+  letter-spacing: -0.03em;
+  color: var(--text-strong);
+  margin: 0 0 18px;
+}
+.lede {
+  font-size: 18px;
+  line-height: 1.55;
+  color: var(--text-muted);
+  margin: 0 0 28px;
+  max-width: 520px;
+}
+.ctaRow { display: flex; gap: 12px; flex-wrap: wrap; }
+
+/* ---- Hero visual: plan-sheet mock ---------------- */
+.sheet {
+  position: relative;
+  border-radius: var(--radius-xl);
+  background: var(--surface-paper);
+  border: 1px solid var(--paper-edge);
+  box-shadow: var(--shadow-lg);
+  padding: 18px;
+  overflow: hidden;
+}
+.sheetGrid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--paper-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--paper-line) 1px, transparent 1px);
+  background-size: 22px 22px;
+  opacity: 0.7;
+}
+.sheetSvg { position: relative; width: 100%; height: auto; display: block; }
+.sheetHead {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.sheetPill {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+}
+.callout {
+  position: relative;
+  z-index: 2;
+}
+.calloutCard {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  background: var(--slate-0);
+  box-shadow: var(--shadow-md);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-strong);
+  white-space: nowrap;
+}
+.swatch { width: 10px; height: 10px; border-radius: 3px; }
+
+/* ---- Section scaffolding -------------------------- */
+.section { padding: 64px 0; }
+.sectionHead { max-width: 640px; margin: 0 auto 40px; text-align: center; }
+.sectionKicker {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brand-600);
+  margin-bottom: 12px;
+}
+.sectionTitle {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(26px, 3.4vw, 34px);
+  letter-spacing: -0.02em;
+  color: var(--text-strong);
+  margin: 0 0 12px;
+}
+.sectionSub { font-size: 16px; color: var(--text-muted); margin: 0; }
+
+/* ---- Feature grid -------------------------------- */
+.features {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+.feature {
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  padding: 26px 24px;
+  box-shadow: var(--shadow-sm);
+}
+.featureIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px; height: 44px;
+  border-radius: var(--radius-lg);
+  background: var(--brand-50);
+  color: var(--brand-600);
+  margin-bottom: 16px;
+}
+.featureTitle {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 18px;
+  color: var(--text-strong);
+  margin: 0 0 8px;
+}
+.featureText { font-size: 14.5px; line-height: 1.55; color: var(--text-muted); margin: 0; }
+
+/* ---- How it works -------------------------------- */
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  counter-reset: step;
+}
+.step {
+  position: relative;
+  padding: 28px 24px;
+  border-radius: var(--radius-xl);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-subtle);
+}
+.stepNum {
+  counter-increment: step;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  background: var(--brand-600);
+  color: var(--text-on-brand);
+  font-weight: 700;
+  font-size: 15px;
+  margin-bottom: 14px;
+}
+.stepNum::before { content: counter(step); }
+.stepTitle {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 17px;
+  color: var(--text-strong);
+  margin: 0 0 6px;
+}
+.stepText { font-size: 14px; line-height: 1.55; color: var(--text-muted); margin: 0; }
+
+/* ---- Stats band ---------------------------------- */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  padding: 40px;
+  border-radius: var(--radius-2xl);
+  background: var(--surface-inverse);
+  color: var(--text-inverse);
+}
+.stat { text-align: center; }
+.statV {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 34px;
+  letter-spacing: -0.02em;
+  margin-bottom: 6px;
+}
+.statK { font-size: 14px; color: var(--text-subtle); }
+
+/* ---- Final CTA ----------------------------------- */
+.cta {
+  text-align: center;
+  padding: 72px 28px;
+  border-radius: var(--radius-2xl);
+  background:
+    radial-gradient(120% 140% at 50% 0%, var(--brand-500) 0%, var(--brand-700) 70%);
+  color: var(--slate-0);
+}
+.ctaTitle {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(28px, 3.6vw, 38px);
+  letter-spacing: -0.02em;
+  margin: 0 0 12px;
+}
+.ctaSub { font-size: 17px; color: color-mix(in srgb, var(--slate-0) 82%, transparent); margin: 0 auto 28px; max-width: 520px; }
+.cta .ctaRow { justify-content: center; }
+.ctaGhost { background: transparent; color: var(--slate-0); border: 1px solid color-mix(in srgb, var(--slate-0) 40%, transparent); }
+.ctaGhost:hover { background: color-mix(in srgb, var(--slate-0) 12%, transparent); }
+
+/* ---- Footer -------------------------------------- */
+.footer {
+  border-top: 1px solid var(--border-subtle);
+  padding: 32px 28px;
+  max-width: 1120px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.footerBrand { display: flex; align-items: center; gap: 8px; color: var(--text-strong); font-weight: 600; }
+.footerCopy { color: var(--text-muted); font-size: 13px; }
+.footerLinks { margin-left: auto; display: flex; gap: 18px; font-size: 13px; }
+.footerLinks a { color: var(--text-muted); text-decoration: none; }
+.footerLinks a:hover { color: var(--text-body); }
+
+@media (max-width: 880px) {
+  .hero { grid-template-columns: 1fr; padding-top: 48px; }
+  .features, .steps, .stats { grid-template-columns: 1fr; }
+  .stats { padding: 32px 20px; }
+}

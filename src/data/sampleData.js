@@ -272,3 +272,63 @@ export const CAT_COLOR = {
   hydroseed:  'var(--mat-hydroseed)',
   'lime-wall': 'var(--mat-lime-wall)',
 }
+
+// ---- Seed the demo sheets with the sample plan geometry -------------------
+// The PLANTING_*/IRRIGATION_*/GRADING_* constants above are defined but unused.
+// Wire them into the matching sheets so a customer sees a real, colored takeoff
+// the instant a sheet opens. We populate BOTH the top-level areas/lines/points
+// (used by sheet thumbnails + base canvas layers) AND the group-model fields
+// (savedAreas / savedLines / savedCountGroups) that SheetPage actually renders
+// on the main canvas, along with their groups for the layers/MTO panels.
+
+const CAT_NAME = Object.fromEntries(CATS.map(c => [c.id, c.name]))
+
+function buildSheetSeed(areas, lines, points) {
+  const areaTypes = [...new Set(areas.map(a => a.type))]
+  const lineTypes = [...new Set(lines.map(l => l.type))]
+  const pointTypes = [...new Set(points.map(p => p.type))]
+
+  const savedAreaGroups = areaTypes.map(t => ({
+    id: `ag-${t}`, name: CAT_NAME[t] || t, color: CAT_COLOR[t], areas: [],
+  }))
+  const savedLinearGroups = lineTypes.map(t => ({
+    id: `lg-${t}`, name: CAT_NAME[t] || t, color: CAT_COLOR[t], lines: [],
+  }))
+  const savedCountGroups = pointTypes.map(t => ({
+    id: `cg-${t}`,
+    name: CAT_NAME[t] || t,
+    color: CAT_COLOR[t],
+    shape: 'circle',
+    points: points
+      .filter(p => p.type === t)
+      .map(p => ({ id: p.id, type: p.type, name: CAT_NAME[t] || t, x: p.x, y: p.y })),
+  }))
+
+  const savedAreas = areas.map(a => ({
+    id: a.id, groupId: `ag-${a.type}`, type: a.type,
+    name: CAT_NAME[a.type] || a.type, color: CAT_COLOR[a.type],
+    poly: a.poly, arcSegs: {},
+  }))
+  const savedLines = lines.map(l => ({
+    id: l.id, groupId: `lg-${l.type}`, type: l.type,
+    name: CAT_NAME[l.type] || l.type, color: CAT_COLOR[l.type],
+    pts: l.pts, arcSegs: {},
+  }))
+
+  return {
+    // Top-level fields → thumbnails + base canvas layers
+    areas:  areas.map(a => ({ id: a.id, type: a.type, poly: a.poly })),
+    lines:  lines.map(l => ({ id: l.id, type: l.type, pts: l.pts })),
+    points: points.map(p => ({ id: p.id, type: p.type, x: p.x, y: p.y })),
+    // Group-model fields → main SheetPage canvas + layers/MTO panels
+    savedAreaGroups,
+    savedAreas,
+    savedLinearGroups,
+    savedLines,
+    savedCountGroups,
+  }
+}
+
+SHEETS['sheet-1'] = { ...SHEETS['sheet-1'], ...buildSheetSeed(PLANTING_AREAS, PLANTING_LINES, PLANTING_POINTS) }
+SHEETS['sheet-2'] = { ...SHEETS['sheet-2'], ...buildSheetSeed(IRRIGATION_AREAS, IRRIGATION_LINES, IRRIGATION_POINTS) }
+SHEETS['sheet-3'] = { ...SHEETS['sheet-3'], ...buildSheetSeed(GRADING_AREAS, GRADING_LINES, GRADING_POINTS) }
