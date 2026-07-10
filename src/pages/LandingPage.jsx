@@ -1,5 +1,5 @@
-import React from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import React, { useEffect } from 'react'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import {
   Ruler,
   Sprout,
@@ -17,7 +17,17 @@ const DEMO = '/app/project/proj-1/sheet/sheet-1'
 
 export default function LandingPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { openAuth, user } = useAuth()
+
+  useEffect(() => {
+    const id = location.hash ? location.hash.slice(1) : ''
+    if (id) {
+      const el = document.getElementById(id)
+      if (el) requestAnimationFrame(() => el.scrollIntoView({ behavior: 'smooth' }))
+    }
+  }, [location.hash])
+
   return (
     <div className={s.page}>
       <nav className={s.nav}>
@@ -26,7 +36,10 @@ export default function LandingPage() {
           <span className={s.navWordmark}>Plotline<span>.</span></span>
         </Link>
         <div className={s.navSpacer}>
+          <a className={s.navLink} href="/#product" onClick={(e) => { e.preventDefault(); navigate('/#product') }}>Product</a>
           <a className={s.navLink} href="/pricing" onClick={(e) => { e.preventDefault(); navigate('/pricing') }}>Pricing</a>
+          <a className={s.navLink} href="/#customers" onClick={(e) => { e.preventDefault(); navigate('/#customers') }}>Customers</a>
+          <a className={s.navLink} href="/#docs" onClick={(e) => { e.preventDefault(); navigate('/#docs') }}>Docs</a>
           <Button variant="ghost" onClick={() => openAuth()}>Sign in</Button>
           <Button
             variant="primary"
@@ -114,7 +127,7 @@ export default function LandingPage() {
       </header>
 
       {/* ---- Feature grid ---- */}
-      <section className={`${s.section} ${s.container}`}>
+      <section id="product" className={`${s.section} ${s.container}`}>
         <div className={s.sectionHead}>
           <div className={s.sectionKicker}>Built for the field</div>
           <h2 className={s.sectionTitle}>Everything a takeoff needs</h2>
@@ -203,6 +216,44 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* ---- Customers / testimonials ---- */}
+      <section id="customers" className={`${s.section} ${s.container}`} style={{ background: 'var(--bg-app)' }}>
+        <div className={s.sectionHead}>
+          <div className={s.sectionKicker}>Customers</div>
+          <h2 className={s.sectionTitle}>Loved by estimators in the field</h2>
+          <p className={s.sectionSub}>Landscape and irrigation crews use Plotline to turn plans into priced bids in minutes.</p>
+        </div>
+        <div className={s.features}>
+          <div className={s.feature}>
+            <h3 className={s.featureTitle}>“Cut our estimating time in half.”</h3>
+            <p className={s.featureText}>“Plotline reads the plan the way my foreman does — area, linear, count, done.” — Dana, GreenScape Landscaping</p>
+          </div>
+          <div className={s.feature}>
+            <h3 className={s.featureTitle}>“The irrigation takeoff paid for itself.”</h3>
+            <p className={s.featureText}>“Laterals, heads, and valves sorted by zone, straight into the bid. No more re-counts.” — Marcus, BlueLine Irrigation</p>
+          </div>
+        </div>
+      </section>
+
+      {/* ---- Docs / FAQ ---- */}
+      <section id="docs" className={`${s.section} ${s.container}`}>
+        <div className={s.sectionHead}>
+          <div className={s.sectionKicker}>Docs</div>
+          <h2 className={s.sectionTitle}>Questions, answered</h2>
+          <p className={s.sectionSub}>Everything landscape &amp; irrigation contractors ask before they switch from paper.</p>
+        </div>
+        <div className={s.features}>
+          <div className={s.feature}>
+            <h3 className={s.featureTitle}>Do I need CAD or a PDF editor?</h3>
+            <p className={s.featureText}>No. Plotline reads the PDF plans and image scans you already get from the architect. Upload the set, calibrate the scale once, and start measuring.</p>
+          </div>
+          <div className={s.feature}>
+            <h3 className={s.featureTitle}>What does the export include?</h3>
+            <p className={s.featureText}>A clean, itemized bid proposal — client name, sheet summary, and a materials takeoff grouped by category. Print to PDF or download a CSV for your accounting system.</p>
+          </div>
+        </div>
+      </section>
+
       {/* ---- Final CTA ---- */}
       <section className={s.container} style={{ paddingTop: 64, paddingBottom: 64 }}>
         <div className={s.cta}>
@@ -240,10 +291,10 @@ export default function LandingPage() {
         </span>
         <span className={s.footerCopy}>© {new Date().getFullYear()} Plotline. Takeoff software for landscape &amp; irrigation.</span>
         <div className={s.footerLinks}>
-          <a href="#" onClick={(e) => { e.preventDefault(); navigate(DEMO) }}>Product</a>
+          <a href="/#product" onClick={(e) => { e.preventDefault(); navigate('/#product') }}>Product</a>
           <a href="/pricing" onClick={(e) => { e.preventDefault(); navigate('/pricing') }}>Pricing</a>
-          <a href="#" onClick={(e) => { e.preventDefault(); navigate('/app') }}>Docs</a>
-          <a href="#" onClick={(e) => { e.preventDefault(); navigate('/app') }}>Contact</a>
+          <a href="/#customers" onClick={(e) => { e.preventDefault(); navigate('/#customers') }}>Customers</a>
+          <a href="/#docs" onClick={(e) => { e.preventDefault(); navigate('/#docs') }}>Docs</a>
         </div>
       </footer>
     </div>

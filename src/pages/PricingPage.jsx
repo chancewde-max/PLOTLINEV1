@@ -108,10 +108,10 @@ function Nav() {
           <b>Plotline<span className={s.dot}>.</span></b>
         </a>
         <nav className={s.navLinks}>
-          <a href="/" onClick={(e) => { e.preventDefault(); navigate('/') }}>Product</a>
+          <a href="/#product" onClick={(e) => { e.preventDefault(); navigate('/#product') }}>Product</a>
           <a href="/pricing" className={s.navLinkActive} onClick={(e) => { e.preventDefault(); navigate('/pricing') }}>Pricing</a>
-          <a href="/" onClick={(e) => { e.preventDefault(); navigate('/') }}>Customers</a>
-          <a href="/" onClick={(e) => { e.preventDefault(); navigate('/') }}>Docs</a>
+          <a href="/#customers" onClick={(e) => { e.preventDefault(); navigate('/#customers') }}>Customers</a>
+          <a href="/#docs" onClick={(e) => { e.preventDefault(); navigate('/#docs') }}>Docs</a>
         </nav>
         <div className={s.navRight}>
           <Button
@@ -272,6 +272,26 @@ function FinalCta() {
 
 function Footer() {
   const navigate = useNavigate()
+  const SOCIAL = [
+    { label: 'Twitter', href: 'https://twitter.com', Icon: Twitter },
+    { label: 'LinkedIn', href: 'https://linkedin.com', Icon: Linkedin },
+    { label: 'GitHub', href: 'https://github.com', Icon: Github },
+  ]
+  // Map each footer label to a real target (hash section, route, or mailto).
+  const COMPANY_TARGETS = {
+    About: '/#product',
+    Customers: '/#customers',
+    Careers: '/#product',
+    Blog: '/#docs',
+    Contact: 'mailto:sales@plotline.app',
+  }
+  const RESOURCE_TARGETS = {
+    Docs: '/#docs',
+    'Help center': '/#docs',
+    API: '/#docs',
+    Status: '/#docs',
+    Changelog: '/#docs',
+  }
   return (
     <footer className={s.footer}>
       <div className={s.container}>
@@ -289,7 +309,7 @@ function Footer() {
               <ul>
                 {['Takeoff tools', 'Live estimate', 'Irrigation', 'Planting', 'Pricing'].map((l) => (
                   <li key={l}>
-                    <a href="/" onClick={(e) => { e.preventDefault(); navigate(l === 'Pricing' ? '/pricing' : DEMO) }}>{l}</a>
+                    <a href={l === 'Pricing' ? '/pricing' : '/#product'} onClick={(e) => { e.preventDefault(); navigate(l === 'Pricing' ? '/pricing' : '/#product') }}>{l}</a>
                   </li>
                 ))}
               </ul>
@@ -298,7 +318,16 @@ function Footer() {
               <h4>Company</h4>
               <ul>
                 {['About', 'Customers', 'Careers', 'Blog', 'Contact'].map((l) => (
-                  <li key={l}><a href="/" onClick={(e) => { e.preventDefault(); navigate('/') }}>{l}</a></li>
+                  <li key={l}>
+                    <a
+                      href={COMPANY_TARGETS[l]}
+                      onClick={(e) => {
+                        if (COMPANY_TARGETS[l].startsWith('mailto:')) return // let browser handle mailto
+                        e.preventDefault()
+                        navigate(COMPANY_TARGETS[l])
+                      }}
+                    >{l}</a>
+                  </li>
                 ))}
               </ul>
             </div>
@@ -306,7 +335,9 @@ function Footer() {
               <h4>Resources</h4>
               <ul>
                 {['Docs', 'Help center', 'API', 'Status', 'Changelog'].map((l) => (
-                  <li key={l}><a href="/" onClick={(e) => { e.preventDefault(); navigate('/app') }}>{l}</a></li>
+                  <li key={l}>
+                    <a href={RESOURCE_TARGETS[l]} onClick={(e) => { e.preventDefault(); navigate(RESOURCE_TARGETS[l]) }}>{l}</a>
+                  </li>
                 ))}
               </ul>
             </div>
@@ -315,9 +346,9 @@ function Footer() {
         <div className={s.footerBottom}>
           <span className={s.footerCopy}>© 2026 Plotline. Estimate straight from the plans.</span>
           <div className={s.footerSocial}>
-            <a href="/" aria-label="Twitter" onClick={(e) => e.preventDefault()}><Twitter size={16} /></a>
-            <a href="/" aria-label="LinkedIn" onClick={(e) => e.preventDefault()}><Linkedin size={16} /></a>
-            <a href="/" aria-label="GitHub" onClick={(e) => e.preventDefault()}><Github size={16} /></a>
+            {SOCIAL.map(({ label, href, Icon }) => (
+              <a key={label} href={href} aria-label={label} target="_blank" rel="noreferrer"><Icon size={16} /></a>
+            ))}
           </div>
         </div>
       </div>

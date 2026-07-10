@@ -1,5 +1,5 @@
-import React from 'react'
-import { useNavigate } from 'react-router-dom'
+import React, { useEffect } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import styles from './MarketingSite.module.css'
 import { Button } from '../components/ui/Button'
 import { Badge } from '../components/ui/Badge'
@@ -200,19 +200,29 @@ const WORKFLOW = [
 
 function Nav() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { openAuth } = useAuth()
+
+  useEffect(() => {
+    const id = location.hash ? location.hash.slice(1) : ''
+    if (id) {
+      const el = document.getElementById(id)
+      if (el) requestAnimationFrame(() => el.scrollIntoView({ behavior: 'smooth' }))
+    }
+  }, [location.hash])
+
   return (
     <header className={styles.nav}>
       <div className={`${styles.container} ${styles.navInner}`}>
-        <a className={styles.brand} href="#top" aria-label="Plotline home">
+        <a className={styles.brand} href="/" aria-label="Plotline home" onClick={(e) => { e.preventDefault(); navigate('/') }}>
           <img src="/plotline-mark.svg" alt="" />
           <b>Plotline<span className={styles.dot}>.</span></b>
         </a>
         <nav className={styles.navLinks}>
-          <a href="#product">Product</a>
+          <a href="/#product" onClick={(e) => { e.preventDefault(); navigate('/#product') }}>Product</a>
           <a href="/pricing" onClick={(e) => { e.preventDefault(); navigate('/pricing') }}>Pricing</a>
-          <a href="#customers">Customers</a>
-          <a href="#docs">Docs</a>
+          <a href="/#customers" onClick={(e) => { e.preventDefault(); navigate('/#customers') }}>Customers</a>
+          <a href="/#docs" onClick={(e) => { e.preventDefault(); navigate('/#docs') }}>Docs</a>
         </nav>
         <div className={styles.navRight}>
           <div className={styles.navCta}>
@@ -633,8 +643,13 @@ function Footer() {
                 {col.links.map((l) => (
                   <li key={l}>
                     <a
-                      href="/pricing"
-                      onClick={(e) => { e.preventDefault(); navigate(l === 'Pricing' ? '/pricing' : DEMO) }}
+                      href={l === 'Pricing' ? '/pricing' : (l === 'Customers' ? '/#customers' : (l === 'Contact' ? 'mailto:sales@plotline.app' : '/#docs'))}
+                      target={l === 'Contact' ? undefined : undefined}
+                      onClick={(e) => {
+                        if (l === 'Contact') return
+                        e.preventDefault()
+                        navigate(l === 'Pricing' ? '/pricing' : (l === 'Customers' ? '/#customers' : '/#docs'))
+                      }}
                     >
                       {l}
                     </a>
@@ -649,9 +664,9 @@ function Footer() {
             © 2026 Plotline. Estimate straight from the plans.
           </span>
           <div className={styles.footerSocial}>
-            <a href="#top" aria-label="Twitter"><Twitter size={16} /></a>
-            <a href="#top" aria-label="LinkedIn"><Linkedin size={16} /></a>
-            <a href="#top" aria-label="GitHub"><Github size={16} /></a>
+            <a href="https://twitter.com" aria-label="Twitter" target="_blank" rel="noreferrer"><Twitter size={16} /></a>
+            <a href="https://linkedin.com" aria-label="LinkedIn" target="_blank" rel="noreferrer"><Linkedin size={16} /></a>
+            <a href="https://github.com" aria-label="GitHub" target="_blank" rel="noreferrer"><Github size={16} /></a>
           </div>
         </div>
       </div>
