@@ -621,15 +621,30 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
     })
   }
 
-  const handleImport = () => {
-    const sheetArr = pages.map((p, idx) => ({
-      id: p.id,
-      name: p.title || p.sheetNum || `Sheet ${idx + 1}`,
-      code: p.sheetNum || `S-${idx + 1}`,
-      pdfUrl: `plotline-pdf:${p.fileId}:${p.pageIndex}`,
-      pdfPage: p.pageIndex,
-      pxPerFt: null,
-      areas: [], lines: [], points: [],
+  const handleImport = async () => {
+    // Store the ORIGINAL PDF bytes as a data:application/pdf URL so PdfCanvas
+    // can re-parse it with pdfjs (works both in-session and after reload,
+    // unlike the in-memory plotline-pdf: reference which died on reload, or a
+    // JPEG data URL which PdfCanvas would try to parse as PDF bytes).
+    const sheetArr = await Promise.all(pages.map(async (p, idx) => {
+      let pdfUrl = `plotline-pdf:${p.fileId}:${p.pageIndex}`
+      try {
+        const bytes = pdfCache.get(p.fileId)
+        if (bytes) {
+          let binary = ''
+          for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+          pdfUrl = `data:application/pdf;base64,${btoa(binary)}`
+        }
+      } catch (e) { /* keep plotline-pdf fallback */ }
+      return {
+        id: p.id,
+        name: p.title || p.sheetNum || `Sheet ${idx + 1}`,
+        code: p.sheetNum || `S-${idx + 1}`,
+        pdfUrl,
+        pdfPage: p.pageIndex,
+        pxPerFt: null,
+        areas: [], lines: [], points: [],
+      }
     }))
     onImport(sheetArr)
     handleClose()
