@@ -294,12 +294,18 @@ function buildSheetSeed(areas, lines, points) {
   const savedLinearGroups = lineTypes.map(t => ({
     id: `lg-${t}`, name: CAT_NAME[t] || t, color: CAT_COLOR[t], lines: [],
   }))
+  // Use a distinct id namespace (sp-) for the seeded count-group points so they
+  // never collide with sheet.points (pt-) when SheetPage renders allPoints and
+  // triggers React "duplicate key" warnings.
+  const spPoints = points.map((p, i) => ({
+    id: `sp-${i}`, type: p.type, x: p.x, y: p.y,
+  }))
   const savedCountGroups = pointTypes.map(t => ({
     id: `cg-${t}`,
     name: CAT_NAME[t] || t,
     color: CAT_COLOR[t],
     shape: 'circle',
-    points: points
+    points: spPoints
       .filter(p => p.type === t)
       .map(p => ({ id: p.id, type: p.type, name: CAT_NAME[t] || t, x: p.x, y: p.y })),
   }))
@@ -316,10 +322,13 @@ function buildSheetSeed(areas, lines, points) {
   }))
 
   return {
-    // Top-level fields → thumbnails + base canvas layers
+    // Top-level fields → thumbnails + base canvas layers.
+    // Use a SEPARATE id namespace (bp-) from the count-group points (sp-) so
+    // that when SheetPage renders allPoints = sheet.points + addedPoints, the
+    // two collections never share a React key.
     areas:  areas.map(a => ({ id: a.id, type: a.type, poly: a.poly })),
     lines:  lines.map(l => ({ id: l.id, type: l.type, pts: l.pts })),
-    points: points.map(p => ({ id: p.id, type: p.type, x: p.x, y: p.y })),
+    points: points.map((p, i) => ({ id: `bp-${i}`, type: p.type, x: p.x, y: p.y })),
     // Group-model fields → main SheetPage canvas + layers/MTO panels
     savedAreaGroups,
     savedAreas,

@@ -1146,11 +1146,16 @@ export default function SheetPage() {
   // Seed a default region if none exist yet
   const folders = projectRegions.length > 0
     ? projectRegions.map(r => ({ ...r, poly: (sheet?.regionPolys || {})[r.id] || null }))
-    : [{ id: 'default-r1', name: 'Region 1', color: FOLDER_PALETTE[0], poly: null }]
+    : [{ id: 'default-r-local', name: 'Region 1', color: FOLDER_PALETTE[0], poly: null }]
 
-  // Bootstrap: if project has no regions yet, ensure at least one exists
+  // Bootstrap: if project has no regions yet, ensure at least one exists.
+  // Guard against StrictMode double-invoke / re-mounts adding a duplicate id.
+  const bootstrappedRef = useRef(false)
   useEffect(() => {
-    if (projectId && (project?.regions || []).length === 0) {
+    if (bootstrappedRef.current) return
+    const existing = project?.regions || []
+    if (projectId && existing.length === 0) {
+      bootstrappedRef.current = true
       addRegion(projectId, { id: 'default-r1', name: 'Region 1', color: FOLDER_PALETTE[0] })
     }
   }, [projectId])

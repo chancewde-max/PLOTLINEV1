@@ -17,6 +17,7 @@
     "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@vitejs/plugin-react": "^4.3.1",
     "vite": "^5.4.2"
   }

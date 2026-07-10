@@ -35,7 +35,11 @@ export default function App() {
               <LazyProjectPage />
             </Suspense>
           } />
-          <Route path="/app/project/:projectId/sheet/:sheetId" element={<SheetPageKeyed />} />
+          <Route path="/app/project/:projectId/sheet/:sheetId" element={
+            <Suspense fallback={<div className="app-loading">Loading…</div>}>
+              <SheetPageKeyed />
+            </Suspense>
+          } />
           <Route path="*" element={<Navigate to="/app" replace />} />
         </Routes>
       </AppDataProvider>
