@@ -1,0 +1,70 @@
+/* ============================================================
+   Print — Plotline bid proposal
+   When the export overlay is open it renders into a top-level
+   #print-proposal-root via portal. These rules hide ALL app
+   chrome and print only the proposal.
+   ============================================================ */
+
+@media print {
+  @page {
+    size: Letter;
+    margin: 16mm 14mm;
+  }
+
+  /* Hide everything in <body> except the proposal portal. */
+  body > *:not(#print-proposal-root) {
+    display: none !important;
+  }
+
+  html, body {
+    background: #ffffff !important;
+  }
+
+  #print-proposal-root {
+    display: block !important;
+    position: static !important;
+    inset: auto !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    z-index: auto !important;
+  }
+
+  /* The on-screen toolbar / scrim are screen-only. */
+  .printChrome {
+    display: none !important;
+  }
+
+  .proposal {
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    color: #000 !important;
+  }
+
+  .proposal * {
+    color: #000 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .proposal table {
+    page-break-inside: auto;
+  }
+  .proposal tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
+  .proposal thead {
+    display: table-header-group;
+  }
+  .proposal h2, .proposal h3, .proposal h4 {
+    page-break-after: avoid;
+  }
+
+  a[href]::after { content: ""; }
+}

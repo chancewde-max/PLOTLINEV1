@@ -3,6 +3,7 @@
 @import './typography.css';
 @import './spacing.css';
 @import './effects.css';
+@import './print.css';
 
 *, *::before, *::after { box-sizing: border-box; }
 

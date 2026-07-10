@@ -41,6 +41,14 @@
 .navWordmark span { color: var(--brand-600); }
 
 .navSpacer { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.navLink {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: color var(--dur-fast) var(--ease-standard);
+}
+.navLink:hover { color: var(--text-strong); }
 
 /* ---- Layout --------------------------------------- */
 .container {

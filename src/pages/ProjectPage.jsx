@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Plus, ChevronRight, Upload, FileText, Folder, FolderPlus, FolderOpen, X, LayoutDashboard, CheckSquare, Square, MoveRight } from 'lucide-react'
+import { ArrowLeft, Plus, ChevronRight, Upload, FileText, Folder, FolderPlus, FolderOpen, X, LayoutDashboard, CheckSquare, Square, MoveRight, Printer } from 'lucide-react'
 import { Button } from '../components/ui/Button.jsx'
 import { Badge } from '../components/ui/Badge.jsx'
 import { Avatar } from '../components/ui/Avatar.jsx'
@@ -9,6 +9,7 @@ import { Dialog } from '../components/ui/Dialog.jsx'
 import { Tabs } from '../components/ui/Tabs.jsx'
 import SheetUploadWizard from '../components/SheetUploadWizard.jsx'
 import PdfCanvas from '../components/PdfCanvas.jsx'
+import BidProposal from './BidProposal.jsx'
 import { useAppData } from '../data/useAppData.jsx'
 import { STATUS_LABEL, STATUS_VARIANT, CATS, CAT_COLOR, SHEET_W, SHEET_H } from '../data/sampleData.js'
 import s from './ProjectPage.module.css'
@@ -69,6 +70,7 @@ export default function ProjectPage() {
   const [draggingSheetId, setDraggingSheetId] = useState(null)
   const [dragOverTarget, setDragOverTarget] = useState(null) // setId or 'unassigned'
   const [selectedSheetIds, setSelectedSheetIds] = useState(new Set())
+  const [exportOpen, setExportOpen] = useState(false)
 
   const project = projects[projectId]
 
@@ -79,6 +81,12 @@ export default function ProjectPage() {
   // Sheets not assigned to any folder
   const assignedIds = new Set((project.sheetSets || []).flatMap(s => s.sheetIds || []))
   const unassignedSheets = sheetList.filter(sh => !assignedIds.has(sh.id))
+
+  // Folder/region grouping for the bid proposal.
+  const folderGroups = (project.sheetSets || []).map(set => ({
+    name: set.name,
+    sheets: (set.sheetIds || []).map(id => sheets[id]).filter(Boolean),
+  })).filter(g => g.sheets.length > 0)
 
   const onDragStart = (e, sheetId) => {
     setDraggingSheetId(sheetId)
@@ -181,6 +189,7 @@ export default function ProjectPage() {
                 <span className={s.bidNum}>${project.bidValue.toLocaleString()}</span>
               </div>
             )}
+            <Button variant="secondary" iconLeft={<Printer size={16} />} size="sm" onClick={() => setExportOpen(true)}>Export bid</Button>
             <Button variant="primary" iconLeft={<Plus size={16} />} size="sm" onClick={openDlg}>Add sheet</Button>
           </div>
         </div>
@@ -407,6 +416,16 @@ export default function ProjectPage() {
           )}
         </div>
       </Dialog>
+
+      {/* Export / print bid proposal */}
+      <BidProposal
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        project={project}
+        sheetList={sheetList}
+        folderGroups={folderGroups}
+        unassignedSheets={unassignedSheets}
+      />
     </div>
   )
 }

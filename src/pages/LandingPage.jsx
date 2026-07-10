@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { Button } from '../components/ui/Button.jsx'
 import { Badge } from '../components/ui/Badge.jsx'
+import { useAuth } from '../auth/AuthProvider.jsx'
 import s from './LandingPage.module.css'
 
 // The working demo takeoff — every primary CTA routes here so a visitor
@@ -16,6 +17,7 @@ const DEMO = '/app/project/proj-1/sheet/sheet-1'
 
 export default function LandingPage() {
   const navigate = useNavigate()
+  const { openAuth, user } = useAuth()
   return (
     <div className={s.page}>
       <nav className={s.nav}>
@@ -24,7 +26,8 @@ export default function LandingPage() {
           <span className={s.navWordmark}>Plotline<span>.</span></span>
         </Link>
         <div className={s.navSpacer}>
-          <Button variant="ghost" onClick={() => navigate('/app')}>Sign in</Button>
+          <a className={s.navLink} href="/pricing" onClick={(e) => { e.preventDefault(); navigate('/pricing') }}>Pricing</a>
+          <Button variant="ghost" onClick={() => openAuth()}>Sign in</Button>
           <Button
             variant="primary"
             iconRight={<ArrowRight size={16} />}
@@ -238,7 +241,7 @@ export default function LandingPage() {
         <span className={s.footerCopy}>© {new Date().getFullYear()} Plotline. Takeoff software for landscape &amp; irrigation.</span>
         <div className={s.footerLinks}>
           <a href="#" onClick={(e) => { e.preventDefault(); navigate(DEMO) }}>Product</a>
-          <a href="#" onClick={(e) => { e.preventDefault(); navigate(DEMO) }}>Pricing</a>
+          <a href="/pricing" onClick={(e) => { e.preventDefault(); navigate('/pricing') }}>Pricing</a>
           <a href="#" onClick={(e) => { e.preventDefault(); navigate('/app') }}>Docs</a>
           <a href="#" onClick={(e) => { e.preventDefault(); navigate('/app') }}>Contact</a>
         </div>

@@ -170,6 +170,33 @@ const TESTIMONIALS = [
 
 const LOGOS = ['Hilltop', 'GreenAxis', 'Oakmont', 'Vantage', 'Beacon']
 
+const WORKFLOW = [
+  {
+    n: '1',
+    title: 'Upload plan PDF',
+    body: 'Drop in the landscape or irrigation set you already receive from the architect — no CAD seat, no redrawing. Plotline keeps every sheet in one project.',
+    icon: Upload,
+  },
+  {
+    n: '2',
+    title: 'Measure areas, lines & counts',
+    body: 'Set scale once, then trace turf, hardscape, and beds as areas; runs and walls as lengths; trees, heads, and fixtures as counts — all color-coded on the sheet.',
+    icon: Ruler,
+  },
+  {
+    n: '3',
+    title: 'Generate material list',
+    body: 'Quantities roll into a live materials list grouped by category — sod, rock, hydroseed, trees, shrubs, limestone walls, and irrigation items — ready for your pricebook.',
+    icon: FileSpreadsheet,
+  },
+  {
+    n: '4',
+    title: 'Export the bid',
+    body: 'Print a branded proposal or download a CSV your accounting system can ingest. Send it before your competition has finished measuring by hand.',
+    icon: FileDown,
+  },
+]
+
 function Nav() {
   const navigate = useNavigate()
   return (
@@ -181,7 +208,7 @@ function Nav() {
         </a>
         <nav className={styles.navLinks}>
           <a href="#product">Product</a>
-          <a href="#pricing">Pricing</a>
+          <a href="/pricing" onClick={(e) => { e.preventDefault(); navigate('/pricing') }}>Pricing</a>
           <a href="#customers">Customers</a>
           <a href="#docs">Docs</a>
         </nav>
@@ -373,6 +400,61 @@ function Steps() {
   )
 }
 
+function Workflow() {
+  return (
+    <section className={`${styles.section} ${styles.workflow}`}>
+      <div className={styles.container}>
+        <div className={styles.secHead}>
+          <span className={styles.eyebrowPlain}>For landscape &amp; irrigation contractors</span>
+          <h2>How crews run a takeoff in Plotline</h2>
+          <p>
+            The same four moves, every bid — from the PDF you already have to a
+            priced proposal your client can sign.
+          </p>
+        </div>
+        <div className={styles.workflowGrid}>
+          {WORKFLOW.map(({ n, title, body, icon: Icon }) => (
+            <div key={n} className={styles.workflowStep}>
+              <div className={styles.workflowIcon}>
+                <Icon size={20} />
+              </div>
+              <div className={styles.workflowStepNum}>Step {n}</div>
+              <h3>{title}</h3>
+              <p>{body}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function Integrations() {
+  return (
+    <section className={`${styles.section} ${styles.integrations}`}>
+      <div className={styles.container}>
+        <div className={styles.secHead}>
+          <span className={styles.eyebrowPlain}>Works with what you have</span>
+          <h2>No CAD required — just your plans</h2>
+          <p>
+            Plotline reads the PDFs and image scans you already get. Export
+            straight into the tools your office runs.
+          </p>
+        </div>
+        <div className={styles.integrationsRow}>
+          {['PDF plans & scans', 'Excel / CSV', 'QuickBooks', 'Google Drive', 'Email proposals'].map((name) => (
+            <div key={name} className={styles.integrationChip}>{name}</div>
+          ))}
+        </div>
+        <p className={styles.integrationsNote}>
+          Bring your own pricebook. Plotline maps every measured material to its
+          category so quantities flow into your estimate without re-keying.
+        </p>
+      </div>
+    </section>
+  )
+}
+
 function StatsBand() {
   return (
     <section className={styles.sectionTight}>
@@ -546,8 +628,8 @@ function Footer() {
                 {col.links.map((l) => (
                   <li key={l}>
                     <a
-                      href="#top"
-                      onClick={(e) => { e.preventDefault(); navigate(DEMO) }}
+                      href="/pricing"
+                      onClick={(e) => { e.preventDefault(); navigate(l === 'Pricing' ? '/pricing' : DEMO) }}
                     >
                       {l}
                     </a>
@@ -581,6 +663,8 @@ export default function MarketingSite() {
         <Logos />
         <Features />
         <Steps />
+        <Workflow />
+        <Integrations />
         <StatsBand />
         <Pricing />
         <Testimonials />

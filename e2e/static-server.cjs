@@ -6,7 +6,7 @@ const path = require('path')
 const ROOT = 'C:\\Users\\Administrator\\PLOTLINEV1\\dist'
 const PORT = 5191
 const MIME = {
-  '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
+  '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css',
   '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png',
   '.ico': 'image/x-icon', '.woff': 'font/woff', '.woff2': 'font/woff2',
 }

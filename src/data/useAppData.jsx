@@ -137,6 +137,29 @@ export function AppDataProvider({ children }) {
     })
   }
 
+  // --- Cloud hydration / reset (additive; used by AuthProvider) ---
+  // Replace the full collections in one shot (from a cloud snapshot).
+  // `merge` keeps existing local keys when the incoming value is empty.
+  const hydrate = (snapshot, merge = true) => {
+    if (!snapshot) return
+    setProjects(p => merge && p && Object.keys(p).length
+      ? { ...p, ...(snapshot.projects ?? {}) }
+      : (snapshot.projects ?? {}))
+    setSheets(s => merge && s && Object.keys(s).length
+      ? { ...s, ...(snapshot.sheets ?? {}) }
+      : (snapshot.sheets ?? {}))
+    setCustomCats(prev => merge && prev.length
+      ? [...prev, ...(snapshot.customCats ?? [])]
+      : (snapshot.customCats ?? []))
+  }
+
+  // Reset to empty defaults (used on sign-out).
+  const reset = () => {
+    setProjects({})
+    setSheets({})
+    setCustomCats([])
+  }
+
   return (
     <Ctx.Provider value={{
       projects, sheets, customCats,
@@ -145,6 +168,7 @@ export function AppDataProvider({ children }) {
       addCustomCat, deleteCustomCat,
       addRegion, updateRegion, deleteRegion,
       addSheetSet, renameSheetSet, deleteSheetSet, moveSheetToSet,
+      hydrate, reset,
     }}>
       {children}
     </Ctx.Provider>

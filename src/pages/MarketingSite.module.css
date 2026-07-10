@@ -669,13 +669,101 @@
 .footerSocial a:hover { color: var(--brand-600); border-color: var(--brand-200); }
 
 /* ============================================================
-   Responsive
+   Workflow (4-step contractor flow)
    ============================================================ */
+.workflow { background: var(--surface-sunken); }
+.workflowGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-6);
+}
+.workflowStep {
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-8);
+  box-shadow: var(--shadow-xs);
+  position: relative;
+  transition: transform var(--dur-base) var(--ease-out),
+              box-shadow var(--dur-base) var(--ease-standard);
+}
+.workflowStep:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+.workflowIcon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--brand-50);
+  color: var(--brand-600);
+  margin-bottom: var(--space-6);
+}
+.workflowStepNum {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--brand-600);
+  margin-bottom: var(--space-3);
+}
+.workflowStep h3 {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--text-strong);
+  margin: 0 0 var(--space-4);
+}
+.workflowStep p {
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* ============================================================
+   Integrations strip
+   ============================================================ */
+.integrations { background: var(--bg-app); }
+.integrationsRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-5);
+  margin-bottom: var(--space-7);
+}
+.integrationChip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-7);
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-body);
+  box-shadow: var(--shadow-xs);
+}
+.integrationsNote {
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  max-width: 60ch;
+  margin: 0 auto;
+  line-height: var(--leading-relaxed);
+}
 @media (max-width: 960px) {
   .heroGrid { grid-template-columns: 1fr; gap: var(--space-10); }
   .featureGrid,
   .stepsGrid,
   .pricingGrid { grid-template-columns: repeat(2, 1fr); }
+  .workflowGrid { grid-template-columns: repeat(2, 1fr); }
   .footerTop { grid-template-columns: 1fr 1fr; }
   .navLinks { display: none; }
   .band { grid-template-columns: 1fr; gap: var(--space-8); padding: var(--space-10) var(--space-8); }
@@ -687,6 +775,7 @@
   .featureGrid,
   .stepsGrid,
   .pricingGrid,
+  .workflowGrid,
   .testimonialGrid { grid-template-columns: 1fr; }
   .footerTop { grid-template-columns: 1fr; gap: var(--space-8); }
   .navCta .signIn { display: none; }
