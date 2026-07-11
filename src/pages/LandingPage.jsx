@@ -31,6 +31,7 @@ export default function LandingPage() {
 
   return (
     <div className={s.page}>
+      <a href="#main-content" className="skip-link">Skip to main content</a>
       <div className={s.raysBg} aria-hidden="true">
         <SideRays
           rayColor1="#EAB308"
@@ -67,6 +68,7 @@ export default function LandingPage() {
         </div>
       </nav>
 
+      <main id="main-content">
       {/* ---- Hero ---- */}
       <header className={s.hero}>
         <div>
@@ -230,6 +232,9 @@ export default function LandingPage() {
             <div className={s.statK}>built for landscapers</div>
           </div>
         </div>
+        <p className={s.statsNote}>
+          Figures are illustrative and based on internal estimates — individual results vary.
+        </p>
       </section>
 
       {/* ---- Customers / testimonials ---- */}
@@ -243,10 +248,12 @@ export default function LandingPage() {
           <div className={s.feature}>
             <h3 className={s.featureTitle}>“Cut our estimating time in half.”</h3>
             <p className={s.featureText}>“Plotline reads the plan the way my foreman does — area, linear, count, done.” — Dana, GreenScape Landscaping</p>
+            <span className={s.sampleTag}>Illustrative sample — not a verified customer</span>
           </div>
           <div className={s.feature}>
             <h3 className={s.featureTitle}>“The irrigation takeoff paid for itself.”</h3>
             <p className={s.featureText}>“Laterals, heads, and valves sorted by zone, straight into the bid. No more re-counts.” — Marcus, BlueLine Irrigation</p>
+            <span className={s.sampleTag}>Illustrative sample — not a verified customer</span>
           </div>
         </div>
       </section>
@@ -300,6 +307,7 @@ export default function LandingPage() {
       </section>
 
       {/* ---- Footer ---- */}
+      </main>
       <footer className={s.footer}>
         <span className={s.footerBrand}>
           <img src="/plotline-mark.svg" alt="" className={s.navLogo} />
@@ -311,6 +319,11 @@ export default function LandingPage() {
           <a href="/pricing" onClick={(e) => { e.preventDefault(); navigate('/pricing') }}>Pricing</a>
           <a href="/#customers" onClick={(e) => { e.preventDefault(); navigate('/#customers') }}>Customers</a>
           <a href="/#docs" onClick={(e) => { e.preventDefault(); navigate('/#docs') }}>Docs</a>
+        </div>
+        <div className={s.footerLegalLinks}>
+          <Link to="/privacy">Privacy Policy</Link>
+          <Link to="/terms">Terms of Service</Link>
+          <a href="mailto:hello@plotline.app">Contact</a>
         </div>
       </footer>
     </div>

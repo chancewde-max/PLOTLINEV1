@@ -313,6 +313,26 @@
 .footerLinks { margin-left: auto; display: flex; gap: 18px; font-size: 13px; }
 .footerLinks a { color: var(--text-muted); text-decoration: none; }
 .footerLinks a:hover { color: var(--text-body); }
+.footerLegalLinks { display: flex; gap: 16px; font-size: 13px; }
+.footerLegalLinks a { color: var(--text-muted); text-decoration: none; }
+.footerLegalLinks a:hover { color: var(--text-body); text-decoration: underline; }
+.sampleTag {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 12px;
+  font-style: normal;
+  color: var(--warn-700, #92400e);
+  background: color-mix(in srgb, var(--warn-100, #fff7e6) 70%, transparent);
+  border: 1px solid var(--warn-400, #f0b429);
+  border-radius: 8px;
+  padding: 2px 8px;
+}
+.statsNote {
+  margin-top: 16px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+}
 
 @media (max-width: 880px) {
   .hero { grid-template-columns: 1fr; padding-top: 48px; }

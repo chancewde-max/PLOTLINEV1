@@ -89,7 +89,7 @@ export default function ProjectsPage() {
           <b className={s.wordmark}>Plotline<span className={s.dot}>.</span></b>
         </div>
         <nav className={s.nav}>
-          <a className={s.navLink} data-on={activeTab === 'projects' ? 'true' : undefined} onClick={() => setActiveTab('projects')} style={{ cursor: 'pointer' }}>Projects</a>
+          <button type="button" className={s.navLink} data-on={activeTab === 'projects' ? 'true' : undefined} onClick={() => setActiveTab('projects')} style={{ cursor: 'pointer', background: 'none', border: 'none', font: 'inherit' }}>Projects</button>
           <span className={s.navLink} data-soon="true" aria-disabled="true">
             Templates <Badge variant="neutral">Soon</Badge>
           </span>
@@ -99,13 +99,14 @@ export default function ProjectsPage() {
           <span className={s.navLink} data-soon="true" aria-disabled="true">
             Team <Badge variant="neutral">Soon</Badge>
           </span>
-          <a className={s.navLink} data-on={activeTab === 'settings' ? 'true' : undefined} onClick={() => setActiveTab('settings')} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><Settings size={13} /> Settings</a>
+          <button type="button" className={s.navLink} data-on={activeTab === 'settings' ? 'true' : undefined} onClick={() => setActiveTab('settings')} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', font: 'inherit' }}><Settings size={13} /> Settings</button>
         </nav>
         <div className={s.topRight}>
           <div style={{ width: 240 }}>
             <Input
               placeholder="Search projects…"
               size="sm"
+              aria-label="Search projects"
               value={search}
               onChange={e => setSearch(e.target.value)}
               leadingIcon={<Search size={14} />}

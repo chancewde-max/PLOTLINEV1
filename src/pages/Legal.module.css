@@ -1,0 +1,160 @@
+/* ============================================================
+   Shared legal page styles — Privacy Policy / Terms of Service
+   Mirrors the Plotline marketing design language.
+   ============================================================ */
+
+.page {
+  min-height: 100vh;
+  background: var(--bg-app);
+  color: var(--text-strong);
+}
+
+.banner {
+  background: color-mix(in srgb, var(--brand-600) 14%, var(--bg-app));
+  border-bottom: 1px solid var(--brand-200, #cfe8d4);
+  color: var(--text-strong);
+  font-size: var(--text-sm, 13px);
+  line-height: 1.45;
+}
+.bannerInner {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: var(--space-4, 12px) var(--space-8, 24px);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4, 12px);
+}
+.bannerDot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--brand-600);
+  margin-top: 2px;
+}
+
+.shell {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: var(--space-12, 56px) var(--space-8, 24px) var(--space-16, 80px);
+}
+
+.eyebrow {
+  font-size: var(--text-sm, 13px);
+  font-weight: var(--weight-semibold, 600);
+  letter-spacing: var(--tracking-wide, 0.04em);
+  text-transform: uppercase;
+  color: var(--brand-700, #2f7a4d);
+}
+
+.h1 {
+  font-family: var(--font-display);
+  font-size: clamp(28px, 4vw, 40px);
+  line-height: 1.1;
+  letter-spacing: var(--tracking-snug, -0.01em);
+  margin: var(--space-4, 12px) 0 var(--space-2, 6px);
+}
+
+.effective {
+  color: var(--text-muted, #6b7280);
+  font-size: var(--text-sm, 13px);
+  margin-bottom: var(--space-8, 28px);
+}
+
+.toc {
+  background: var(--bg-surface, #fff);
+  border: 1px solid var(--border-default, #e5e7eb);
+  border-radius: var(--radius-lg, 14px);
+  padding: var(--space-6, 20px) var(--space-8, 24px);
+  margin-bottom: var(--space-10, 40px);
+}
+.tocTitle {
+  font-size: var(--text-sm, 13px);
+  font-weight: var(--weight-semibold, 600);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide, 0.04em);
+  color: var(--text-muted, #6b7280);
+  margin: 0 0 var(--space-3, 10px);
+}
+.toc ol {
+  margin: 0;
+  padding-left: var(--space-6, 20px);
+  display: grid;
+  gap: 6px;
+}
+.toc a {
+  color: var(--brand-700, #2f7a4d);
+  text-decoration: none;
+}
+.toc a:hover {
+  text-decoration: underline;
+}
+
+.section {
+  margin-bottom: var(--space-10, 40px);
+  scroll-margin-top: 90px;
+}
+.section h2 {
+  font-family: var(--font-display);
+  font-size: var(--text-xl, 22px);
+  letter-spacing: var(--tracking-snug, -0.01em);
+  margin: 0 0 var(--space-4, 12px);
+  padding-bottom: var(--space-2, 6px);
+  border-bottom: 1px solid var(--border-default, #e5e7eb);
+}
+.section h3 {
+  font-size: var(--text-md, 16px);
+  font-weight: var(--weight-semibold, 600);
+  margin: var(--space-6, 20px) 0 var(--space-2, 6px);
+}
+.section p {
+  line-height: 1.65;
+  color: var(--text-default, #374151);
+  margin: 0 0 var(--space-4, 12px);
+}
+.section ul {
+  line-height: 1.65;
+  color: var(--text-default, #374151);
+  margin: 0 0 var(--space-4, 12px);
+  padding-left: var(--space-6, 20px);
+}
+.section li {
+  margin-bottom: 6px;
+}
+.section a {
+  color: var(--brand-700, #2f7a4d);
+}
+
+.strong {
+  font-weight: var(--weight-semibold, 600);
+  color: var(--text-strong);
+}
+
+.placeholder {
+  background: color-mix(in srgb, var(--warn-100, #fff7e6) 70%, var(--bg-app));
+  border: 1px dashed var(--warn-400, #f0b429);
+  border-radius: var(--radius-md, 10px);
+  padding: var(--space-2, 6px) var(--space-3, 10px);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+  color: var(--warn-700, #92400e);
+}
+
+.footerNav {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: var(--space-6, 20px) var(--space-8, 24px);
+  border-top: 1px solid var(--border-default, #e5e7eb);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6, 20px);
+}
+.footerNav a {
+  color: var(--text-muted, #6b7280);
+  text-decoration: none;
+  font-size: var(--text-sm, 13px);
+}
+.footerNav a:hover {
+  color: var(--text-strong);
+  text-decoration: underline;
+}

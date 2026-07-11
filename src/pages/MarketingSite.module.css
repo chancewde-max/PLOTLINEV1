@@ -667,6 +667,36 @@
               border-color var(--dur-fast) var(--ease-standard);
 }
 .footerSocial a:hover { color: var(--brand-600); border-color: var(--brand-200); }
+.pricingLegal {
+  max-width: 760px;
+  margin: var(--space-7) auto 0;
+  text-align: center;
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  color: var(--text-subtle);
+}
+.pricingLegal a { color: var(--brand-700); }
+.footerLegalLinks {
+  display: flex;
+  gap: var(--space-5);
+  align-items: center;
+}
+.footerLegalLinks a {
+  font-size: var(--text-sm);
+  color: var(--text-subtle);
+  text-decoration: none;
+}
+.footerLegalLinks a:hover { color: var(--text-strong); text-decoration: underline; }
+.sampleTag {
+  display: inline-block;
+  margin-top: var(--space-3);
+  font-size: 12px;
+  color: var(--warn-700, #92400e);
+  background: color-mix(in srgb, var(--warn-100, #fff7e6) 70%, transparent);
+  border: 1px solid var(--warn-400, #f0b429);
+  border-radius: 8px;
+  padding: 2px 8px;
+}
 
 /* ============================================================
    Workflow (4-step contractor flow)

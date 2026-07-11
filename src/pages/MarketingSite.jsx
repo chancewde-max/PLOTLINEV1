@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import styles from './MarketingSite.module.css'
 import { Button } from '../components/ui/Button'
 import { Badge } from '../components/ui/Badge'
@@ -159,6 +159,7 @@ const TESTIMONIALS = [
     name: 'Dana Whitfield',
     role: 'Estimator, GreenScape Landscaping',
     initials: 'GS',
+    sample: true,
   },
   {
     quote:
@@ -166,6 +167,7 @@ const TESTIMONIALS = [
     name: 'Marcus Reyes',
     role: 'Owner, BlueLine Irrigation Co.',
     initials: 'BL',
+    sample: true,
   },
 ]
 
@@ -542,6 +544,13 @@ function Pricing() {
           ))}
         </div>
       </div>
+      <p className={styles.pricingLegal}>
+        All paid plans are billed at the listed price and billing frequency and{' '}
+        <strong>auto-renew</strong> until cancelled. Cancel anytime from your account
+        settings or by emailing <a href="mailto:sales@plotline.app">sales@plotline.app</a>;
+        you keep access through the end of the paid period. Free trials convert to a paid
+        plan automatically unless cancelled before the trial ends.
+      </p>
     </section>
   )
 }
@@ -567,6 +576,9 @@ function Testimonials() {
                   <span className={styles.quoteRole}>{role}</span>
                 </span>
               </figcaption>
+              {sample && (
+                <span className={styles.sampleTag}>Illustrative sample — not a verified customer</span>
+              )}
             </figure>
           ))}
         </div>
@@ -663,6 +675,11 @@ function Footer() {
           <span className={styles.footerCopy}>
             © 2026 Plotline. Estimate straight from the plans.
           </span>
+          <div className={styles.footerLegalLinks}>
+            <Link to="/privacy">Privacy Policy</Link>
+            <Link to="/terms">Terms of Service</Link>
+            <a href="mailto:hello@plotline.app">Contact</a>
+          </div>
           <div className={styles.footerSocial}>
             <a href="https://twitter.com" aria-label="Twitter" target="_blank" rel="noreferrer"><Twitter size={16} /></a>
             <a href="https://linkedin.com" aria-label="LinkedIn" target="_blank" rel="noreferrer"><Linkedin size={16} /></a>
@@ -677,8 +694,9 @@ function Footer() {
 export default function MarketingSite() {
   return (
     <div className={styles.root}>
+      <a href="#main-content" className="skip-link">Skip to main content</a>
       <Nav />
-      <main>
+      <main id="main-content">
         <Hero />
         <Logos />
         <Features />

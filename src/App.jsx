@@ -6,6 +6,9 @@ import { SettingsProvider } from './data/useSettings.jsx'
 import { AuthProvider, useAuth } from './auth/AuthProvider.jsx'
 import { AuthModal } from './auth/AuthModal.jsx'
 import { RouteSkeleton } from './components/Skeleton.jsx'
+import ConsentBanner from './components/ConsentBanner.jsx'
+import PrivacyPolicy from './pages/PrivacyPolicy.jsx'
+import TermsOfService from './pages/TermsOfService.jsx'
 
 // Lazy-load the pdf-heavy route components so pdf.js / tesseract are not in the
 // initial bundle. SheetPage pulls in pdfjs-dist (and tesseract.js), so it is the
@@ -37,6 +40,8 @@ export default function App() {
               eager-loaded (no pdf/tesseract deps) for a fast first paint. */}
           <Routes>
             <Route path="/" element={<LandingPage />} />
+            <Route path="/privacy" element={<PrivacyPolicy />} />
+            <Route path="/terms" element={<TermsOfService />} />
             <Route path="/pricing" element={
               <Suspense fallback={<RouteSkeleton />}>
                 <LazyPricingPage />
@@ -60,6 +65,7 @@ export default function App() {
             <Route path="*" element={<Navigate to="/app" replace />} />
           </Routes>
           <AuthModalMount />
+          <ConsentBanner />
         </AuthProvider>
       </AppDataProvider>
     </SettingsProvider>

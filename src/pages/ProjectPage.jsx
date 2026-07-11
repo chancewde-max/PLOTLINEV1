@@ -309,6 +309,7 @@ export default function ProjectPage() {
               Unassigned
             </button>
             <button onClick={() => setSelectedSheetIds(new Set())}
+              aria-label="Clear selection"
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff', padding: 2, opacity: 0.7, display: 'flex', alignItems: 'center' }}>
               <X size={15} />
             </button>

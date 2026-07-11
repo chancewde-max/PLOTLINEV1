@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { Button } from '../components/ui/Button.jsx'
 import { Badge } from '../components/ui/Badge.jsx'
 import {
@@ -150,6 +150,13 @@ function Hero() {
       <div className={s.heroNote}>
         <Check size={15} /> No credit card required · Cancel anytime
       </div>
+      <p className={s.heroNote} style={{ marginTop: 8 }}>
+        Paid plans auto-renew each billing period until cancelled. You can cancel anytime
+        from your account settings or by emailing{' '}
+        <a href="mailto:sales@plotline.app">sales@plotline.app</a>; you keep access through
+        the end of the paid period. Free trials convert to a paid plan automatically unless
+        cancelled first.
+      </p>
     </section>
   )
 }
@@ -197,6 +204,14 @@ function PricingTiers() {
           </article>
         ))}
       </div>
+      <p className={s.pricingLegal}>
+        All paid plans are billed at the listed price and billing frequency (monthly or
+        annual) and <strong>auto-renew</strong> until cancelled. Cancel anytime from your
+        account settings or by emailing{' '}
+        <a href="mailto:sales@plotline.app">sales@plotline.app</a>; you keep access through
+        the end of the paid period. Free trials convert to a paid plan automatically unless
+        cancelled before the trial ends.
+      </p>
     </section>
   )
 }
@@ -345,6 +360,11 @@ function Footer() {
         </div>
         <div className={s.footerBottom}>
           <span className={s.footerCopy}>© 2026 Plotline. Estimate straight from the plans.</span>
+          <div className={s.footerLegalLinks}>
+            <Link to="/privacy">Privacy Policy</Link>
+            <Link to="/terms">Terms of Service</Link>
+            <a href="mailto:sales@plotline.app">Contact</a>
+          </div>
           <div className={s.footerSocial}>
             {SOCIAL.map(({ label, href, Icon }) => (
               <a key={label} href={href} aria-label={label} target="_blank" rel="noreferrer"><Icon size={16} /></a>
@@ -359,8 +379,9 @@ function Footer() {
 export default function PricingPage() {
   return (
     <div className={s.root}>
+      <a href="#main-content" className="skip-link">Skip to main content</a>
       <Nav />
-      <main>
+      <main id="main-content">
         <Hero />
         <PricingTiers />
         <Faq />
