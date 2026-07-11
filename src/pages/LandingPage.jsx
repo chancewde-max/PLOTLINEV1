@@ -9,6 +9,7 @@ import {
 import { Button } from '../components/ui/Button.jsx'
 import { Badge } from '../components/ui/Badge.jsx'
 import { useAuth } from '../auth/AuthProvider.jsx'
+import SideRays from '../components/SideRays.jsx'
 import s from './LandingPage.module.css'
 
 // The working demo takeoff — every primary CTA routes here so a visitor
@@ -30,6 +31,21 @@ export default function LandingPage() {
 
   return (
     <div className={s.page}>
+      <div className={s.raysBg} aria-hidden="true">
+        <SideRays
+          rayColor1="#EAB308"
+          rayColor2="#96c8ff"
+          origin="top-right"
+          speed={2.5}
+          intensity={2}
+          spread={2}
+          tilt={0}
+          saturation={1.5}
+          blend={0.75}
+          falloff={1.6}
+          opacity={1}
+        />
+      </div>
       <nav className={s.nav}>
         <Link to="/" className={s.navBrand}>
           <img src="/plotline-mark.svg" alt="Plotline" className={s.navLogo} />

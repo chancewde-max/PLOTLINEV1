@@ -8,6 +8,27 @@
   background: var(--bg-app);
   color: var(--text-body);
   font-family: var(--font-sans);
+  position: relative;
+  isolation: isolate;
+}
+
+/* SideRays animated WebGL background — fixed to the viewport, behind all content. */
+.raysBg {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
+  pointer-events: none;
+}
+.raysBg > :global(.side-rays-container) {
+  width: 100%;
+  height: 100%;
+}
+/* Keep the page's real content above the rays. */
+.page > :not(.raysBg) {
+  position: relative;
+  z-index: 1;
 }
 
 /* ---- Sticky top nav ------------------------------- */
