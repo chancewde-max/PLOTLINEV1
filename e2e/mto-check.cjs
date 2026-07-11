@@ -28,10 +28,13 @@ async function main() {
   await page.goto(`${BASE}/app/project/proj-1`, { waitUntil: 'networkidle', timeout: 30000 })
   await page.waitForSelector('text=Maple Grove Estates', { timeout: 15000 })
 
-  // MTO tab
-  const mtoTab = page.locator('button', { hasText: 'MTO' }).first()
-  record('MTO tab present', await mtoTab.count() > 0)
-  await mtoTab.click()
+  // Pricebook tab (contains the MTO sub-view)
+  const pricebookTab = page.locator('button', { hasText: 'Pricebook' }).first()
+  record('Pricebook tab present', await pricebookTab.count() > 0)
+  await pricebookTab.click()
+  await page.waitForTimeout(400)
+  // Switch to the MTO sub-view inside Pricebook
+  await page.locator('button', { hasText: 'MTO' }).first().click()
   await page.waitForTimeout(500)
 
   // Empty state

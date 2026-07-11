@@ -72,6 +72,7 @@ export function AppDataProvider({ children }) {
   const [customCats, setCustomCats] = useState(saved?.customCats ?? [])
   const [clients, setClients]   = useState(saved?.clients ?? {})
   const [mtoTemplates, setMtoTemplates] = useState(saved?.mtoTemplates ?? {})
+  const [proposalTemplates, setProposalTemplates] = useState(saved?.proposalTemplates ?? {})
   // Optimistic save indicator: mutations flip this to 'saving' instantly, then
   // back to 'saved' once the background (debounced) persist resolves.
   const [saveStatus, setSaveStatus] = useState('saved')
@@ -84,7 +85,7 @@ export function AppDataProvider({ children }) {
     setSaveStatus('saving')
     if (lsTimerRef.current) clearTimeout(lsTimerRef.current)
     lsTimerRef.current = setTimeout(() => {
-      const snapshot = { v: VER, projects, sheets, customCats, clients, mtoTemplates }
+      const snapshot = { v: VER, projects, sheets, customCats, clients, mtoTemplates, proposalTemplates }
       localStorage.setItem('plotline-appdata', JSON.stringify(snapshot))
       // Keep the module cache in sync so remounts reuse fresh data.
       dataCache.loaded = true
@@ -99,6 +100,31 @@ export function AppDataProvider({ children }) {
 
   const updateProject = (projectId, updates) =>
     setProjects(p => ({ ...p, [projectId]: { ...p[projectId], ...updates } }))
+
+  // Persist a project's editable client proposal (the "Pricebook" editor).
+  const updateProposal = (projectId, proposal) =>
+    setProjects(p => {
+      const proj = p[projectId]
+      if (!proj) return p
+      return { ...p, [projectId]: { ...proj, proposal } }
+    })
+
+  // --- Proposal templates (account-level, reusable proposal structures) ---
+  const addProposalTemplate = (tpl) => {
+    const id = tpl.id || `ptpl-${Date.now()}`
+    const full = {
+      id,
+      name: tpl.name || 'Untitled proposal template',
+      ownerAccountId: tpl.ownerAccountId || 'local',
+      createdAt: tpl.createdAt || new Date().toISOString(),
+      structure: tpl.structure || {},
+    }
+    setProposalTemplates(t => ({ ...t, [id]: full }))
+    return id
+  }
+
+  const updateProposalTemplate = (tplId, updates) =>
+    setProposalTemplates(t => ({ ...t, [tplId]: { ...t[tplId], ...updates } }))
 
   const addSheet = (projectId, sheet) => {
     setSheets(s => ({ ...s, [sheet.id]: sheet }))
@@ -303,6 +329,9 @@ export function AppDataProvider({ children }) {
     setMtoTemplates(t => merge && t && Object.keys(t).length
       ? { ...t, ...(snapshot.mtoTemplates ?? {}) }
       : (snapshot.mtoTemplates ?? {}))
+    setProposalTemplates(t => merge && t && Object.keys(t).length
+      ? { ...t, ...(snapshot.proposalTemplates ?? {}) }
+      : (snapshot.proposalTemplates ?? {}))
   }
 
   // Reset to empty defaults (used on sign-out).
@@ -312,11 +341,12 @@ export function AppDataProvider({ children }) {
     setCustomCats([])
     setClients({})
     setMtoTemplates({})
+    setProposalTemplates({})
   }
 
   return (
     <Ctx.Provider value={{
-      projects, sheets, customCats, clients, mtoTemplates,
+      projects, sheets, customCats, clients, mtoTemplates, proposalTemplates,
       saveStatus,
       addProject, updateProject,
       addSheet, addSheets, updateSheet,
@@ -325,6 +355,8 @@ export function AppDataProvider({ children }) {
       addSheetSet, renameSheetSet, deleteSheetSet, moveSheetToSet,
       addMtoTemplate, updateMtoTemplate,
       addMtoVersion, setCurrentMtoVersion, removeMtoVersion, updateMtoVersion,
+      updateProposal,
+      addProposalTemplate, updateProposalTemplate,
       hydrate, reset,
     }}>
       {children}

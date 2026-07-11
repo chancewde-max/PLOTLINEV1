@@ -13,6 +13,7 @@ import { Tooltip } from '../components/ui/Tooltip.jsx'
 import { SaveStatus } from '../components/SaveStatus.jsx'
 import BidProposal from './BidProposal.jsx'
 import MtoPanel from '../components/MtoPanel.jsx'
+import ProposalEditor from '../components/ProposalEditor.jsx'
 import { useAppData } from '../data/useAppData.jsx'
 import { STATUS_LABEL, STATUS_VARIANT, CATS, CAT_COLOR, SHEET_W, SHEET_H } from '../data/sampleData.js'
 import s from './ProjectPage.module.css'
@@ -69,7 +70,8 @@ export default function ProjectPage() {
   const [folderName, setFolderName] = useState('')
   const [expandedSets, setExpandedSets] = useState({})
   const [moveSheetDlg, setMoveSheetDlg] = useState(null)
-  const [activeTab, setActiveTab] = useState('sheets')
+  const [activeTab, setActiveTab] = useState('pricebook')
+  const [pricebookView, setPricebookView] = useState('proposal') // 'proposal' | 'mto'
   const [draggingSheetId, setDraggingSheetId] = useState(null)
   const [dragOverTarget, setDragOverTarget] = useState(null) // setId or 'unassigned'
   const [selectedSheetIds, setSelectedSheetIds] = useState(new Set())
@@ -221,7 +223,7 @@ export default function ProjectPage() {
             items={[
               { value: 'dashboard', label: 'Dashboard' },
               { value: 'sheets', label: `Sheets (${sheetList.length})` },
-              { value: 'mto', label: 'MTO' },
+              { value: 'pricebook', label: 'Pricebook' },
             ]} />
         </div>
 
@@ -256,8 +258,29 @@ export default function ProjectPage() {
           <div className={s.sectionLabel} style={{ margin: 0 }}>Sheets · {sheetList.length}</div>
           <Button variant="ghost" size="sm" iconLeft={<FolderPlus size={14} />} onClick={() => { setFolderName(''); setFolderDlg(true) }}>Add folder</Button>
         </div>}
-        {activeTab === 'mto' && (
-          <MtoPanel projectId={projectId} project={project} />
+        {activeTab === 'pricebook' && (
+          <div>
+            <div className={s.subNav}>
+              <button
+                className={`${s.subTab} ${pricebookView === 'proposal' ? s.subTabActive : ''}`}
+                onClick={() => setPricebookView('proposal')}
+              >
+                Proposal
+              </button>
+              <button
+                className={`${s.subTab} ${pricebookView === 'mto' ? s.subTabActive : ''}`}
+                onClick={() => setPricebookView('mto')}
+              >
+                MTO
+              </button>
+            </div>
+            {pricebookView === 'proposal' && (
+              <ProposalEditor projectId={projectId} project={project} />
+            )}
+            {pricebookView === 'mto' && (
+              <MtoPanel projectId={projectId} project={project} />
+            )}
+          </div>
         )}
 
         {activeTab === 'sheets' && <>
