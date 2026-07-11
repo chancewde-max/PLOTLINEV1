@@ -73,6 +73,10 @@ export function AppDataProvider({ children }) {
   const [clients, setClients]   = useState(saved?.clients ?? {})
   const [mtoTemplates, setMtoTemplates] = useState(saved?.mtoTemplates ?? {})
   const [proposalTemplates, setProposalTemplates] = useState(saved?.proposalTemplates ?? {})
+  // Account-level company profile (logo + identity used on customer-facing docs).
+  const [company, setCompany] = useState(saved?.company ?? {
+    name: '', address: '', phone: '', email: '', logoDataUrl: '',
+  })
   // Optimistic save indicator: mutations flip this to 'saving' instantly, then
   // back to 'saved' once the background (debounced) persist resolves.
   const [saveStatus, setSaveStatus] = useState('saved')
@@ -85,7 +89,7 @@ export function AppDataProvider({ children }) {
     setSaveStatus('saving')
     if (lsTimerRef.current) clearTimeout(lsTimerRef.current)
     lsTimerRef.current = setTimeout(() => {
-      const snapshot = { v: VER, projects, sheets, customCats, clients, mtoTemplates, proposalTemplates }
+      const snapshot = { v: VER, projects, sheets, customCats, clients, mtoTemplates, proposalTemplates, company }
       localStorage.setItem('plotline-appdata', JSON.stringify(snapshot))
       // Keep the module cache in sync so remounts reuse fresh data.
       dataCache.loaded = true
@@ -93,7 +97,7 @@ export function AppDataProvider({ children }) {
       setSaveStatus('saved')
     }, 500)
     return () => clearTimeout(lsTimerRef.current)
-  }, [projects, sheets, customCats, clients, mtoTemplates])
+  }, [projects, sheets, customCats, clients, mtoTemplates, proposalTemplates, company])
 
   const addProject = (proj) =>
     setProjects(p => ({ ...p, [proj.id]: proj }))
@@ -125,6 +129,12 @@ export function AppDataProvider({ children }) {
 
   const updateProposalTemplate = (tplId, updates) =>
     setProposalTemplates(t => ({ ...t, [tplId]: { ...t[tplId], ...updates } }))
+
+  // Account-level company profile (logo + identity). Merge so partial updates
+  // keep other fields. Persisted to localStorage + cloud snapshot via the
+  // provider's save effect.
+  const updateCompany = (updates) =>
+    setCompany(c => ({ ...c, ...updates }))
 
   const addSheet = (projectId, sheet) => {
     setSheets(s => ({ ...s, [sheet.id]: sheet }))
@@ -332,6 +342,9 @@ export function AppDataProvider({ children }) {
     setProposalTemplates(t => merge && t && Object.keys(t).length
       ? { ...t, ...(snapshot.proposalTemplates ?? {}) }
       : (snapshot.proposalTemplates ?? {}))
+    setCompany(prev => merge && prev && prev.name
+      ? { ...prev, ...(snapshot.company ?? {}) }
+      : (snapshot.company ?? prev))
   }
 
   // Reset to empty defaults (used on sign-out).
@@ -342,11 +355,13 @@ export function AppDataProvider({ children }) {
     setClients({})
     setMtoTemplates({})
     setProposalTemplates({})
+    setCompany({ name: '', address: '', phone: '', email: '', logoDataUrl: '' })
   }
 
   return (
     <Ctx.Provider value={{
       projects, sheets, customCats, clients, mtoTemplates, proposalTemplates,
+      company, updateCompany,
       saveStatus,
       addProject, updateProject,
       addSheet, addSheets, updateSheet,

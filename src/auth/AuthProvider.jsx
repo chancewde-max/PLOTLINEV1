@@ -56,8 +56,9 @@ export function AuthProvider({ children }) {
       projects: app.projects,
       sheets: app.sheets,
       customCats: app.customCats,
+      company: app.company,
     }).catch(() => {})
-  }, [app.projects, app.sheets, app.customCats, user])
+  }, [app.projects, app.sheets, app.customCats, app.company, user])
 
   // ---- Track auth session ----
   useEffect(() => {
@@ -101,7 +102,8 @@ export function AuthProvider({ children }) {
         snap &&
         ((snap.projects && Object.keys(snap.projects).length) ||
           (snap.sheets && Object.keys(snap.sheets).length) ||
-          (snap.customCats && snap.customCats.length))
+          (snap.customCats && snap.customCats.length) ||
+          (snap.company && snap.company.name))
       // Replace local state with cloud data (merge=false). If the cloud row is
       // empty, keep whatever local edits already exist.
       if (hasCloudData) app.hydrate?.(snap, false)
@@ -125,7 +127,7 @@ export function AuthProvider({ children }) {
       if (saveTimer.current) clearTimeout(saveTimer.current)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [app.projects, app.sheets, app.customCats, user])
+  }, [app.projects, app.sheets, app.customCats, app.company, user])
 
   // ---- Auth actions ----
   const signIn = useCallback(async (email, password) => {

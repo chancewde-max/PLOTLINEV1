@@ -1238,6 +1238,31 @@ export default function SheetPage() {
     setNewCountDlg(false)
   }
 
+  const conditionsPanelEl = (
+    <ConditionsPanel
+      countGroups={countGroups} activeCountGroupId={activeCountGroupId}
+      onSetActiveCountGroup={id => { setActiveCountGroupId(id); setActiveTool('count') }}
+      linearGroups={linearGroups} activeLinearGroupId={activeLinearGroupId}
+      onSetActiveLinearGroup={id => { setActiveLinearGroupId(id); setActiveTool('linear') }}
+      areaGroups={areaGroups} activeAreaGroupId={activeAreaGroupId}
+      onSetActiveAreaGroup={id => { setActiveAreaGroupId(id); setActiveTool('area') }}
+      addedAreas={addedAreas} addedPoints={addedPoints} addedLines={addedLines}
+      sqft={sqft} fSq={fSq} lnft={lnft} fLn={fLn}
+      areaDepth={areaDepth} topsoilType={topsoilType} topsoilCustom={topsoilCustom}
+      onNewCount={() => { setNewItemName(`Count ${countGroupNumRef.current + 1}`); setNewItemColor(randColor()); setNewItemShape('circle'); setNewCountDlg('count') }}
+      onNewArea={() => { setNewItemName(`Area ${areaGroupNumRef.current + 1}`); setNewItemColor(randColor()); setNewItemShape('circle'); setNewCountDlg('area') }}
+      onNewLinear={() => { setNewItemName(`Linear ${linearGroupNumRef.current + 1}`); setNewItemColor(randColor()); setNewItemShape('circle'); setNewCountDlg('linear') }}
+      onDeleteCountGroup={id => setCountGroups(prev => prev.filter(g => g.id !== id))}
+      onDeleteAreaGroup={id => setAreaGroups(prev => prev.filter(g => g.id !== id))}
+      onDeleteLinearGroup={id => setLinearGroups(prev => prev.filter(g => g.id !== id))}
+      onReorderCountGroups={order => setCountGroups(prev => order.map(id => prev.find(g => g.id === id)).filter(Boolean))}
+      onReorderLinearGroups={order => setLinearGroups(prev => order.map(id => prev.find(g => g.id === id)).filter(Boolean))}
+      onReorderAreaGroups={order => setAreaGroups(prev => order.map(id => prev.find(g => g.id === id)).filter(Boolean))}
+      onEditGroup={openEditGroup}
+      fs={fs}
+    />
+  )
+
   return (
     <div className={s.root} data-theme={theme} style={{ '--rc-fs': fs, ...accentStyle }}>
 
@@ -1347,6 +1372,7 @@ export default function SheetPage() {
               items={[
                 { value: 'layers', label: 'Layers', count: projectLayers.length },
                 { value: 'regions', label: 'Regions', count: projectRegions.length },
+                { value: 'conditions', label: 'Conditions', count: (countGroups.length + linearGroups.length + areaGroups.length) },
                 { value: 'sheets', label: 'Sheets', count: (project.sheetIds || []).length },
               ]}
             />
@@ -1448,6 +1474,10 @@ export default function SheetPage() {
               <button onClick={addFolder} style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '7px 10px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)' }}>
                 <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> Add region
               </button>
+            </div>
+          ) : leftPanel === 'conditions' ? (
+            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+              {conditionsPanelEl}
             </div>
           ) : (
             <div className={s.scroll}>
@@ -1971,28 +2001,7 @@ export default function SheetPage() {
               sqft={sqft} lnft={lnft}
             />
           ) : (
-            <ConditionsPanel
-              countGroups={countGroups} activeCountGroupId={activeCountGroupId}
-              onSetActiveCountGroup={id => { setActiveCountGroupId(id); setActiveTool('count') }}
-              linearGroups={linearGroups} activeLinearGroupId={activeLinearGroupId}
-              onSetActiveLinearGroup={id => { setActiveLinearGroupId(id); setActiveTool('linear') }}
-              areaGroups={areaGroups} activeAreaGroupId={activeAreaGroupId}
-              onSetActiveAreaGroup={id => { setActiveAreaGroupId(id); setActiveTool('area') }}
-              addedAreas={addedAreas} addedPoints={addedPoints} addedLines={addedLines}
-              sqft={sqft} fSq={fSq} lnft={lnft} fLn={fLn}
-              areaDepth={areaDepth} topsoilType={topsoilType} topsoilCustom={topsoilCustom}
-              onNewCount={() => { setNewItemName(`Count ${countGroupNumRef.current + 1}`); setNewItemColor(randColor()); setNewItemShape('circle'); setNewCountDlg('count') }}
-              onNewArea={() => { setNewItemName(`Area ${areaGroupNumRef.current + 1}`); setNewItemColor(randColor()); setNewItemShape('circle'); setNewCountDlg('area') }}
-              onNewLinear={() => { setNewItemName(`Linear ${linearGroupNumRef.current + 1}`); setNewItemColor(randColor()); setNewItemShape('circle'); setNewCountDlg('linear') }}
-              onDeleteCountGroup={id => setCountGroups(prev => prev.filter(g => g.id !== id))}
-              onDeleteAreaGroup={id => setAreaGroups(prev => prev.filter(g => g.id !== id))}
-              onDeleteLinearGroup={id => setLinearGroups(prev => prev.filter(g => g.id !== id))}
-              onReorderCountGroups={order => setCountGroups(prev => order.map(id => prev.find(g => g.id === id)).filter(Boolean))}
-              onReorderLinearGroups={order => setLinearGroups(prev => order.map(id => prev.find(g => g.id === id)).filter(Boolean))}
-              onReorderAreaGroups={order => setAreaGroups(prev => order.map(id => prev.find(g => g.id === id)).filter(Boolean))}
-              onEditGroup={openEditGroup}
-              fs={fs}
-            />
+            conditionsPanelEl
           )}
         </aside>
       </div>

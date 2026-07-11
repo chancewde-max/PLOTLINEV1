@@ -1,10 +1,11 @@
 // Cloud persistence layer for Plotline.
 //
 // Each user owns exactly one row in `app_data`, keyed by the Supabase auth
-// user id. The row stores the three client-side collections as JSONB:
+// user id. The row stores the client-side collections as JSONB:
 //   - projects    (object keyed by project id)
 //   - sheets      (object keyed by sheet id)
 //   - customCats  (array)
+//   - company     (object: name/address/phone/email/logoDataUrl)
 //
 // All functions are guarded by `supabaseEnabled`. When cloud is not configured
 // they return null (or reject, for the save path) so callers can fall back to
@@ -14,7 +15,7 @@ import { supabase, supabaseEnabled } from '../lib/supabaseClient.js'
 
 // Default snapshot used when a row does not yet exist.
 export function emptySnapshot() {
-  return { projects: {}, sheets: {}, customCats: [] }
+  return { projects: {}, sheets: {}, customCats: [], company: null }
 }
 
 // Pull a user's full snapshot from the cloud.
@@ -39,6 +40,7 @@ export async function loadUserSnapshot(userId) {
     projects: data.projects ?? {},
     sheets: data.sheets ?? {},
     customCats: data.custom_cats ?? [],
+    company: data.company ?? null,
   }
 }
 
@@ -57,6 +59,7 @@ export async function saveUserSnapshot(userId, snapshot) {
         projects: snapshot.projects ?? {},
         sheets: snapshot.sheets ?? {},
         custom_cats: snapshot.customCats ?? [],
+        company: snapshot.company ?? null,
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'user_id' }
