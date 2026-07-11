@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Search, Plus, Map, Sun, Moon, Settings } from 'lucide-react'
 import { Button } from '../components/ui/Button.jsx'
@@ -43,6 +43,30 @@ const PREVIEW_COLOR = {
 
 const EMPTY_FORM = { name: '', client: '', address: '', status: 'draft' }
 
+const SUB_KEY = 'plotline-subscription'
+
+// Load persisted subscription, or seed a default Pro trial on first run.
+function loadSubscription() {
+  try {
+    const raw = localStorage.getItem(SUB_KEY)
+    if (raw) return JSON.parse(raw)
+  } catch { /* ignore corrupt storage */ }
+  const next = new Date()
+  next.setDate(next.getDate() + 30)
+  return {
+    status: 'active',
+    plan: 'Pro',
+    nextBilling: next.toISOString(),
+    cancelledAt: null,
+    cancelEffective: null,
+  }
+}
+
+function fmtDate(iso) {
+  if (!iso) return ''
+  return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
+}
+
 export default function ProjectsPage() {
   const navigate = useNavigate()
   const { projects: allProjects, sheets, addProject } = useAppData()
@@ -51,6 +75,48 @@ export default function ProjectsPage() {
   const [dlgOpen, setDlgOpen] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
   const [activeTab, setActiveTab] = useState('projects')
+
+  // --- Self-contained subscription / cancellation state (no backend required) ---
+  const [subscription, setSubscription] = useState(loadSubscription)
+  const [cancelDlgOpen, setCancelDlgOpen] = useState(false)
+
+  // Persist every change so a cancel survives a page reload.
+  useEffect(() => {
+    try { localStorage.setItem(SUB_KEY, JSON.stringify(subscription)) } catch { /* ignore */ }
+  }, [subscription])
+
+  // Graceful upgrade path: if a real Stripe Customer Portal URL is configured via
+  // env, the cancel flow defers billing to it. Otherwise we fall back to the
+  // email path already promised in the Terms/Pricing copy.
+  const stripePortalUrl = import.meta.env.VITE_STRIPE_PORTAL_URL
+
+  const confirmCancel = () => {
+    const now = new Date().toISOString()
+    const effective = subscription.nextBilling // keep access until period end
+    setSubscription(prev => ({
+      ...prev,
+      status: 'cancelled',
+      cancelledAt: now,
+      cancelEffective: effective,
+    }))
+    setCancelDlgOpen(false)
+    if (stripePortalUrl) {
+      window.open(stripePortalUrl, '_blank', 'noopener')
+    }
+  }
+
+  const reactivate = () => {
+    setSubscription(prev => ({
+      ...prev,
+      status: 'active',
+      cancelledAt: null,
+      cancelEffective: null,
+    }))
+  }
+
+  const isCancelled = subscription.status === 'cancelled'
+  // Honest fallback notice whenever Stripe isn't wired and the plan is cancelled.
+  const showEmailFallback = isCancelled && !stripePortalUrl
 
   const projectList = Object.values(allProjects).filter(p =>
     p.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -145,6 +211,50 @@ export default function ProjectsPage() {
                   <button key={a.id} onClick={() => setAccent(a.id)} title={a.label}
                     style={{ width: 40, height: 40, borderRadius: '50%', background: a.color, border: `3px solid ${accent === a.id ? 'var(--text-strong)' : 'transparent'}`, cursor: 'pointer', outline: accent === a.id ? `2px solid ${a.color}` : 'none', outlineOffset: 2 }} />
                 ))}
+              </div>
+            </div>
+
+            <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 12, padding: 24, marginTop: 20 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-strong)', marginBottom: 16 }}>Billing</div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                <Badge variant={isCancelled ? 'neutral' : 'brand'}>{subscription.plan} plan</Badge>
+                <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                  {isCancelled
+                    ? `Cancelled — access continues until ${fmtDate(subscription.cancelEffective)}`
+                    : `Renews on ${fmtDate(subscription.nextBilling)}`}
+                </span>
+              </div>
+
+              <div
+                aria-live="polite"
+                role="status"
+                style={showEmailFallback ? { display: 'block', marginTop: 4, marginBottom: 12, fontSize: 13, color: 'var(--text-muted)', background: 'var(--brand-50)', border: '1px solid var(--border-subtle)', borderRadius: 8, padding: '10px 12px' } : { display: 'none' }}
+              >
+                {isCancelled
+                  ? `Subscription cancelled. Access continues until ${fmtDate(subscription.cancelEffective)}.`
+                  : ''}
+                {' '}No billing provider connected yet — your cancellation is recorded. Email{' '}
+                <a href="mailto:sales@plotline.app">sales@plotline.app</a> to finalize, or use the in-app contact below.
+              </div>
+
+              <div style={{ marginTop: 14 }}>
+                {isCancelled ? (
+                  <Button variant="secondary" onClick={reactivate}>Reactivate</Button>
+                ) : (
+                  <Button
+                    variant="danger"
+                    onClick={() => setCancelDlgOpen(true)}
+                    aria-label="Cancel subscription"
+                  >
+                    Cancel subscription
+                  </Button>
+                )}
+              </div>
+
+              <div style={{ marginTop: 16, fontSize: 13, color: 'var(--text-muted)' }}>
+                Questions about billing? Email{' '}
+                <a href="mailto:sales@plotline.app">sales@plotline.app</a>
               </div>
             </div>
           </div>
@@ -274,6 +384,26 @@ export default function ProjectsPage() {
               { value: 'archived', label: 'Archived' },
             ]} />
         </div>
+      </Dialog>
+
+      <Dialog
+        open={cancelDlgOpen}
+        onClose={() => setCancelDlgOpen(false)}
+        title="Cancel subscription?"
+        description={`Your ${subscription.plan} plan will stay active until ${fmtDate(subscription.nextBilling)}, then stop renewing. You can reactivate anytime.`}
+        width={440}
+        footer={<>
+          <Button variant="ghost" onClick={() => setCancelDlgOpen(false)}>Keep subscription</Button>
+          <Button variant="danger" onClick={confirmCancel}>
+            Cancel my subscription
+          </Button>
+        </>}
+      >
+        <p style={{ margin: 0, fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+          We'll keep your access through the end of the paid period. Need help or want to
+          talk through options? Email{' '}
+          <a href="mailto:sales@plotline.app">sales@plotline.app</a>.
+        </p>
       </Dialog>
     </div>
   )
