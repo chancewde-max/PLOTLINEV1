@@ -79,9 +79,21 @@ async function main() {
     log('  processing complete → sheet rows present')
 
     // ---- Next to titles ----
-    log('\n=== [4] Next to titles → Import ===')
+    log('\n=== [4] Next to titles → Version Set → Import ===')
     await page.getByRole('button', { name: /Next to titles/i }).click()
+    // New 4th step: "Version Set" — the import button is now one step later.
+    await page.waitForSelector('button:has-text("Next: Version Set")', { timeout: 15000 })
+    log('  advanced to Version Set step')
+    await page.getByRole('button', { name: /Next: Version Set/i }).click()
     await page.waitForSelector('button:has-text("Import")', { timeout: 15000 })
+    // Verify the version-set name input is pre-filled with the PDF base name.
+    // (read after the import button is visible so React has committed step 3)
+    const vsName = await page.evaluate(() => {
+      const input = document.querySelector('input[placeholder*="Contract Set"]')
+      return input ? input.value : '(no input)'
+    })
+    results.versionSetNamePrefill = vsName
+    log(`  version set name pre-fill: "${vsName}"`)
     const importBtn = page.getByRole('button', { name: /Import \d+ sheet/i }).first()
     const importLabel = await importBtn.innerText().catch(() => '(n/a)')
     log(`  import button: "${importLabel}"`)
@@ -100,6 +112,22 @@ async function main() {
     if (newIds.length === 0) throw new Error('No new sheet card appeared after import')
     await page.screenshot({ path: path.join(OUT, 'shot-wizard-imported.png'), fullPage: false })
     screenshots.push('shot-wizard-imported.png')
+
+    // ---- Verify the Version Set created a sheetSet + an MTO version ----
+    log('\n=== [4b] Verify version-set side-effects (sheetSet + MTO version) ===')
+    const proj = await page.evaluate(() => {
+      try {
+        const d = JSON.parse(localStorage.getItem('plotline-appdata') || '{}')
+        return d.projects?.['proj-1'] || null
+      } catch { return null }
+    })
+    const sheetSets = proj?.sheetSets || []
+    const mtoVersions = proj?.mtoVersions || []
+    results.sheetSetCount = sheetSets.length
+    results.mtoVersionCount = mtoVersions.length
+    results.versionSetCreated = sheetSets.some(s => s.name === vsName) && mtoVersions.some(m => m.name === vsName)
+    log(`  sheetSets=${sheetSets.length} mtoVersions=${mtoVersions.length} versionSetCreated=${results.versionSetCreated}`)
+    if (!results.versionSetCreated) throw new Error('Version Set did not create both a sheet folder and an MTO version')
 
     // Identify the new sheet + its pdfUrl scheme
     const sheets = await lsSheets(page)
@@ -196,6 +224,9 @@ function printReport() {
   log(`  new sheet ids            : ${(results.newSheetIds || []).join(', ') || '(none)'}`)
   log(`  new pdfUrl is data: URL  : ${results.newSheetPdfUrlIsData}`)
   log(`  new pdfUrl scheme        : ${results.newSheetPdfUrlScheme}`)
+  log(`  version set name pre-fill : ${results.versionSetNamePrefill}`)
+  log(`  sheetSets / mtoVersions  : ${results.sheetSetCount} / ${results.mtoVersionCount}`)
+  log(`  version set created      : ${results.versionSetCreated}`)
   log(`  PRE-reload  : canvas=${results.preReload?.canvasCount} content=${results.preReload?.canvasHasContent} stale=${results.preReload?.staleVisible} error=${results.preReload?.errorVisible}`)
   log(`  POST-reload : canvas=${results.postReload?.canvasCount} content=${results.postReload?.canvasHasContent} stale=${results.postReload?.staleVisible} error=${results.postReload?.errorVisible}`)
 
@@ -219,12 +250,13 @@ function printReport() {
   log('\n--- verdict ---')
   log(`  Upload worked (new data: sheet) : ${pass(results.uploadWorked)}`)
   log(`  PDF persisted after reload      : ${pass(results.pdfPersisted)}  <-- CONSUMER-CRITICAL`)
+  log(`  Version Set created (set+MTO)   : ${pass(results.versionSetCreated)}`)
   log(`  No console errors               : ${pass(cErr.length === 0)}`)
   log(`  No page errors                  : ${pass(pageErrors.length === 0)}`)
   if (results.fatal) log(`  fatal: ${results.fatal}`)
   log(`\n  Screenshots: ${screenshots.join(', ')}`)
 
-  const overall = results.uploadWorked && results.pdfPersisted && pageErrors.length === 0
+  const overall = results.uploadWorked && results.pdfPersisted && results.versionSetCreated && pageErrors.length === 0
   log(`\n  === PERSISTENCE OVERALL: ${overall ? 'PASS' : 'FAIL'} ===`)
   process.exit(overall ? 0 : 1)
 }

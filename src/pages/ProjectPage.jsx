@@ -59,7 +59,7 @@ const EMPTY_FORM = { name: '', code: '' }
 export default function ProjectPage() {
   const { projectId } = useParams()
   const navigate = useNavigate()
-  const { projects, sheets, addSheet, addSheets, addSheetSet, renameSheetSet, deleteSheetSet, moveSheetToSet } = useAppData()
+  const { projects, sheets, addSheet, addSheets, addSheetSet, renameSheetSet, deleteSheetSet, moveSheetToSet, addMtoVersion } = useAppData()
   const [dlgOpen, setDlgOpen] = useState(false)
   const [wizardOpen, setWizardOpen] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
@@ -113,8 +113,24 @@ export default function ProjectPage() {
 
   const openDlg = () => setWizardOpen(true)
 
-  const handleWizardImport = (sheetArray) => {
+  const handleWizardImport = (sheetArray, opts) => {
     addSheets(projectId, sheetArray)
+    if (opts?.versionSetName?.trim()) {
+      const name = opts.versionSetName.trim()
+      addSheetSet(projectId, name)
+      addMtoVersion(projectId, {
+        id: 'mto-' + Date.now(),
+        v: 1,
+        templateId: null,
+        name,
+        fileName: null,
+        uploadedAt: null,
+        headers: [],
+        rows: [],
+        columnMap: null,
+        isCurrent: true,
+      })
+    }
   }
 
   const handlePdfSelect = (e) => {

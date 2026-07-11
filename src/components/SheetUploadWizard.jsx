@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
 import { createWorker } from 'tesseract.js'
-import { Upload, X, ChevronRight, CheckCircle, Loader, Square, ChevronLeft, Check } from 'lucide-react'
+import { Upload, X, ChevronRight, CheckCircle, Loader, Square, ChevronLeft, Check, Folder } from 'lucide-react'
 import { Button } from './ui/Button.jsx'
 import { Skeleton } from './Skeleton.jsx'
 import { pdfCache } from './pdfCache.js'
@@ -204,33 +204,43 @@ async function processPdfFile(file, onPageDone) {
   const fileId = `pdf-${Date.now()}-${Math.random().toString(36).slice(2)}`
   pdfCache.set(fileId, bytes)
   const pdf = await getPdfDoc(fileId, bytes)
-  const pages = []
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i)
-    // Render thumbnail at 160px (faster than 220) and extract text concurrently
-    const [thumbData, textContent] = await Promise.all([renderPageThumb(page, 160), page.getTextContent()])
-    pages.push({
-      id: `sheet-${Date.now()}-${i}`,
-      fileName: file.name,
-      pageIndex: i,
-      totalPages: pdf.numPages,
-      thumb: thumbData.thumb,
-      thumbAspect: thumbData.aspect,
-      sheetNum: guessSheetNumber(textContent.items),
-      title: guessTitle(textContent.items),
-      fileId,
-      sheetNumRect: null,
-      titleRect: null,
-    })
-    onPageDone && onPageDone(pages.length, pdf.numPages)
-    // Yield to browser between pages so UI stays responsive
-    await new Promise(r => setTimeout(r, 0))
+  const total = pdf.numPages
+  // Process EVERY page concurrently. getPdfDoc caches the parsed doc per fileId,
+  // so concurrent getPage() calls are safe. This turns a 7-page PDF into roughly
+  // one page's worth of wall-clock work instead of 7 sequential pdf.js round-trips.
+  const pages = new Array(total)
+  let done = 0
+  console.time(`processPdfFile:${file.name}`)
+  const pagePromises = []
+  for (let i = 1; i <= total; i++) {
+    pagePromises.push((async () => {
+      const page = await pdf.getPage(i)
+      // Render thumbnail at 160px and extract text concurrently within the page
+      const [thumbData, textContent] = await Promise.all([renderPageThumb(page, 160), page.getTextContent()])
+      pages[i - 1] = {
+        id: `sheet-${Date.now()}-${i}`,
+        fileName: file.name,
+        pageIndex: i,
+        totalPages: total,
+        thumb: thumbData.thumb,
+        thumbAspect: thumbData.aspect,
+        sheetNum: guessSheetNumber(textContent.items),
+        title: guessTitle(textContent.items),
+        fileId,
+        sheetNumRect: null,
+        titleRect: null,
+      }
+      done++
+      onPageDone && onPageDone(done, total)
+    })())
   }
-  return pages
+  await Promise.all(pagePromises)
+  console.timeEnd(`processPdfFile:${file.name}`)
+  return pages.filter(Boolean)
 }
 
 // ---- Stepper ----------------------------------------------------------------
-const STEPS = ['Files', 'Sheet numbers', 'Titles']
+const STEPS = ['Files', 'Sheet numbers', 'Titles', 'Version Set']
 
 function Stepper({ step }) {
   return (
@@ -560,6 +570,27 @@ function SheetRow({ page, field, checked, onCheck, onUpdate, onRemove, rowH, onP
   )
 }
 
+// ---- Version set name input ------------------------------------------------
+function VersionSetInput({ value, onChange }) {
+  const ref = useRef(null)
+  useEffect(() => { ref.current?.focus(); ref.current?.select() }, [])
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+        Version set name
+      </label>
+      <input
+        ref={ref}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') e.preventDefault() }}
+        placeholder="Contract Set - 2024-12-06"
+        style={{ width: '100%', padding: '10px 12px', fontSize: 14, fontFamily: 'var(--font-mono)', border: '1px solid var(--border-default)', borderRadius: 8, background: 'var(--surface-card)', color: 'var(--text-strong)', outline: 'none', boxSizing: 'border-box' }}
+      />
+    </div>
+  )
+}
+
 // ---- Main wizard ------------------------------------------------------------
 export default function SheetUploadWizard({ open, onClose, onImport }) {
   const [step, setStep] = useState(0)
@@ -569,11 +600,12 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
   const [selected, setSelected] = useState(new Set()) // selected page ids
   const [pickerField, setPickerField] = useState(null) // 'sheetNum' | 'title'
   const [rowH, setRowH] = useState(80)
+  const [versionSetName, setVersionSetName] = useState('')
 
   // Pre-load OCR worker as soon as wizard opens so it's ready when user draws a rect
   useEffect(() => { if (open) getOcrWorker() }, [open])
 
-  const reset = () => { setStep(0); setPages([]); setProcessing(false); setPickerField(null); setSelected(new Set()) }
+  const reset = () => { setStep(0); setPages([]); setProcessing(false); setPickerField(null); setSelected(new Set()); setVersionSetName('') }
   const handleClose = () => { reset(); onClose() }
 
   const handleFiles = async (files) => {
@@ -586,6 +618,11 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
         setProcessingMsg(`${fileName} — page ${done} of ${total}…`)
       })
       allPages.push(...pgs)
+    }
+    // Pre-fill the version-set name with the uploaded PDF's base name.
+    // If multiple files were dropped, use the first one as the default suggestion.
+    if (allPages.length > 0) {
+      setVersionSetName(files[0].name.replace(/\.pdf$/i, ''))
     }
     setPages(allPages)
     setSelected(new Set(allPages.map(p => p.id)))
@@ -653,7 +690,7 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
         areas: [], lines: [], points: [],
       }
     }))
-    onImport(sheetArr)
+    onImport(sheetArr, { versionSetName })
     handleClose()
   }
 
@@ -750,9 +787,31 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
                 </div>
               </div>
             )}
-          </div>
 
-          {/* Footer */}
+            {/* Step 3 — Version Set */}
+                {step === 3 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 18, padding: '28px 0', maxWidth: 520 }}>
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-strong)', marginBottom: 4 }}>Name this version set</div>
+                    <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                      This creates a sheet folder and an MTO folder with this name so the imported
+                      {pages.length !== 1 ? ` ${pages.length} sheets` : ' sheet'} stay grouped together.
+                    </div>
+                  </div>
+                  <VersionSetInput
+                    value={versionSetName}
+                    onChange={setVersionSetName}
+                  />
+                  <div style={{ fontSize: 12, color: 'var(--text-subtle)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Folder size={14} style={{ color: 'var(--brand-600)' }} />
+                    e.g. “Contract Set - 2024-12-06”
+                  </div>
+                </div>
+                )}
+
+                </div>
+
+                {/* Footer */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 24px', borderTop: '1px solid var(--border-subtle)', background: 'var(--surface-paper)', flexShrink: 0, gap: 16 }}>
             {/* Row height slider */}
             {(step === 1 || step === 2) && (
@@ -775,6 +834,11 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
                 </Button>
               )}
               {step === 2 && (
+                <Button variant="primary" iconRight={<ChevronRight size={15} />} onClick={() => setStep(3)} disabled={pages.length === 0}>
+                  Next: Version Set
+                </Button>
+              )}
+              {step === 3 && (
                 <Button variant="primary" onClick={handleImport} disabled={pages.length === 0}>
                   Import {pages.length} sheet{pages.length !== 1 ? 's' : ''}
                 </Button>
