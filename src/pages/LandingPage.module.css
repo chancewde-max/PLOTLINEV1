@@ -28,10 +28,46 @@
 /* Keep the page's real content above the rays. Excludes .nav — it sets its
    own position (sticky) and z-index, and this rule's higher specificity
    (.page > :not(...)) would otherwise silently force it back to
-   `relative`, breaking the sticky top bar. */
-.page > :not(.raysBg):not(.nav) {
+   `relative`, breaking the sticky top bar. Excludes .bgLayer for the same
+   reason (it needs to stay behind content, not get promoted to z-index 1). */
+.page > :not(.raysBg):not(.nav):not(.bgLayer) {
   position: relative;
   z-index: 1;
+}
+
+/* Parallax color blobs — a second, cheaper background layer that drifts at
+   different rates on scroll (see the ref-driven transform in LandingPage.jsx).
+   Sits behind real content, above the rays layer visually. */
+.bgLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.blob {
+  position: absolute;
+  display: block;
+  border-radius: 50%;
+  filter: blur(64px);
+  opacity: 0.32;
+  will-change: transform;
+}
+.blob1 {
+  top: 40px; left: -140px; width: 420px; height: 420px;
+  background: radial-gradient(circle, var(--takeoff-area), transparent 70%);
+}
+.blob2 {
+  top: 820px; right: -160px; width: 480px; height: 480px;
+  background: radial-gradient(circle, var(--takeoff-count), transparent 70%);
+}
+.blob3 {
+  top: 1760px; left: 8%; width: 380px; height: 380px;
+  background: radial-gradient(circle, var(--takeoff-linear), transparent 70%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .blob { transition: none; }
 }
 
 /* ---- Sticky top nav ------------------------------- */

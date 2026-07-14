@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useRef } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import {
   Ruler,
@@ -32,6 +32,36 @@ export default function LandingPage() {
     }
   }, [location.hash])
 
+  // Scroll-parallax background blobs. Deliberately NOT driven through
+  // SideRays' React props — its effect tears down and rebuilds the whole
+  // WebGL context whenever any of those props change, so updating one 60x/sec
+  // from scroll would flicker/jank badly. This instead mutates transform
+  // styles directly via refs (skips React re-render) behind a single
+  // rAF-throttled passive scroll listener — cheap, and respects
+  // prefers-reduced-motion the same way SideRays itself does.
+  const blob1Ref = useRef(null)
+  const blob2Ref = useRef(null)
+  const blob3Ref = useRef(null)
+  useEffect(() => {
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
+    let raf = null
+    const onScroll = () => {
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        const y = window.scrollY
+        if (blob1Ref.current) blob1Ref.current.style.transform = `translate3d(0, ${y * 0.14}px, 0)`
+        if (blob2Ref.current) blob2Ref.current.style.transform = `translate3d(0, ${y * -0.1}px, 0)`
+        if (blob3Ref.current) blob3Ref.current.style.transform = `translate3d(0, ${y * 0.18}px, 0)`
+        raf = null
+      })
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      if (raf) cancelAnimationFrame(raf)
+    }
+  }, [])
+
   return (
     <div className={s.page}>
       <a href="#main-content" className="skip-link">Skip to main content</a>
@@ -49,6 +79,11 @@ export default function LandingPage() {
           falloff={1.6}
           opacity={1}
         />
+      </div>
+      <div className={s.bgLayer} aria-hidden="true">
+        <span ref={blob1Ref} className={`${s.blob} ${s.blob1}`} />
+        <span ref={blob2Ref} className={`${s.blob} ${s.blob2}`} />
+        <span ref={blob3Ref} className={`${s.blob} ${s.blob3}`} />
       </div>
       <nav className={s.nav}>
         <Link to="/" className={s.navBrand}>
