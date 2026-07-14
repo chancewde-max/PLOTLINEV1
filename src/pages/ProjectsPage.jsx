@@ -13,6 +13,7 @@ import { STATUS_LABEL, STATUS_VARIANT } from '../data/sampleData.js'
 import PdfCanvas from '../components/PdfCanvas.jsx'
 import { Tooltip } from '../components/ui/Tooltip.jsx'
 import { SaveStatus } from '../components/SaveStatus.jsx'
+import TeamTab from './TeamTab.jsx'
 import s from './ProjectsPage.module.css'
 
 const ACCENTS = [
@@ -162,9 +163,7 @@ export default function ProjectsPage() {
           <span className={s.navLink} data-soon="true" aria-disabled="true">
             Pricebook <Badge variant="neutral">Soon</Badge>
           </span>
-          <span className={s.navLink} data-soon="true" aria-disabled="true">
-            Team <Badge variant="neutral">Soon</Badge>
-          </span>
+          <button type="button" className={s.navLink} data-on={activeTab === 'team' ? 'true' : undefined} onClick={() => setActiveTab('team')} style={{ cursor: 'pointer', background: 'none', border: 'none', font: 'inherit' }}>Team</button>
           <button type="button" className={s.navLink} data-on={activeTab === 'settings' ? 'true' : undefined} onClick={() => setActiveTab('settings')} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', font: 'inherit' }}><Settings size={13} /> Settings</button>
         </nav>
         <div className={s.topRight}>
@@ -258,6 +257,8 @@ export default function ProjectsPage() {
               </div>
             </div>
           </div>
+        ) : activeTab === 'team' ? (
+          <TeamTab />
         ) : (
         <>
         <div className={s.head}>

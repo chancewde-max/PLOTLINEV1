@@ -17,6 +17,7 @@ const LazySheetPage = lazy(() => import('./pages/SheetPage.jsx'))
 const LazyProjectPage = lazy(() => import('./pages/ProjectPage.jsx'))
 const LazyProjectsPage = lazy(() => import('./pages/ProjectsPage.jsx'))
 const LazyPricingPage = lazy(() => import('./pages/PricingPage.jsx'))
+const LazyAcceptInvitePage = lazy(() => import('./pages/AcceptInvitePage.jsx'))
 
 function SheetPageKeyed() {
   const { sheetId } = useParams()
@@ -60,6 +61,11 @@ export default function App() {
             <Route path="/app/project/:projectId/sheet/:sheetId" element={
               <Suspense fallback={<RouteSkeleton />}>
                 <SheetPageKeyed />
+              </Suspense>
+            } />
+            <Route path="/invite/:token" element={
+              <Suspense fallback={<RouteSkeleton />}>
+                <LazyAcceptInvitePage />
               </Suspense>
             } />
             <Route path="*" element={<Navigate to="/app" replace />} />

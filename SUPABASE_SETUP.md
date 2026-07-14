@@ -60,6 +60,39 @@ create one for you.
 - Open the app in another browser/profile and sign in with the same account —
   your data is there.
 
+## 6. (Optional) Teams
+
+The **Team** tab on the home page lets one account own a shared workspace
+that teammates are invited into. It needs one more SQL file on top of the
+base schema above:
+
+1. In Supabase, open **SQL → New query**.
+2. Paste the entire contents of
+   [`supabase/schema_teams.sql`](./supabase/schema_teams.sql) and click **Run**.
+   This adds `organizations`, `org_members`, `org_invites`, and `org_data`
+   (a shared, RLS-scoped counterpart to `app_data`), plus a couple of
+   `security definer` RPCs (`create_organization`, `accept_org_invite`) that
+   do the multi-row writes those actions need atomically.
+3. No new env vars — it reuses the same Supabase project/credentials.
+
+How it works:
+
+- From the **Team** tab, a signed-in user can create a team (they become
+  admin) or paste an invite link to join one.
+- Admins invite teammates by email from the Team tab. There's no outbound
+  email sending wired up (this app has no backend to send mail from), so
+  inviting generates a link (`/invite/<token>`) that the admin copies and
+  sends manually — text, Slack, email, whatever's convenient.
+- Once someone is on a team, **their projects/sheets/categories switch from
+  their private workspace to the team's shared one** — everyone on the team
+  sees and edits the same projects. Existing personal projects are not
+  auto-migrated into a newly created team, to avoid surprising other members
+  with someone's private data.
+- The **Pipeline** sub-tab is a lightweight CRM view: filter projects by
+  status or assignee, and assign a project to a teammate (stored as an
+  `assignedTo` field directly on the project — no separate table needed).
+- v1 keeps this simple: a user belongs to **at most one team at a time**.
+
 ---
 
 ## How it works (no-cred safe)
@@ -79,8 +112,12 @@ create one for you.
 | File | Purpose |
 |------|---------|
 | `supabase/schema.sql` | Table + RLS policies to run in Supabase |
+| `supabase/schema_teams.sql` | Teams: orgs, membership, invites, shared `org_data` |
 | `src/lib/supabaseClient.js` | `createClient` + `supabaseEnabled` guard |
-| `src/data/cloudSync.js` | `loadUserSnapshot` / `saveUserSnapshot` |
-| `src/auth/AuthProvider.jsx` | Session tracking, hydration, autosave |
+| `src/data/cloudSync.js` | `loadUserSnapshot` / `saveUserSnapshot` (personal) |
+| `src/data/orgSync.js` | Org CRUD, invites, `loadOrgSnapshot` / `saveOrgSnapshot` (shared) |
+| `src/auth/AuthProvider.jsx` | Session tracking, hydration/autosave, org data-source switching |
 | `src/auth/AuthModal.jsx` | Login/sign-up modal |
+| `src/pages/TeamTab.jsx` | Team tab: create/join team, roster, invites, CRM pipeline view |
+| `src/pages/AcceptInvitePage.jsx` | `/invite/:token` — preview + accept an invite |
 | `.env` | `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` |
