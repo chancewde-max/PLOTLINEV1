@@ -7,12 +7,15 @@
 // gracefully by AuthProvider).
 
 import React, { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Dialog } from '../components/ui/Dialog.jsx'
 import { Button } from '../components/ui/Button.jsx'
 import { Input } from '../components/ui/Input.jsx'
 import { useAuth } from './AuthProvider.jsx'
+import { loadSubscription, hasActiveAccess } from '../data/subscription.js'
 
 export function AuthModal({ open, onClose }) {
+  const navigate = useNavigate()
   const { user, signIn, signUp, signOut, authError, cloudEnabled } = useAuth()
   const [mode, setMode] = useState('signin') // 'signin' | 'signup'
   const [email, setEmail] = useState('')
@@ -40,6 +43,10 @@ export function AuthModal({ open, onClose }) {
         await signUp(email.trim(), password)
       }
       onClose?.()
+      // Route to the app if there's an active subscription, otherwise send
+      // them to pick a plan. (Simulated, per-browser subscription state —
+      // see src/data/subscription.js.)
+      navigate(hasActiveAccess(loadSubscription()) ? '/app' : '/pricing')
     } catch (e) {
       setErr(e?.message || 'Something went wrong')
     } finally {

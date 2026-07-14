@@ -11,6 +11,7 @@ import { useAppData } from '../data/useAppData.jsx'
 import { useAuth } from '../auth/AuthProvider.jsx'
 import { useSettings } from '../data/useSettings.jsx'
 import { STATUS_LABEL, STATUS_VARIANT } from '../data/sampleData.js'
+import { loadSubscription, SUB_KEY } from '../data/subscription.js'
 import PdfCanvas from '../components/PdfCanvas.jsx'
 import { Tooltip } from '../components/ui/Tooltip.jsx'
 import { SaveStatus } from '../components/SaveStatus.jsx'
@@ -44,25 +45,6 @@ const PREVIEW_COLOR = {
 }
 
 const EMPTY_FORM = { name: '', client: '', address: '', status: 'draft' }
-
-const SUB_KEY = 'plotline-subscription'
-
-// Load persisted subscription, or seed a default Pro trial on first run.
-function loadSubscription() {
-  try {
-    const raw = localStorage.getItem(SUB_KEY)
-    if (raw) return JSON.parse(raw)
-  } catch { /* ignore corrupt storage */ }
-  const next = new Date()
-  next.setDate(next.getDate() + 30)
-  return {
-    status: 'active',
-    plan: 'Pro',
-    nextBilling: next.toISOString(),
-    cancelledAt: null,
-    cancelEffective: null,
-  }
-}
 
 function fmtDate(iso) {
   if (!iso) return ''
