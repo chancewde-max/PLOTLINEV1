@@ -7,12 +7,22 @@ export function Dialog({ open, onClose, title, description, children, footer, wi
   const titleId = useId()
   const descId = useId()
 
+  // Callers pass onClose as a fresh inline function every render (e.g.
+  // `onClose={() => setOpen(false)}`), so it can't safely live in the effect
+  // below's dependency array — that would re-run "move focus into the
+  // dialog" on every keystroke in a form field, stealing focus to the first
+  // focusable element (the ✕ close button) after each character typed.
+  // Stash the latest one in a ref instead so the Escape handler stays
+  // current without retriggering the effect.
+  const onCloseRef = useRef(onClose)
+  useEffect(() => { onCloseRef.current = onClose })
+
   useEffect(() => {
     if (!open) return
     previouslyFocused.current = document.activeElement
 
     const onKey = (e) => {
-      if (e.key === 'Escape') { onClose?.(); return }
+      if (e.key === 'Escape') { onCloseRef.current?.(); return }
       if (e.key === 'Tab') {
         const panel = panelRef.current
         if (!panel) return
@@ -47,7 +57,7 @@ export function Dialog({ open, onClose, title, description, children, footer, wi
         previouslyFocused.current.focus()
       }
     }
-  }, [open, onClose])
+  }, [open])
 
   if (!open) return null
 
