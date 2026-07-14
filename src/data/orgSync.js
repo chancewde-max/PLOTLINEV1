@@ -137,7 +137,7 @@ export async function loadOrgSnapshot(orgId) {
   if (!supabaseEnabled || !supabase || !orgId) return null
   const { data, error } = await supabase
     .from('org_data')
-    .select('projects, sheets, custom_cats, company')
+    .select('projects, sheets, custom_cats, company, proposal_templates, mto_templates, clients')
     .eq('org_id', orgId)
     .maybeSingle()
 
@@ -152,6 +152,9 @@ export async function loadOrgSnapshot(orgId) {
     sheets: data.sheets ?? {},
     customCats: data.custom_cats ?? [],
     company: data.company ?? null,
+    proposalTemplates: data.proposal_templates ?? {},
+    mtoTemplates: data.mto_templates ?? {},
+    clients: data.clients ?? {},
   }
 }
 
@@ -168,6 +171,9 @@ export async function saveOrgSnapshot(orgId, snapshot) {
         sheets: snapshot.sheets ?? {},
         custom_cats: snapshot.customCats ?? [],
         company: snapshot.company ?? null,
+        proposal_templates: snapshot.proposalTemplates ?? {},
+        mto_templates: snapshot.mtoTemplates ?? {},
+        clients: snapshot.clients ?? {},
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'org_id' }

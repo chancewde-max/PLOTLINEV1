@@ -122,13 +122,16 @@ export function AuthProvider({ children }) {
       sheets: app.sheets,
       customCats: app.customCats,
       company: app.company,
+      proposalTemplates: app.proposalTemplates,
+      mtoTemplates: app.mtoTemplates,
+      clients: app.clients,
     }
     if (orgIdRef.current) {
       await saveOrgSnapshot(orgIdRef.current, payload).catch(() => {})
     } else {
       await saveUserSnapshot(user.id, payload).catch(() => {})
     }
-  }, [user, app.projects, app.sheets, app.customCats, app.company])
+  }, [user, app.projects, app.sheets, app.customCats, app.company, app.proposalTemplates, app.mtoTemplates, app.clients])
 
   // Point the active workspace at `targetOrgId` (or personal, if null) and
   // hydrate from it. `membershipsList` lets callers pass a just-refreshed
@@ -177,6 +180,13 @@ export function AuthProvider({ children }) {
   }, [])
 
   // ---- On login: resolve memberships, restore last workspace, hydrate ----
+  // Deliberately keyed on user?.id, NOT the user object itself: Supabase
+  // fires onAuthStateChange (and hands back a new `user` object) on
+  // background token refreshes too, not just real sign-in. If this effect
+  // re-ran on every one of those, it would re-fetch whatever's currently in
+  // the cloud and hard-replace local state (hydrate(..., false)) with it —
+  // silently clobbering any local edit made in the few hundred ms before the
+  // debounced autosave had a chance to persist it (e.g. a just-added sheet).
   useEffect(() => {
     if (!supabaseEnabled || !supabase) return
     if (!user) {
@@ -221,7 +231,7 @@ export function AuthProvider({ children }) {
     })()
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user])
+  }, [user?.id])
 
   // ---- While logged in: debounced cloud save on state change ----
   useEffect(() => {
@@ -235,7 +245,7 @@ export function AuthProvider({ children }) {
       if (saveTimer.current) clearTimeout(saveTimer.current)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [app.projects, app.sheets, app.customCats, app.company, user])
+  }, [app.projects, app.sheets, app.customCats, app.company, app.proposalTemplates, app.mtoTemplates, app.clients, user])
 
   // ---- Auth actions ----
   const signIn = useCallback(async (email, password) => {
