@@ -32,45 +32,52 @@ export function AccountCard({ onOpenSettings }) {
       </button>
 
       {show && (
-        <div className={s.card} role="dialog" aria-label="Account">
-          <div className={s.head}>
-            <Avatar name={name} size="lg" status={user ? 'online' : undefined} />
-            <div className={s.headText}>
-              <div className={s.headName}>{user ? name : 'Guest'}</div>
-              <div className={s.headSub}>{subtitle}</div>
+        // .card spans the visual gap between the trigger and the visible
+        // panel too (via padding-top on this element, not margin on
+        // .cardInner) so the pointer never crosses "dead" space that isn't
+        // part of this hoverable subtree — otherwise mouseleave fires before
+        // the cursor reaches the panel.
+        <div className={s.card}>
+          <div className={s.cardInner} role="dialog" aria-label="Account">
+            <div className={s.head}>
+              <Avatar name={name} size="lg" status={user ? 'online' : undefined} />
+              <div className={s.headText}>
+                <div className={s.headName}>{user ? name : 'Guest'}</div>
+                <div className={s.headSub}>{subtitle}</div>
+              </div>
             </div>
-          </div>
 
-          <div className={s.rows}>
-            <div className={s.row}>
-              <Mail size={14} className={s.rowIcon} />
-              <span>{user ? user.email : 'Sign in to sync your projects'}</span>
+            <div className={s.rows}>
+              <div className={s.row}>
+                <Mail size={14} className={s.rowIcon} />
+                <span>{user ? user.email : 'Sign in to sync your projects'}</span>
+              </div>
+              <div className={s.row}>
+                <Users size={14} className={s.rowIcon} />
+                <span>{orgName || 'Personal workspace'}</span>
+              </div>
+              <div className={s.row}>
+                {cloudEnabled ? <Cloud size={14} className={s.rowIcon} /> : <CloudOff size={14} className={s.rowIcon} />}
+                <span>{cloudEnabled ? 'Cloud sync on' : 'Cloud sync not configured'}</span>
+              </div>
             </div>
-            <div className={s.row}>
-              <Users size={14} className={s.rowIcon} />
-              <span>{orgName || 'Personal workspace'}</span>
-            </div>
-            <div className={s.row}>
-              {cloudEnabled ? <Cloud size={14} className={s.rowIcon} /> : <CloudOff size={14} className={s.rowIcon} />}
-              <span>{cloudEnabled ? 'Cloud sync on' : 'Cloud sync not configured'}</span>
-            </div>
-          </div>
 
-          <div className={s.foot}>
-            {user ? (
-              <>
-                <Button variant="secondary" size="sm" iconLeft={<Settings size={14} />} fullWidth onClick={onOpenSettings}>
-                  Settings
+            <div className={s.foot}>
+              {user ? (
+                <>
+                  <Button variant="secondary" size="sm" iconLeft={<Settings size={14} />} fullWidth onClick={onOpenSettings}>
+                    Settings
+                  </Button>
+                  <Button variant="ghost" size="sm" iconLeft={<LogOut size={14} />} fullWidth onClick={signOut}>
+                    Sign out
+                  </Button>
+                </>
+              ) : (
+                <Button variant="primary" size="sm" iconLeft={<LogIn size={14} />} fullWidth onClick={() => openAuth('signin')}>
+                  Sign in
                 </Button>
-                <Button variant="ghost" size="sm" iconLeft={<LogOut size={14} />} fullWidth onClick={signOut}>
-                  Sign out
-                </Button>
-              </>
-            ) : (
-              <Button variant="primary" size="sm" iconLeft={<LogIn size={14} />} fullWidth onClick={() => openAuth('signin')}>
-                Sign in
-              </Button>
-            )}
+              )}
+            </div>
           </div>
         </div>
       )}

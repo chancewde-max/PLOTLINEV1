@@ -13,17 +13,25 @@
 }
 .trigger:focus-visible { outline: 2px solid var(--brand-600); outline-offset: 2px; }
 
+/* Spans from the trigger's bottom edge (top: 100%, no gap) down past the
+   visible panel; the 10px offset is padding-top on THIS element so the
+   pointer stays inside the hoverable subtree the whole way from the avatar
+   to the panel — a true gap here would drop the hover before it arrives. */
 .card {
   position: absolute;
-  top: calc(100% + 10px);
+  top: 100%;
   right: 0;
+  padding-top: 10px;
+  z-index: 50;
+}
+
+.cardInner {
   width: 280px;
   background: var(--surface-card);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-xl);
   overflow: hidden;
-  z-index: 50;
   animation: fadeIn var(--dur-fast) var(--ease-out);
 }
 
