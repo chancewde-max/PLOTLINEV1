@@ -218,8 +218,13 @@ void main() {
         window.removeEventListener('resize', updateSize);
         if (renderer) {
           try {
-            const loseCtx = renderer.gl.getExtension('WEBGL_lose_context');
-            if (loseCtx) loseCtx.loseContext();
+            // Just drop the canvas and null out every reference to the
+            // context; let the browser reclaim it naturally on GC. Forcing
+            // WEBGL_lose_context here crashed the whole tab under software
+            // rendering (headless Chromium / no real GPU) — this component
+            // only ever holds one context at a time, so there's no "too
+            // many active contexts" pressure that would make an explicit
+            // context-loss call necessary.
             const canvas = renderer.gl.canvas;
             if (canvas && canvas.parentNode) canvas.parentNode.removeChild(canvas);
           } catch (e) {}
