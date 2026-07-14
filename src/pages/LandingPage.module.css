@@ -25,8 +25,11 @@
   width: 100%;
   height: 100%;
 }
-/* Keep the page's real content above the rays. */
-.page > :not(.raysBg) {
+/* Keep the page's real content above the rays. Excludes .nav — it sets its
+   own position (sticky) and z-index, and this rule's higher specificity
+   (.page > :not(...)) would otherwise silently force it back to
+   `relative`, breaking the sticky top bar. */
+.page > :not(.raysBg):not(.nav) {
   position: relative;
   z-index: 1;
 }
