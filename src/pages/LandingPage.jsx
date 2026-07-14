@@ -5,6 +5,9 @@ import {
   Sprout,
   FileSpreadsheet,
   ArrowRight,
+  Clock,
+  Target,
+  Award,
 } from 'lucide-react'
 import { Button } from '../components/ui/Button.jsx'
 import { Badge } from '../components/ui/Badge.jsx'
@@ -100,46 +103,81 @@ export default function LandingPage() {
           </div>
         </div>
 
-        {/* ---- Hero visual: plan-sheet mock ---- */}
-        <div className={s.sheet}>
-          <div className={s.sheetGrid} />
-          <div className={s.sheetHead}>
-            <span>Maple Grove · Irrigation Plan · Sheet A-2</span>
-            <span className={s.sheetPill} style={{ background: 'var(--brand-50)', color: 'var(--brand-700)' }}>
-              Plotline
-            </span>
+        {/* ---- Hero visual: plan-sheet mock, framed like a real product window ---- */}
+        <div className={s.sheetStage}>
+          <div className={s.sheetGlow} aria-hidden="true" />
+          <div className={s.sheetBack} aria-hidden="true" />
+          <div className={s.sheet}>
+            <div className={s.chrome}>
+              <span className={s.dot} data-c="a" />
+              <span className={s.dot} data-c="b" />
+              <span className={s.dot} data-c="c" />
+              <span className={s.chromeTab}>Maple Grove · Irrigation Plan · A-2</span>
+            </div>
+            <div className={s.sheetBody}>
+              <div className={s.sheetGrid} />
+              <svg className={s.sheetSvg} viewBox="0 0 420 250" fill="none">
+                {/* property boundary */}
+                <rect x="14" y="12" width="392" height="200" rx="6"
+                  stroke="var(--paper-edge)" strokeWidth="2" />
+                {/* compass */}
+                <g transform="translate(382,34)" opacity="0.55">
+                  <circle r="13" fill="none" stroke="var(--text-subtle)" strokeWidth="1.2" />
+                  <path d="M0,-9 L3,0 L0,9 L-3,0 Z" fill="var(--text-subtle)" />
+                  <text x="0" y="-17" textAnchor="middle" fontSize="8" fill="var(--text-subtle)">N</text>
+                </g>
+                {/* area — turf */}
+                <path d="M52 58 L206 44 L244 128 L70 142 Z"
+                  fill="var(--takeoff-area)" fillOpacity="0.18"
+                  stroke="var(--takeoff-area)" strokeWidth="2.5" strokeLinejoin="round" />
+                {/* area — planting bed */}
+                <path d="M268 132 L358 140 L352 186 L260 180 Z"
+                  fill="var(--takeoff-volume)" fillOpacity="0.16"
+                  stroke="var(--takeoff-volume)" strokeWidth="2" strokeLinejoin="round" />
+                {/* linear — irrigation mainline */}
+                <polyline points="40,170 118,124 214,150 340,96"
+                  fill="none" stroke="var(--takeoff-linear)" strokeWidth="3"
+                  strokeLinecap="round" strokeLinejoin="round" />
+                {/* count — planting / heads */}
+                {[[112,124],[168,136],[228,122],[276,110],[312,100],[140,168],[204,164],[266,162],[300,158]]
+                  .map(([cx, cy], i) => (
+                    <circle key={i} cx={cx} cy={cy} r="4.5"
+                      fill="var(--takeoff-count)" fillOpacity="0.92"
+                      stroke="var(--slate-0)" strokeWidth="1.3" />
+                  ))}
+                {/* the "live" point — pulsing ring signals this is an active tool, not a photo */}
+                <circle cx="228" cy="122" r="4.5" fill="var(--takeoff-count)" stroke="var(--slate-0)" strokeWidth="1.3" />
+                <circle cx="228" cy="122" r="9" fill="none" stroke="var(--takeoff-count)" strokeWidth="1.5" className={s.pulseRing} />
+                {/* dimension line */}
+                <g stroke="var(--text-subtle)" strokeWidth="1">
+                  <line x1="52" y1="214" x2="244" y2="214" />
+                  <line x1="52" y1="209" x2="52" y2="219" />
+                  <line x1="244" y1="209" x2="244" y2="219" />
+                </g>
+                <text x="148" y="208" textAnchor="middle" fontSize="9" fill="var(--text-subtle)">96'-0"</text>
+              </svg>
+            </div>
           </div>
-          <svg className={s.sheetSvg} viewBox="0 0 420 280" fill="none">
-            {/* property boundary */}
-            <rect x="24" y="20" width="372" height="240" rx="8"
-              stroke="var(--paper-edge)" strokeWidth="2" />
-            {/* area — turf */}
-            <path d="M60 70 L210 55 L250 150 L80 165 Z"
-              fill="var(--takeoff-area)" fillOpacity="0.16"
-              stroke="var(--takeoff-area)" strokeWidth="2.5" />
-            {/* linear — irrigation mainline */}
-            <polyline points="48,210 130,150 230,180 360,120"
-              stroke="var(--takeoff-linear)" strokeWidth="3"
-              strokeLinecap="round" strokeLinejoin="round" />
-            {/* count — planting / heads */}
-            {[[120,150],[180,165],[250,150],[305,135],[345,125],[150,205],[230,200],[300,200]]
-              .map(([cx, cy], i) => (
-                <circle key={i} cx={cx} cy={cy} r="5"
-                  fill="var(--takeoff-count)" fillOpacity="0.9"
-                  stroke="var(--slate-0)" strokeWidth="1.5" />
-              ))}
-          </svg>
-          <div className={s.calloutCard} style={{ top: 56, left: 250 }}>
-            <span className={s.swatch} style={{ background: 'var(--takeoff-area)' }} />
-            Sod · 4,820 ft²
+          <div className={s.calloutCard} style={{ top: 30, left: 236 }}>
+            <span className={s.calloutSwatch} style={{ background: 'var(--takeoff-area)' }} />
+            <div>
+              <div className={s.calloutLabel}>Sod</div>
+              <div className={s.calloutValue}>4,820 ft²</div>
+            </div>
           </div>
-          <div className={s.calloutCard} style={{ top: 175, left: 36 }}>
-            <span className={s.swatch} style={{ background: 'var(--takeoff-linear)' }} />
-            Mainline · 312 ft
+          <div className={s.calloutCard} style={{ top: 154, left: 12 }}>
+            <span className={s.calloutSwatch} style={{ background: 'var(--takeoff-linear)' }} />
+            <div>
+              <div className={s.calloutLabel}>Mainline</div>
+              <div className={s.calloutValue}>312 ft</div>
+            </div>
           </div>
-          <div className={s.calloutCard} style={{ top: 215, left: 250 }}>
-            <span className={s.swatch} style={{ background: 'var(--takeoff-count)' }} />
-            8 spray heads
+          <div className={s.calloutCard} style={{ top: 196, left: 236 }}>
+            <span className={s.calloutSwatch} style={{ background: 'var(--takeoff-count)' }} />
+            <div>
+              <div className={s.calloutLabel}>Spray heads</div>
+              <div className={s.calloutValue}>8 pts</div>
+            </div>
           </div>
         </div>
       </header>
@@ -220,14 +258,17 @@ export default function LandingPage() {
       <section className={s.container}>
         <div className={s.stats}>
           <div className={s.stat}>
+            <Clock size={20} className={s.statIcon} />
             <div className={s.statV}>6+ hrs</div>
             <div className={s.statK}>saved per takeoff</div>
           </div>
           <div className={s.stat}>
+            <Target size={20} className={s.statIcon} />
             <div className={s.statV}>99%</div>
             <div className={s.statK}>measurement accuracy</div>
           </div>
           <div className={s.stat}>
+            <Award size={20} className={s.statIcon} />
             <div className={s.statV}>100%</div>
             <div className={s.statK}>built for landscapers</div>
           </div>

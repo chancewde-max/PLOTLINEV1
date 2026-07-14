@@ -108,16 +108,69 @@
 }
 .ctaRow { display: flex; gap: 12px; flex-wrap: wrap; }
 
-/* ---- Hero visual: plan-sheet mock ---------------- */
+/* ---- Hero visual: plan-sheet mock, framed like a real product window ---- */
+.sheetStage {
+  position: relative;
+  padding: 22px 14px 14px 22px;
+}
+
+/* Soft ambient glow behind the whole stack, for depth rather than a flat cutout. */
+.sheetGlow {
+  position: absolute;
+  inset: -30px;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(55% 55% at 48% 38%, color-mix(in srgb, var(--brand-500) 20%, transparent), transparent 72%);
+  filter: blur(18px);
+}
+
+/* A second sheet peeking out behind the main one — a stack, not a single flat image. */
+.sheetBack {
+  position: absolute;
+  inset: 30px 0 0 30px;
+  z-index: 1;
+  background: var(--surface-paper);
+  border: 1px solid var(--paper-edge);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  transform: rotate(-3deg);
+}
+
 .sheet {
   position: relative;
+  z-index: 2;
   border-radius: var(--radius-xl);
   background: var(--surface-paper);
   border: 1px solid var(--paper-edge);
-  box-shadow: var(--shadow-lg);
-  padding: 18px;
+  box-shadow: var(--shadow-xl);
   overflow: hidden;
 }
+
+/* Browser-chrome tab bar so the mock reads as a real product screen. */
+.chrome {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: var(--surface-card);
+  border-bottom: 1px solid var(--paper-edge);
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+.dot[data-c="a"] { background: #ef4444; }
+.dot[data-c="b"] { background: #f59e0b; }
+.dot[data-c="c"] { background: #22c55e; }
+.chromeTab {
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheetBody { position: relative; padding: 16px; }
 .sheetGrid {
   position: absolute;
   inset: 0;
@@ -128,43 +181,41 @@
   opacity: 0.7;
 }
 .sheetSvg { position: relative; width: 100%; height: auto; display: block; }
-.sheetHead {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-  font-size: 11px;
-  color: var(--text-muted);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+
+/* Pulsing selection ring on the "live" measurement point — signals an
+   active tool rather than a static screenshot. */
+.pulseRing {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: pulseRing 1.8s ease-out infinite;
 }
-.sheetPill {
-  font-size: 11px;
-  font-weight: 700;
-  padding: 3px 9px;
-  border-radius: var(--radius-pill);
+@keyframes pulseRing {
+  0%   { opacity: 0.9; transform: scale(0.6); }
+  70%  { opacity: 0;   transform: scale(1.7); }
+  100% { opacity: 0;   transform: scale(1.7); }
 }
-.callout {
-  position: relative;
-  z-index: 2;
-}
+
 .calloutCard {
   position: absolute;
   z-index: 3;
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 6px 10px;
+  gap: 9px;
+  padding: 8px 12px;
   border-radius: var(--radius-md);
   background: var(--slate-0);
-  box-shadow: var(--shadow-md);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-strong);
+  box-shadow: var(--shadow-lg);
   white-space: nowrap;
 }
-.swatch { width: 10px; height: 10px; border-radius: 3px; }
+.calloutSwatch { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; }
+.calloutLabel {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.calloutValue { font-size: 13px; font-weight: 700; color: var(--text-strong); margin-top: 1px; }
 
 /* ---- Section scaffolding -------------------------- */
 .section { padding: 64px 0; }
@@ -199,14 +250,20 @@
   border-radius: var(--radius-xl);
   padding: 26px 24px;
   box-shadow: var(--shadow-sm);
+  transition:
+    transform var(--dur-base) var(--ease-standard),
+    box-shadow var(--dur-base) var(--ease-standard),
+    border-color var(--dur-base) var(--ease-standard);
 }
+.feature:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); border-color: var(--border-strong); }
 .featureIcon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 44px; height: 44px;
   border-radius: var(--radius-lg);
-  background: var(--brand-50);
+  background: linear-gradient(155deg, var(--brand-50), color-mix(in srgb, var(--brand-100) 65%, transparent));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-600) 14%, transparent);
   color: var(--brand-600);
   margin-bottom: 16px;
 }
@@ -232,7 +289,12 @@
   border-radius: var(--radius-xl);
   background: var(--surface-sunken);
   border: 1px solid var(--border-subtle);
+  transition:
+    transform var(--dur-base) var(--ease-standard),
+    box-shadow var(--dur-base) var(--ease-standard),
+    border-color var(--dur-base) var(--ease-standard);
 }
+.step:hover { transform: translateY(-3px); box-shadow: var(--shadow-sm); border-color: var(--border-strong); }
 .stepNum {
   counter-increment: step;
   display: flex;
@@ -267,6 +329,7 @@
   color: var(--text-inverse);
 }
 .stat { text-align: center; }
+.statIcon { color: color-mix(in srgb, var(--text-inverse) 55%, transparent); margin-bottom: 10px; }
 .statV {
   font-family: var(--font-display);
   font-weight: 700;
