@@ -10,16 +10,20 @@
 //
 // Cloud path (when creds are present):
 //   - Tracks the Supabase session via onAuthStateChange.
-//   - On login: resolves which organization (if any) the user belongs to —
-//     v1 assumes at most one — then loads that org's SHARED snapshot
-//     (org_data) if in an org, or the user's PERSONAL snapshot (app_data)
-//     otherwise, and REPLACES local state (keeps local data if the cloud
-//     snapshot is empty).
-//   - While logged in: debounced (~800ms) subscription to useAppData state
-//     saves the snapshot back to whichever source is currently active
-//     (org_data vs app_data).
-//   - createOrganization / acceptInvite / leaveOrganization switch the active
-//     data source live and re-hydrate from the new source.
+//   - A user can belong to any number of organizations. `memberships` holds
+//     all of them; `orgId`/`orgRole`/`orgName` describe whichever ONE is the
+//     active "workspace" right now (null orgId = the user's personal
+//     workspace). `switchWorkspace(orgId | null)` moves between them.
+//   - On login: loads memberships, restores the last-used workspace for this
+//     user (localStorage), and hydrates from that workspace's snapshot
+//     (org_data if in a team, app_data if personal). Replaces local state
+//     (keeps local data if the cloud snapshot is empty).
+//   - While on a workspace: debounced (~800ms) subscription to useAppData
+//     state saves the snapshot back to whichever source is currently active.
+//   - switchWorkspace / createOrganization / acceptInvite / leaveOrganization
+//     all flush any pending edits to the OUTGOING workspace first (so a
+//     switch never leaks one workspace's edits into another's row), then
+//     hydrate from the new one.
 //   - On logout: resets state to defaults and clears the session.
 
 import React, {
@@ -48,6 +52,29 @@ export function useAuth() {
   return useContext(AuthCtx)
 }
 
+// Remember which workspace a user was last on, per-browser, so a reload (or
+// the invite-accept redirect) lands them back where they left off.
+const WORKSPACE_KEY_PREFIX = 'plotline-workspace-'
+function getWorkspacePref(userId) {
+  try { return localStorage.getItem(WORKSPACE_KEY_PREFIX + userId) || null } catch { return null }
+}
+function setWorkspacePref(userId, orgId) {
+  try {
+    if (orgId) localStorage.setItem(WORKSPACE_KEY_PREFIX + userId, orgId)
+    else localStorage.removeItem(WORKSPACE_KEY_PREFIX + userId)
+  } catch { /* ignore */ }
+}
+
+// Flatten the org_members(+organizations) join into a simple list the UI can
+// render directly: [{ org_id, role, name }, ...]
+function flattenMemberships(rows) {
+  return (rows || []).map(r => ({
+    org_id: r.org_id,
+    role: r.role,
+    name: r.organizations?.name || 'Untitled team',
+  }))
+}
+
 export function AuthProvider({ children }) {
   const app = useAppData()
   const [user, setUser] = useState(null)
@@ -64,31 +91,32 @@ export function AuthProvider({ children }) {
   const hydratedRef = useRef(false)
   const saveTimer = useRef(null)
 
-  // ---- Organization membership (v1: at most one org per user) ----
+  // ---- Organization membership ----
+  // `memberships` = every org the user belongs to. `orgId` (+ role/name) =
+  // the ONE currently-active workspace (null = personal).
+  const [memberships, setMemberships] = useState([])
   const [orgId, setOrgId] = useState(null)
   const [orgRole, setOrgRole] = useState(null)
   const [orgName, setOrgName] = useState(null)
   const [orgLoading, setOrgLoading] = useState(false)
-  // Mirrors orgId but readable synchronously inside async flows, so flush()
-  // always saves to whichever source is *actually* current, even mid-switch.
+  // Mirrors orgId but readable synchronously inside async flows, so
+  // flushCurrent() always saves to whichever source is *actually* current,
+  // even mid-switch.
   const orgIdRef = useRef(null)
 
-  const loadOrgContext = useCallback(async (uid) => {
-    setOrgLoading(true)
-    const memberships = await listMyOrgMemberships(uid)
-    const primary = memberships[0] || null
-    const nextOrgId = primary?.org_id ?? null
-    orgIdRef.current = nextOrgId
-    setOrgId(nextOrgId)
-    setOrgRole(primary?.role ?? null)
-    setOrgName(primary?.organizations?.name ?? null)
-    setOrgLoading(false)
-    return nextOrgId
+  const refreshMemberships = useCallback(async (uid) => {
+    const rows = await listMyOrgMemberships(uid)
+    const flat = flattenMemberships(rows)
+    setMemberships(flat)
+    return flat
   }, [])
 
-  // Debounced push of the current local state to the cloud (org or personal).
-  const flush = useCallback(() => {
-    if (!supabaseEnabled || !supabase || !user) return
+  // Save whatever's currently in useAppData to the workspace we're LEAVING
+  // (org_data or app_data, whichever orgIdRef.current currently points at)
+  // before we swap the data source out from under it.
+  const flushCurrent = useCallback(async () => {
+    if (!user || !hydratedRef.current) return
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
     const payload = {
       projects: app.projects,
       sheets: app.sheets,
@@ -96,11 +124,30 @@ export function AuthProvider({ children }) {
       company: app.company,
     }
     if (orgIdRef.current) {
-      saveOrgSnapshot(orgIdRef.current, payload).catch(() => {})
+      await saveOrgSnapshot(orgIdRef.current, payload).catch(() => {})
     } else {
-      saveUserSnapshot(user.id, payload).catch(() => {})
+      await saveUserSnapshot(user.id, payload).catch(() => {})
     }
-  }, [app.projects, app.sheets, app.customCats, app.company, user])
+  }, [user, app.projects, app.sheets, app.customCats, app.company])
+
+  // Point the active workspace at `targetOrgId` (or personal, if null) and
+  // hydrate from it. `membershipsList` lets callers pass a just-refreshed
+  // list so role/name are correct immediately (state updates are async).
+  const applyWorkspace = useCallback(async (targetOrgId, membershipsList) => {
+    const membership = targetOrgId
+      ? (membershipsList || memberships).find(m => m.org_id === targetOrgId)
+      : null
+    orgIdRef.current = targetOrgId
+    setOrgId(targetOrgId)
+    setOrgRole(membership?.role ?? null)
+    setOrgName(membership?.name ?? null)
+    if (user) setWorkspacePref(user.id, targetOrgId)
+
+    const snap = targetOrgId
+      ? await loadOrgSnapshot(targetOrgId)
+      : (user ? await loadUserSnapshot(user.id) : null)
+    app.hydrate?.(snap || emptySnapshot(), false)
+  }, [user, app, memberships])
 
   // ---- Track auth session ----
   useEffect(() => {
@@ -129,12 +176,13 @@ export function AuthProvider({ children }) {
     }
   }, [])
 
-  // ---- On login: resolve org membership, then load the right snapshot ----
+  // ---- On login: resolve memberships, restore last workspace, hydrate ----
   useEffect(() => {
     if (!supabaseEnabled || !supabase) return
     if (!user) {
       hydratedRef.current = false
       orgIdRef.current = null
+      setMemberships([])
       setOrgId(null)
       setOrgRole(null)
       setOrgName(null)
@@ -142,10 +190,20 @@ export function AuthProvider({ children }) {
     }
     let cancelled = false
     ;(async () => {
-      const nextOrgId = await loadOrgContext(user.id)
+      setOrgLoading(true)
+      const flat = await refreshMemberships(user.id)
       if (cancelled) return
-      const snap = nextOrgId
-        ? await loadOrgSnapshot(nextOrgId)
+      const pref = getWorkspacePref(user.id)
+      const target = pref && flat.some(m => m.org_id === pref) ? pref : null
+      const membership = target ? flat.find(m => m.org_id === target) : null
+      orgIdRef.current = target
+      setOrgId(target)
+      setOrgRole(membership?.role ?? null)
+      setOrgName(membership?.name ?? null)
+      setOrgLoading(false)
+
+      const snap = target
+        ? await loadOrgSnapshot(target)
         : await loadUserSnapshot(user.id)
       if (cancelled) return
       const hasCloudData =
@@ -159,7 +217,7 @@ export function AuthProvider({ children }) {
       if (hasCloudData) app.hydrate?.(snap, false)
       hydratedRef.current = true
       // Local edits but empty cloud → push them up so they persist.
-      if (!hasCloudData) flush()
+      if (!hasCloudData) flushCurrent()
     })()
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -171,7 +229,7 @@ export function AuthProvider({ children }) {
     if (!user || !hydratedRef.current) return
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => {
-      flush()
+      flushCurrent()
     }, 800)
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current)
@@ -210,6 +268,7 @@ export function AuthProvider({ children }) {
     }
     setUser(null)
     orgIdRef.current = null
+    setMemberships([])
     setOrgId(null)
     setOrgRole(null)
     setOrgName(null)
@@ -217,39 +276,50 @@ export function AuthProvider({ children }) {
     setAuthError(null)
   }, [app])
 
-  // ---- Organization actions ----
-  // Create a team, switch the active data source to it immediately (starting
-  // from an empty shared snapshot — local personal projects are NOT copied
-  // in, so nothing leaks into a brand-new org by accident).
+  // ---- Workspace / organization actions ----
+
+  // Switch between the personal workspace (null) and any org the user is
+  // already a member of. Flushes pending edits to the outgoing workspace
+  // first so nothing leaks across the boundary.
+  const switchWorkspace = useCallback(async (targetOrgId) => {
+    if (!supabaseEnabled || !supabase || !user) return
+    if (targetOrgId === orgIdRef.current) return
+    await flushCurrent()
+    await applyWorkspace(targetOrgId)
+  }, [user, flushCurrent, applyWorkspace])
+
+  // Create a team and switch to it immediately, starting from an empty
+  // shared snapshot — local personal projects are NOT copied in, so nothing
+  // leaks into a brand-new org by accident.
   const createOrganization = useCallback(async (name) => {
     if (!supabaseEnabled || !supabase || !user) throw new Error('Cloud not configured')
     const newOrgId = await createOrganizationApi(name)
-    await loadOrgContext(user.id)
-    const snap = await loadOrgSnapshot(newOrgId)
-    app.hydrate?.(snap || emptySnapshot(), false)
+    await flushCurrent()
+    const flat = await refreshMemberships(user.id)
+    await applyWorkspace(newOrgId, flat)
     return newOrgId
-  }, [user, app, loadOrgContext])
+  }, [user, flushCurrent, refreshMemberships, applyWorkspace])
 
   const acceptInvite = useCallback(async (token) => {
     if (!supabaseEnabled || !supabase || !user) throw new Error('Cloud not configured')
     const newOrgId = await acceptInviteApi(token)
-    await loadOrgContext(user.id)
-    const snap = await loadOrgSnapshot(newOrgId)
-    app.hydrate?.(snap || emptySnapshot(), false)
+    await flushCurrent()
+    const flat = await refreshMemberships(user.id)
+    await applyWorkspace(newOrgId, flat)
     return newOrgId
-  }, [user, app, loadOrgContext])
+  }, [user, flushCurrent, refreshMemberships, applyWorkspace])
 
-  // Leave the current org and fall back to the user's personal workspace.
+  // Leave the currently-active org and fall back to the personal workspace.
   const leaveOrganization = useCallback(async () => {
     if (!supabaseEnabled || !supabase || !user || !orgIdRef.current) return
-    await leaveOrganizationApi(orgIdRef.current, user.id)
+    const leftOrgId = orgIdRef.current
+    // Save any pending edits to the org before giving up write access to it.
+    await flushCurrent()
+    await leaveOrganizationApi(leftOrgId, user.id)
+    await refreshMemberships(user.id)
     orgIdRef.current = null
-    setOrgId(null)
-    setOrgRole(null)
-    setOrgName(null)
-    const snap = await loadUserSnapshot(user.id)
-    app.hydrate?.(snap || emptySnapshot(), false)
-  }, [user, app])
+    await applyWorkspace(null)
+  }, [user, flushCurrent, refreshMemberships, applyWorkspace])
 
   const value = {
     ...app,
@@ -263,12 +333,14 @@ export function AuthProvider({ children }) {
     signUp,
     signOut,
     cloudEnabled: supabaseEnabled,
-    // Organization / team context
+    // Organization / team / workspace context
+    memberships,
     orgId,
     orgRole,
     orgName,
     orgLoading,
     isOrgAdmin: orgRole === 'admin',
+    switchWorkspace,
     createOrganization,
     acceptInvite,
     leaveOrganization,

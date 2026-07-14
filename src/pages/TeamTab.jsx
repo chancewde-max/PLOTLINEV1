@@ -31,8 +31,8 @@ function tokenFromInput(raw) {
 export default function TeamTab() {
   const {
     user, cloudEnabled, openAuth,
-    orgId, orgRole, orgName, orgLoading, isOrgAdmin,
-    createOrganization, acceptInvite, leaveOrganization,
+    memberships, orgId, orgRole, orgName, orgLoading, isOrgAdmin,
+    switchWorkspace, createOrganization, acceptInvite, leaveOrganization,
   } = useAuth()
   const { projects, updateProject } = useAppData()
 
@@ -59,7 +59,14 @@ export default function TeamTab() {
   }
 
   if (!orgId) {
-    return <NoOrgState createOrganization={createOrganization} acceptInvite={acceptInvite} />
+    return (
+      <NoOrgState
+        memberships={memberships}
+        switchWorkspace={switchWorkspace}
+        createOrganization={createOrganization}
+        acceptInvite={acceptInvite}
+      />
+    )
   }
 
   return (
@@ -78,7 +85,7 @@ export default function TeamTab() {
 
 // ---------------------------------------------------------------------------
 
-function NoOrgState({ createOrganization, acceptInvite }) {
+function NoOrgState({ memberships, switchWorkspace, createOrganization, acceptInvite }) {
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
@@ -113,7 +120,31 @@ function NoOrgState({ createOrganization, acceptInvite }) {
   }
 
   return (
-    <div className={s.grid2}>
+    <div>
+      {memberships.length > 0 && (
+        <div className={s.card} style={{ maxWidth: 880, marginBottom: 16 }}>
+          <div className={s.cardTitle}>Your teams</div>
+          <p className={s.cardHint}>
+            You're currently viewing your personal projects. Switch to a team to see its shared projects.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {memberships.map(m => (
+              <div key={m.org_id} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '8px 12px', border: '1px solid var(--border-subtle)', borderRadius: 8,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-strong)' }}>{m.name}</span>
+                  <Badge variant={m.role === 'admin' ? 'brand' : 'neutral'}>{m.role === 'admin' ? 'Admin' : 'Member'}</Badge>
+                </div>
+                <Button variant="secondary" size="sm" onClick={() => switchWorkspace(m.org_id)}>Switch</Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className={s.grid2}>
       <div className={s.card}>
         <div className={s.cardTitle}>Create a team</div>
         <p className={s.cardHint}>
@@ -151,6 +182,7 @@ function NoOrgState({ createOrganization, acceptInvite }) {
             {joinBusy ? 'Joining…' : 'Join team'}
           </Button>
         </div>
+      </div>
       </div>
     </div>
   )

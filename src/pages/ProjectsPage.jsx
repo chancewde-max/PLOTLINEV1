@@ -8,6 +8,7 @@ import { Input } from '../components/ui/Input.jsx'
 import { Dialog } from '../components/ui/Dialog.jsx'
 import { Select } from '../components/ui/Select.jsx'
 import { useAppData } from '../data/useAppData.jsx'
+import { useAuth } from '../auth/AuthProvider.jsx'
 import { useSettings } from '../data/useSettings.jsx'
 import { STATUS_LABEL, STATUS_VARIANT } from '../data/sampleData.js'
 import PdfCanvas from '../components/PdfCanvas.jsx'
@@ -71,6 +72,7 @@ function fmtDate(iso) {
 export default function ProjectsPage() {
   const navigate = useNavigate()
   const { projects: allProjects, sheets, addProject } = useAppData()
+  const { user: authUser, cloudEnabled, memberships, orgId, switchWorkspace } = useAuth()
   const { theme, setTheme, accent, setAccent } = useSettings()
   const [search, setSearch] = useState('')
   const [dlgOpen, setDlgOpen] = useState(false)
@@ -155,6 +157,19 @@ export default function ProjectsPage() {
           <img src="/plotline-mark.svg" alt="Plotline" className={s.logo} />
           <b className={s.wordmark}>Plotline<span className={s.dot}>.</span></b>
         </div>
+        {cloudEnabled && authUser && memberships.length > 0 && (
+          <div style={{ width: 180 }}>
+            <Select
+              size="sm"
+              value={orgId || ''}
+              onChange={e => switchWorkspace(e.target.value || null)}
+              options={[
+                { value: '', label: 'Personal' },
+                ...memberships.map(m => ({ value: m.org_id, label: m.name })),
+              ]}
+            />
+          </div>
+        )}
         <nav className={s.nav}>
           <button type="button" className={s.navLink} data-on={activeTab === 'projects' ? 'true' : undefined} onClick={() => setActiveTab('projects')} style={{ cursor: 'pointer', background: 'none', border: 'none', font: 'inherit' }}>Projects</button>
           <span className={s.navLink} data-soon="true" aria-disabled="true">
