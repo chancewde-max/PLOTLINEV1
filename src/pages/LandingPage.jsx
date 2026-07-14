@@ -49,9 +49,9 @@ export default function LandingPage() {
       if (raf) return
       raf = requestAnimationFrame(() => {
         const y = window.scrollY
-        if (blob1Ref.current) blob1Ref.current.style.transform = `translate3d(0, ${y * 0.14}px, 0)`
-        if (blob2Ref.current) blob2Ref.current.style.transform = `translate3d(0, ${y * -0.1}px, 0)`
-        if (blob3Ref.current) blob3Ref.current.style.transform = `translate3d(0, ${y * 0.18}px, 0)`
+        if (blob1Ref.current) blob1Ref.current.style.transform = `translate3d(0, ${y * 0.28}px, 0)`
+        if (blob2Ref.current) blob2Ref.current.style.transform = `translate3d(0, ${y * -0.22}px, 0)`
+        if (blob3Ref.current) blob3Ref.current.style.transform = `translate3d(0, ${y * 0.34}px, 0)`
         raf = null
       })
     }
