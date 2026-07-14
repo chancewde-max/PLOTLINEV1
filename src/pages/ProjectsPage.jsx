@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { Search, Plus, Map, Sun, Moon, Settings } from 'lucide-react'
 import { Button } from '../components/ui/Button.jsx'
 import { Badge } from '../components/ui/Badge.jsx'
-import { Avatar } from '../components/ui/Avatar.jsx'
 import { Input } from '../components/ui/Input.jsx'
 import { Dialog } from '../components/ui/Dialog.jsx'
 import { Select } from '../components/ui/Select.jsx'
@@ -13,8 +12,8 @@ import { useSettings } from '../data/useSettings.jsx'
 import { STATUS_LABEL, STATUS_VARIANT } from '../data/sampleData.js'
 import { loadSubscription, SUB_KEY } from '../data/subscription.js'
 import PdfCanvas from '../components/PdfCanvas.jsx'
-import { Tooltip } from '../components/ui/Tooltip.jsx'
 import { SaveStatus } from '../components/SaveStatus.jsx'
+import { AccountCard } from '../components/AccountCard.jsx'
 import TeamTab from './TeamTab.jsx'
 import s from './ProjectsPage.module.css'
 
@@ -175,9 +174,7 @@ export default function ProjectsPage() {
             />
           </div>
           <SaveStatus />
-          <Tooltip label="Account" side="bottom">
-            <Avatar name="Amy Reyes" status="online" />
-          </Tooltip>
+          <AccountCard onOpenSettings={() => setActiveTab('settings')} />
         </div>
       </header>
 
