@@ -1,22 +1,24 @@
 // AuthModal — global login / sign-up dialog.
 //
-// Uses the existing design-system primitives (Dialog, Button, Input). Kept
-// self-contained with a small inline style block so it slots into any page
-// without touching their CSS modules. When cloud is not configured it shows a
-// short note and the actions reject with "Cloud not configured" (handled
-// gracefully by AuthProvider).
+// Uses the existing design-system primitives (Dialog, Button, Input, Avatar).
+// While the initial session check is in flight (useAuth().loading), renders a
+// skeleton in place of the real form/account panel — otherwise a returning
+// signed-in user would see a flash of the sign-in form immediately swapped
+// for "Your account" once the async check resolves. When cloud is not
+// configured it shows a short note and the actions reject with
+// "Cloud not configured" (handled gracefully by AuthProvider).
 
 import React, { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { ShieldCheck, Mail, Lock } from 'lucide-react'
 import { Dialog } from '../components/ui/Dialog.jsx'
 import { Button } from '../components/ui/Button.jsx'
 import { Input } from '../components/ui/Input.jsx'
+import { Avatar } from '../components/ui/Avatar.jsx'
 import { useAuth } from './AuthProvider.jsx'
-import { loadSubscription, hasActiveAccess } from '../data/subscription.js'
+import s from './AuthModal.module.css'
 
 export function AuthModal({ open, onClose }) {
-  const navigate = useNavigate()
-  const { user, signIn, signUp, signOut, authError, cloudEnabled } = useAuth()
+  const { user, loading, signIn, signUp, signOut, authError, cloudEnabled } = useAuth()
   const [mode, setMode] = useState('signin') // 'signin' | 'signup'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -31,7 +33,6 @@ export function AuthModal({ open, onClose }) {
     }
   }, [open])
 
-  // If already signed in, show the account panel.
   const submit = async (e) => {
     e.preventDefault()
     setErr(null)
@@ -43,10 +44,6 @@ export function AuthModal({ open, onClose }) {
         await signUp(email.trim(), password)
       }
       onClose?.()
-      // Route to the app if there's an active subscription, otherwise send
-      // them to pick a plan. (Simulated, per-browser subscription state —
-      // see src/data/subscription.js.)
-      navigate(hasActiveAccess(loadSubscription()) ? '/app' : '/pricing')
     } catch (e) {
       setErr(e?.message || 'Something went wrong')
     } finally {
@@ -54,7 +51,33 @@ export function AuthModal({ open, onClose }) {
     }
   }
 
-  const footer = user ? (
+  const header = loading ? (
+    <div className={s.skelHeader}>
+      <span className={`${s.skelBox} ${s.skelAvatar}`} />
+      <div>
+        <span className={`${s.skelLine} ${s.skelTitle}`} />
+        <span className={`${s.skelLine} ${s.skelSub}`} style={{ display: 'block' }} />
+      </div>
+    </div>
+  ) : (
+    <div className={s.header}>
+      <img src="/plotline-mark.svg" alt="" className={s.logo} />
+      <div>
+        <div className={s.heading}>
+          {user ? 'Your account' : mode === 'signin' ? 'Welcome back' : 'Create your account'}
+        </div>
+        <div className={s.subheading}>
+          {user
+            ? 'Signed in and synced to your private cloud workspace.'
+            : mode === 'signin'
+              ? 'Sign in to sync your projects across devices.'
+              : 'Start your free trial — no card required.'}
+        </div>
+      </div>
+    </div>
+  )
+
+  const footer = loading ? null : user ? (
     <Button variant="secondary" fullWidth onClick={async () => { await signOut(); onClose?.() }}>
       Sign out
     </Button>
@@ -68,17 +91,30 @@ export function AuthModal({ open, onClose }) {
     <Dialog
       open={open}
       onClose={onClose}
-      title={user ? 'Your account' : (mode === 'signin' ? 'Sign in to Plotline' : 'Create your Plotline account')}
-      description={user ? null : 'Your projects, sheets, and categories sync to your private cloud workspace.'}
+      title={header}
       footer={footer}
       width={420}
     >
-      {user ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ fontSize: 14, color: 'var(--slate-600)' }}>Signed in as</div>
-          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--slate-900)' }}>{user.email}</div>
-          <div style={{ fontSize: 12, color: 'var(--slate-400)', marginTop: 4 }}>
-            Your data is synced to your private cloud workspace.
+      {loading ? (
+        <div className={s.skelForm}>
+          <div>
+            <span className={`${s.skelLine} ${s.skelFieldLabel}`} style={{ display: 'block' }} />
+            <span className={`${s.skelBox} ${s.skelInput}`} style={{ display: 'block' }} />
+          </div>
+          <div>
+            <span className={`${s.skelLine} ${s.skelFieldLabel}`} style={{ display: 'block' }} />
+            <span className={`${s.skelBox} ${s.skelInput}`} style={{ display: 'block' }} />
+          </div>
+          <span className={`${s.skelBox} ${s.skelButton}`} />
+        </div>
+      ) : user ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div className={s.accountCard}>
+            <Avatar name={user.email} status="online" />
+            <div style={{ minWidth: 0 }}>
+              <div className={s.accountEmail}>{user.email}</div>
+              <div className={s.accountNote}>Personal &amp; team workspaces sync automatically</div>
+            </div>
           </div>
         </div>
       ) : (
@@ -89,6 +125,7 @@ export function AuthModal({ open, onClose }) {
             placeholder="you@company.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            leadingIcon={<Mail size={14} />}
             autoComplete="email"
             required
           />
@@ -98,6 +135,7 @@ export function AuthModal({ open, onClose }) {
             placeholder="••••••••"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            leadingIcon={<Lock size={14} />}
             autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
             required
           />
@@ -113,7 +151,7 @@ export function AuthModal({ open, onClose }) {
 
           {!cloudEnabled && (
             <div style={{
-              fontSize: 12, color: 'var(--slate-500)', background: 'var(--slate-50)',
+              fontSize: 12, color: 'var(--text-muted)', background: 'var(--surface-sunken)',
               borderRadius: 8, padding: '8px 10px', lineHeight: 1.4,
             }}>
               Cloud sync isn't configured in this build. Set VITE_SUPABASE_URL and
@@ -122,7 +160,12 @@ export function AuthModal({ open, onClose }) {
             </div>
           )}
 
-          <div style={{ fontSize: 13, color: 'var(--slate-500)' }}>
+          <div className={s.trustRow}>
+            <ShieldCheck size={13} />
+            Your projects stay private — only you (and teammates you invite) can see them.
+          </div>
+
+          <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
             {mode === 'signin' ? (
               <>No account?{' '}
                 <button type="button" onClick={() => setMode('signup')}
