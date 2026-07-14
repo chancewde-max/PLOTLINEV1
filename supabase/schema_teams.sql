@@ -7,8 +7,10 @@
 -- pool of projects/sheets across invited teammates, instead of every user
 -- owning a private, isolated `app_data` row.
 --
--- Model (v1, intentionally simple):
---   - A user belongs to at most one organization at a time.
+-- Model:
+--   - A user can belong to any number of organizations; the client tracks
+--     which ONE is the active "workspace" at a time and can switch between
+--     them (including back to their personal workspace).
 --   - `organizations` / `org_members` / `org_invites` handle membership.
 --   - `org_data` is a shared row per org (parallel to `app_data`, but readable
 --     /writable by every member) holding the org's projects/sheets/etc.
