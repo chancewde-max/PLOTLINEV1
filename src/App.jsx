@@ -24,6 +24,13 @@ function SheetPageKeyed() {
   return <LazySheetPage key={sheetId} />
 }
 
+// Logged-in users landing on '/' (bookmark, back-button, typed URL) should go
+// straight to their projects instead of seeing the marketing page again.
+function LandingRoute() {
+  const { user } = useAuth()
+  return user ? <Navigate to="/app" replace /> : <LandingPage />
+}
+
 // Single global auth modal, driven by AuthProvider's open-state so any CTA
 // (e.g. the landing "Sign in") can open it via useAuth().openAuth().
 function AuthModalMount() {
@@ -40,7 +47,7 @@ export default function App() {
               was moved under '/app' so the public route stays clean. LandingPage is
               eager-loaded (no pdf/tesseract deps) for a fast first paint. */}
           <Routes>
-            <Route path="/" element={<LandingPage />} />
+            <Route path="/" element={<LandingRoute />} />
             <Route path="/privacy" element={<PrivacyPolicy />} />
             <Route path="/terms" element={<TermsOfService />} />
             <Route path="/pricing" element={

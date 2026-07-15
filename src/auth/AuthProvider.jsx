@@ -34,6 +34,7 @@ import React, {
   useState,
   useCallback,
 } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAppData } from '../data/useAppData.jsx'
 import { supabase, supabaseEnabled } from '../lib/supabaseClient.js'
 import { loadUserSnapshot, saveUserSnapshot, emptySnapshot } from '../data/cloudSync.js'
@@ -77,6 +78,7 @@ function flattenMemberships(rows) {
 
 export function AuthProvider({ children }) {
   const app = useAppData()
+  const navigate = useNavigate()
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(supabaseEnabled)
   const [authError, setAuthError] = useState(null)
@@ -284,7 +286,8 @@ export function AuthProvider({ children }) {
     setOrgName(null)
     app.reset?.()
     setAuthError(null)
-  }, [app])
+    navigate('/', { replace: true })
+  }, [app, navigate])
 
   // ---- Workspace / organization actions ----
 
