@@ -14,6 +14,7 @@ import { loadSubscription, SUB_KEY } from '../data/subscription.js'
 import PdfCanvas from '../components/PdfCanvas.jsx'
 import { SaveStatus } from '../components/SaveStatus.jsx'
 import { AccountCard } from '../components/AccountCard.jsx'
+import { ProjectsPageSkeleton } from '../components/Skeleton.jsx'
 import TeamTab from './TeamTab.jsx'
 import s from './ProjectsPage.module.css'
 
@@ -53,7 +54,7 @@ function fmtDate(iso) {
 export default function ProjectsPage() {
   const navigate = useNavigate()
   const { projects: allProjects, sheets, addProject } = useAppData()
-  const { user: authUser, cloudEnabled, memberships, orgId, switchWorkspace } = useAuth()
+  const { user: authUser, cloudEnabled, memberships, orgId, switchWorkspace, dataLoading } = useAuth()
   const { theme, setTheme, accent, setAccent } = useSettings()
   const [search, setSearch] = useState('')
   const [dlgOpen, setDlgOpen] = useState(false)
@@ -130,6 +131,8 @@ export default function ProjectsPage() {
     setDlgOpen(false)
     navigate(`/app/project/${id}`)
   }
+
+  if (dataLoading) return <ProjectsPageSkeleton />
 
   return (
     <div className={s.root} data-theme={theme}>

@@ -11,6 +11,8 @@ import PdfCanvas from '../components/PdfCanvas.jsx'
 import { Tooltip } from '../components/ui/Tooltip.jsx'
 import { SaveStatus } from '../components/SaveStatus.jsx'
 import { AccountCard } from '../components/AccountCard.jsx'
+import { ProjectPageSkeleton } from '../components/Skeleton.jsx'
+import { useAuth } from '../auth/AuthProvider.jsx'
 import BidProposal from './BidProposal.jsx'
 import MtoPanel from '../components/MtoPanel.jsx'
 import ProposalEditor from '../components/ProposalEditor.jsx'
@@ -61,6 +63,7 @@ export default function ProjectPage() {
   const { projectId } = useParams()
   const navigate = useNavigate()
   const { projects, sheets, addSheet, addSheets, addSheetSet, renameSheetSet, deleteSheetSet, moveSheetToSet, addMtoVersion } = useAppData()
+  const { dataLoading } = useAuth()
   const [dlgOpen, setDlgOpen] = useState(false)
   const [wizardOpen, setWizardOpen] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
@@ -70,7 +73,7 @@ export default function ProjectPage() {
   const [folderName, setFolderName] = useState('')
   const [expandedSets, setExpandedSets] = useState({})
   const [moveSheetDlg, setMoveSheetDlg] = useState(null)
-  const [activeTab, setActiveTab] = useState('pricebook')
+  const [activeTab, setActiveTab] = useState('dashboard')
   const [pricebookView, setPricebookView] = useState('proposal') // 'proposal' | 'mto'
   const [draggingSheetId, setDraggingSheetId] = useState(null)
   const [dragOverTarget, setDragOverTarget] = useState(null) // setId or 'unassigned'
@@ -79,6 +82,7 @@ export default function ProjectPage() {
 
   const project = projects[projectId]
 
+  if (dataLoading) return <ProjectPageSkeleton />
   if (!project) return <div style={{ padding: 40, color: 'var(--text-muted)' }}>Project not found.</div>
 
   const sheetList = (project.sheetIds || []).map(id => sheets[id]).filter(Boolean)

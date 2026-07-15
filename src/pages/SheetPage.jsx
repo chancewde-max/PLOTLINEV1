@@ -16,6 +16,8 @@ import { Tabs } from '../components/ui/Tabs.jsx'
 import { Tooltip } from '../components/ui/Tooltip.jsx'
 import { useAppData } from '../data/useAppData.jsx'
 import { useSettings } from '../data/useSettings.jsx'
+import { useAuth } from '../auth/AuthProvider.jsx'
+import { SheetPageSkeleton } from '../components/Skeleton.jsx'
 import PdfCanvas from '../components/PdfCanvas.jsx'
 import { CATS, CAT_COLOR, SHEET_W, SHEET_H } from '../data/sampleData.js'
 import { inside, polyAreaPx, perimPx, centroid, clipPx2, dist } from '../workspace/geometry.js'
@@ -148,6 +150,7 @@ export default function SheetPage() {
   const navigate = useNavigate()
   const { projects, sheets, updateSheet, addRegion, updateRegion, deleteRegion } = useAppData()
   const { theme, setTheme, accent, setAccent } = useSettings()
+  const { dataLoading } = useAuth()
 
   // ---- UI state ----
   const [fs, setFs]             = useState(1)
@@ -555,6 +558,7 @@ export default function SheetPage() {
     }
   }, [project, sheet, activeTool, regionVerts, measureDone, measurePts, areaVerts, areaType, linearVerts, linearType, arcMode, selectedId, selectedKind, selectedIds])
 
+  if (dataLoading) return <SheetPageSkeleton />
   if (!project || !sheet) {
     return <div style={{ padding: 40, color: 'var(--text-muted)' }}>Sheet not found.</div>
   }

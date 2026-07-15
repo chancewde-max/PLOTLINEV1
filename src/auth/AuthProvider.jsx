@@ -101,6 +101,11 @@ export function AuthProvider({ children }) {
   const [orgRole, setOrgRole] = useState(null)
   const [orgName, setOrgName] = useState(null)
   const [orgLoading, setOrgLoading] = useState(false)
+  // True from the moment a user is known (session restored or just signed
+  // in) until their workspace snapshot has been fetched and merged into
+  // local state. Pages consume this (as `dataLoading`) to show a skeleton
+  // instead of flashing stale/sample data or a false "not found".
+  const [hydrating, setHydrating] = useState(false)
   // Mirrors orgId but readable synchronously inside async flows, so
   // flushCurrent() always saves to whichever source is *actually* current,
   // even mid-switch.
@@ -198,11 +203,13 @@ export function AuthProvider({ children }) {
       setOrgId(null)
       setOrgRole(null)
       setOrgName(null)
+      setHydrating(false)
       return
     }
     let cancelled = false
     ;(async () => {
       setOrgLoading(true)
+      setHydrating(true)
       const flat = await refreshMemberships(user.id)
       if (cancelled) return
       const pref = getWorkspacePref(user.id)
@@ -230,6 +237,7 @@ export function AuthProvider({ children }) {
       hydratedRef.current = true
       // Local edits but empty cloud → push them up so they persist.
       if (!hasCloudData) flushCurrent()
+      setHydrating(false)
     })()
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -338,6 +346,11 @@ export function AuthProvider({ children }) {
     ...app,
     user,
     loading,
+    hydrating,
+    // Single flag pages can gate a skeleton on: true from mount (if a
+    // session might exist) until both the session check and, if signed in,
+    // the workspace snapshot fetch have finished.
+    dataLoading: loading || hydrating,
     authError,
     authOpen,
     openAuth,
