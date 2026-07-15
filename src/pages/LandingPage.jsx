@@ -193,7 +193,7 @@ export default function LandingPage() {
               </svg>
             </div>
           </div>
-          <div className={s.calloutCard} style={{ top: 30, left: 236 }}>
+          <div className={s.calloutCard} style={{ top: 30, right: 14 }}>
             <span className={s.calloutSwatch} style={{ background: 'var(--takeoff-area)' }} />
             <div>
               <div className={s.calloutLabel}>Sod</div>
@@ -207,7 +207,7 @@ export default function LandingPage() {
               <div className={s.calloutValue}>312 ft</div>
             </div>
           </div>
-          <div className={s.calloutCard} style={{ top: 196, left: 236 }}>
+          <div className={s.calloutCard} style={{ top: 196, right: 14 }}>
             <span className={s.calloutSwatch} style={{ background: 'var(--takeoff-count)' }} />
             <div>
               <div className={s.calloutLabel}>Spray heads</div>

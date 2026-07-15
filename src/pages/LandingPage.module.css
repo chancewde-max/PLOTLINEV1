@@ -49,21 +49,31 @@
   position: absolute;
   display: block;
   border-radius: 50%;
-  filter: blur(48px);
-  opacity: 0.55;
+  filter: blur(60px);
+  opacity: 0.38;
   will-change: transform;
 }
 .blob1 {
-  top: 20px; left: -80px; width: 520px; height: 520px;
+  top: 20px; left: -80px; width: 480px; height: 480px;
   background: radial-gradient(circle, var(--takeoff-area), transparent 72%);
 }
 .blob2 {
-  top: 780px; right: -90px; width: 580px; height: 580px;
+  top: 780px; right: -90px; width: 520px; height: 520px;
   background: radial-gradient(circle, var(--takeoff-count), transparent 72%);
 }
 .blob3 {
-  top: 1720px; left: 14%; width: 460px; height: 460px;
+  top: 1720px; left: 14%; width: 420px; height: 420px;
   background: radial-gradient(circle, var(--takeoff-linear), transparent 72%);
+}
+
+/* A 580px blob on a ~390px phone is proportionally enormous — it reads as
+   a flat color wash across most of the viewport rather than a soft accent.
+   Scale them down specifically for narrow screens. */
+@media (max-width: 480px) {
+  .blob { opacity: 0.28; filter: blur(46px); }
+  .blob1 { width: 320px; height: 320px; }
+  .blob2 { width: 340px; height: 340px; }
+  .blob3 { width: 280px; height: 280px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
