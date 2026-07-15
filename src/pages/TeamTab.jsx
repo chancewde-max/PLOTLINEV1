@@ -337,8 +337,11 @@ function MembersPanel({ orgId, user, isOrgAdmin, members, invites, loading, onCh
               <tr key={m.user_id}>
                 <td>
                   <div className={s.memberCell}>
-                    <Avatar name={m.email || 'Member'} size="sm" />
-                    <span>{m.email}{m.user_id === user.id ? ' (you)' : ''}</span>
+                    <Avatar name={m.full_name || m.email || 'Member'} size="sm" />
+                    <div>
+                      <div>{m.full_name || m.email}{m.user_id === user.id ? ' (you)' : ''}</div>
+                      {m.full_name && <div className={s.mutedCell} style={{ fontSize: 12 }}>{m.email}</div>}
+                    </div>
                   </div>
                 </td>
                 <td>
@@ -465,7 +468,7 @@ function PipelinePanel({ members, projects, updateProject }) {
   const [statusFilter, setStatusFilter] = useState('all')
   const [assigneeFilter, setAssigneeFilter] = useState('all')
 
-  const memberByIdEmail = Object.fromEntries(members.map(m => [m.user_id, m.email]))
+  const memberByIdLabel = Object.fromEntries(members.map(m => [m.user_id, m.full_name || m.email]))
   const list = Object.values(projects).filter(p => {
     if (statusFilter !== 'all' && p.status !== statusFilter) return false
     if (assigneeFilter === 'unassigned' && p.assignedTo) return false
@@ -495,7 +498,7 @@ function PipelinePanel({ members, projects, updateProject }) {
           options={[
             { value: 'all', label: 'Everyone' },
             { value: 'unassigned', label: 'Unassigned' },
-            ...members.map(m => ({ value: m.user_id, label: m.email })),
+            ...members.map(m => ({ value: m.user_id, label: m.full_name || m.email })),
           ]}
         />
       </div>
@@ -529,7 +532,7 @@ function PipelinePanel({ members, projects, updateProject }) {
                     onChange={e => updateProject(p.id, { assignedTo: e.target.value || null })}
                     options={[
                       { value: '', label: 'Unassigned' },
-                      ...members.map(m => ({ value: m.user_id, label: memberByIdEmail[m.user_id] })),
+                      ...members.map(m => ({ value: m.user_id, label: memberByIdLabel[m.user_id] })),
                     ]}
                   />
                 </td>

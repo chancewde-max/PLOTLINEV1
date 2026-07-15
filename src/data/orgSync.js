@@ -37,7 +37,7 @@ export async function listOrgMembers(orgId) {
   if (!supabaseEnabled || !supabase || !orgId) return []
   const { data, error } = await supabase
     .from('org_members')
-    .select('user_id, role, email, joined_at')
+    .select('user_id, role, email, full_name, joined_at')
     .eq('org_id', orgId)
     .order('joined_at', { ascending: true })
   if (error) {
