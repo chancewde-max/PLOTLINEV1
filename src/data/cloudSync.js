@@ -9,6 +9,8 @@
 //   - proposalTemplates  (object keyed by template id)
 //   - mtoTemplates       (object keyed by template id)
 //   - clients            (object keyed by client id)
+//   - pdfAssets          (object keyed by source-PDF fileId — shared bytes for
+//                          sheets split from the same multi-page upload)
 //
 // All functions are guarded by `supabaseEnabled`. When cloud is not configured
 // they return null (or reject, for the save path) so callers can fall back to
@@ -20,7 +22,7 @@ import { supabase, supabaseEnabled } from '../lib/supabaseClient.js'
 export function emptySnapshot() {
   return {
     projects: {}, sheets: {}, customCats: [], company: null,
-    proposalTemplates: {}, mtoTemplates: {}, clients: {},
+    proposalTemplates: {}, mtoTemplates: {}, clients: {}, pdfAssets: {},
   }
 }
 
@@ -31,7 +33,7 @@ export async function loadUserSnapshot(userId) {
   if (!supabaseEnabled || !supabase) return null
   const { data, error } = await supabase
     .from('app_data')
-    .select('projects, sheets, custom_cats, company, proposal_templates, mto_templates, clients')
+    .select('projects, sheets, custom_cats, company, proposal_templates, mto_templates, clients, pdf_assets')
     .eq('user_id', userId)
     .maybeSingle()
 
@@ -50,6 +52,7 @@ export async function loadUserSnapshot(userId) {
     proposalTemplates: data.proposal_templates ?? {},
     mtoTemplates: data.mto_templates ?? {},
     clients: data.clients ?? {},
+    pdfAssets: data.pdf_assets ?? {},
   }
 }
 
@@ -72,6 +75,7 @@ export async function saveUserSnapshot(userId, snapshot) {
         proposal_templates: snapshot.proposalTemplates ?? {},
         mto_templates: snapshot.mtoTemplates ?? {},
         clients: snapshot.clients ?? {},
+        pdf_assets: snapshot.pdfAssets ?? {},
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'user_id' }

@@ -19,6 +19,7 @@ import { useSettings } from '../data/useSettings.jsx'
 import { useAuth } from '../auth/AuthProvider.jsx'
 import { SheetPageSkeleton } from '../components/Skeleton.jsx'
 import PdfCanvas from '../components/PdfCanvas.jsx'
+import { resolveSheetPdfUrl, sheetHasPdf } from '../components/pdfCache.js'
 import { CATS, CAT_COLOR, SHEET_W, SHEET_H } from '../data/sampleData.js'
 import { inside, polyAreaPx, perimPx, centroid, clipPx2, dist } from '../workspace/geometry.js'
 import s from './SheetPage.module.css'
@@ -148,7 +149,7 @@ function linePathLenPx(pts, arcSegs = {}) {
 export default function SheetPage() {
   const { projectId, sheetId } = useParams()
   const navigate = useNavigate()
-  const { projects, sheets, updateSheet, addRegion, updateRegion, deleteRegion } = useAppData()
+  const { projects, sheets, updateSheet, addRegion, updateRegion, deleteRegion, pdfAssets } = useAppData()
   const { theme, setTheme, accent, setAccent } = useSettings()
   const { dataLoading } = useAuth()
 
@@ -1723,9 +1724,9 @@ export default function SheetPage() {
           </div>
 
           <div className={s.sheetWrap} style={{ transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${(zoom / 100) * FIT})` }}>
-            <div className={s.sheet} style={{ width: SHEET_W, height: SHEET_H, backgroundImage: sheet.pdfUrl ? 'none' : undefined }}>
-              {sheet.pdfUrl && (
-                <PdfCanvas url={sheet.pdfUrl} width={SHEET_W} height={SHEET_H} pageNumber={sheet.pdfPage || 1}
+            <div className={s.sheet} style={{ width: SHEET_W, height: SHEET_H, backgroundImage: sheetHasPdf(sheet) ? 'none' : undefined }}>
+              {sheetHasPdf(sheet) && (
+                <PdfCanvas url={resolveSheetPdfUrl(sheet, pdfAssets)} width={SHEET_W} height={SHEET_H} pageNumber={sheet.pdfPage || 1}
                   onReuploadNeeded={() => {
                     const input = document.createElement('input')
                     input.type = 'file'; input.accept = 'application/pdf'
@@ -1733,7 +1734,10 @@ export default function SheetPage() {
                       const file = e.target.files?.[0]
                       if (!file) return
                       const reader = new FileReader()
-                      reader.onload = (ev) => updateSheet(sheetId, { pdfUrl: ev.target.result })
+                      // Re-uploading replaces this sheet's own copy directly —
+                      // clears any (now-stale) shared pdfAssetId reference so
+                      // the freshly set pdfUrl takes priority.
+                      reader.onload = (ev) => updateSheet(sheetId, { pdfUrl: ev.target.result, pdfAssetId: null })
                       reader.readAsDataURL(file)
                     }
                     input.click()

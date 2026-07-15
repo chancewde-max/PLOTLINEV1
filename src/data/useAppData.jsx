@@ -57,6 +57,7 @@ function load() {
         projects: migrateProjects(d.projects),
         clients: d.clients && typeof d.clients === 'object' ? d.clients : {},
         mtoTemplates: d.mtoTemplates && typeof d.mtoTemplates === 'object' ? d.mtoTemplates : {},
+        pdfAssets: d.pdfAssets && typeof d.pdfAssets === 'object' ? d.pdfAssets : {},
       }
     }
   } catch {}
@@ -73,6 +74,15 @@ export function AppDataProvider({ children }) {
   const [clients, setClients]   = useState(saved?.clients ?? {})
   const [mtoTemplates, setMtoTemplates] = useState(saved?.mtoTemplates ?? {})
   const [proposalTemplates, setProposalTemplates] = useState(saved?.proposalTemplates ?? {})
+  // One entry per SOURCE PDF file uploaded through the sheet wizard (keyed by
+  // fileId), not per sheet. A single multi-page plan set split into N sheets
+  // used to embed a full duplicate copy of the PDF in every one of those N
+  // sheets' `pdfUrl` — for a 20-sheet set that's 20x the bytes, on every
+  // autosave, to both localStorage and the cloud snapshot. Sheets from a
+  // wizard import now carry a lightweight `pdfAssetId` pointing in here
+  // instead. Legacy sheets (pre-dating this) still carry their own `pdfUrl`
+  // directly and keep working unchanged.
+  const [pdfAssets, setPdfAssets] = useState(saved?.pdfAssets ?? {})
   // Account-level company profile (logo + identity used on customer-facing docs).
   const [company, setCompany] = useState(saved?.company ?? {
     name: '', address: '', phone: '', email: '', logoDataUrl: '',
@@ -89,7 +99,7 @@ export function AppDataProvider({ children }) {
     setSaveStatus('saving')
     if (lsTimerRef.current) clearTimeout(lsTimerRef.current)
     lsTimerRef.current = setTimeout(() => {
-      const snapshot = { v: VER, projects, sheets, customCats, clients, mtoTemplates, proposalTemplates, company }
+      const snapshot = { v: VER, projects, sheets, customCats, clients, mtoTemplates, proposalTemplates, company, pdfAssets }
       localStorage.setItem('plotline-appdata', JSON.stringify(snapshot))
       // Keep the module cache in sync so remounts reuse fresh data.
       dataCache.loaded = true
@@ -97,7 +107,7 @@ export function AppDataProvider({ children }) {
       setSaveStatus('saved')
     }, 500)
     return () => clearTimeout(lsTimerRef.current)
-  }, [projects, sheets, customCats, clients, mtoTemplates, proposalTemplates, company])
+  }, [projects, sheets, customCats, clients, mtoTemplates, proposalTemplates, company, pdfAssets])
 
   const addProject = (proj) =>
     setProjects(p => ({ ...p, [proj.id]: proj }))
@@ -164,6 +174,13 @@ export function AppDataProvider({ children }) {
 
   const updateSheet = (sheetId, updates) =>
     setSheets(s => ({ ...s, [sheetId]: { ...s[sheetId], ...updates } }))
+
+  // Register one or more shared PDF byte-blobs (keyed by fileId). Merges —
+  // never drops assets other sheets/projects still reference.
+  const addPdfAssets = (assetsMap) => {
+    if (!assetsMap || !Object.keys(assetsMap).length) return
+    setPdfAssets(a => ({ ...a, ...assetsMap }))
+  }
 
   const addCustomCat = (cat) =>
     setCustomCats(prev => [...prev, cat])
@@ -342,6 +359,9 @@ export function AppDataProvider({ children }) {
     setProposalTemplates(t => merge && t && Object.keys(t).length
       ? { ...t, ...(snapshot.proposalTemplates ?? {}) }
       : (snapshot.proposalTemplates ?? {}))
+    setPdfAssets(a => merge && a && Object.keys(a).length
+      ? { ...a, ...(snapshot.pdfAssets ?? {}) }
+      : (snapshot.pdfAssets ?? {}))
     setCompany(prev => merge && prev && prev.name
       ? { ...prev, ...(snapshot.company ?? {}) }
       : (snapshot.company ?? prev))
@@ -355,12 +375,14 @@ export function AppDataProvider({ children }) {
     setClients({})
     setMtoTemplates({})
     setProposalTemplates({})
+    setPdfAssets({})
     setCompany({ name: '', address: '', phone: '', email: '', logoDataUrl: '' })
   }
 
   return (
     <Ctx.Provider value={{
       projects, sheets, customCats, clients, mtoTemplates, proposalTemplates,
+      pdfAssets, addPdfAssets,
       company, updateCompany,
       saveStatus,
       addProject, updateProject,

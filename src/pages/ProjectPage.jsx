@@ -8,6 +8,7 @@ import { Dialog } from '../components/ui/Dialog.jsx'
 import { Tabs } from '../components/ui/Tabs.jsx'
 import SheetUploadWizard from '../components/SheetUploadWizard.jsx'
 import PdfCanvas from '../components/PdfCanvas.jsx'
+import { resolveSheetPdfUrl, sheetHasPdf } from '../components/pdfCache.js'
 import { Tooltip } from '../components/ui/Tooltip.jsx'
 import { SaveStatus } from '../components/SaveStatus.jsx'
 import { AccountCard } from '../components/AccountCard.jsx'
@@ -20,13 +21,13 @@ import { useAppData } from '../data/useAppData.jsx'
 import { STATUS_LABEL, STATUS_VARIANT, CATS, CAT_COLOR, SHEET_W, SHEET_H } from '../data/sampleData.js'
 import s from './ProjectPage.module.css'
 
-function SheetPreview({ sheet }) {
+function SheetPreview({ sheet, pdfAssets }) {
   const scale = 0.22
   const w = SHEET_W * scale, h = SHEET_H * scale
-  if (sheet.pdfUrl) {
+  if (sheetHasPdf(sheet)) {
     return (
       <div className={s.sheetPreview} style={{ width: w, height: h, position: 'relative', overflow: 'hidden', borderRadius: 4, background: '#f5f5f3' }}>
-        <PdfCanvas url={sheet.pdfUrl} width={w} height={h} pageNumber={sheet.pdfPage || 1} />
+        <PdfCanvas url={resolveSheetPdfUrl(sheet, pdfAssets)} width={w} height={h} pageNumber={sheet.pdfPage || 1} />
       </div>
     )
   }
@@ -62,7 +63,7 @@ const EMPTY_FORM = { name: '', code: '' }
 export default function ProjectPage() {
   const { projectId } = useParams()
   const navigate = useNavigate()
-  const { projects, sheets, addSheet, addSheets, addSheetSet, renameSheetSet, deleteSheetSet, moveSheetToSet, addMtoVersion } = useAppData()
+  const { projects, sheets, addSheet, addSheets, addSheetSet, renameSheetSet, deleteSheetSet, moveSheetToSet, addMtoVersion, pdfAssets, addPdfAssets } = useAppData()
   const { dataLoading } = useAuth()
   const [dlgOpen, setDlgOpen] = useState(false)
   const [wizardOpen, setWizardOpen] = useState(false)
@@ -121,6 +122,7 @@ export default function ProjectPage() {
 
   const handleWizardImport = (sheetArray, opts) => {
     addSheets(projectId, sheetArray)
+    if (opts?.pdfAssets) addPdfAssets(opts.pdfAssets)
     if (opts?.versionSetName?.trim()) {
       const name = opts.versionSetName.trim()
       addSheetSet(projectId, name)
@@ -417,7 +419,7 @@ export default function ProjectPage() {
                         onDragEnd={onDragEnd}
                         onClick={() => navigate(`/app/project/${projectId}/sheet/${sheet.id}`)}
                         style={{ opacity: draggingSheetId === sheet.id ? 0.4 : 1, cursor: 'grab', outline: isSel ? '2px solid var(--brand-600)' : undefined, outlineOffset: -2 }}>
-                        <div className={s.sheetThumb}><SheetPreview sheet={sheet} /><div className={s.sheetCodeBadge}>{sheet.code}</div></div>
+                        <div className={s.sheetThumb}><SheetPreview sheet={sheet} pdfAssets={pdfAssets} /><div className={s.sheetCodeBadge}>{sheet.code}</div></div>
                         <div className={s.sheetInfo}>
                           <div className={s.sheetName}>{sheet.name}</div>
                           <div className={s.sheetCode}>{sheet.code}</div>
@@ -461,7 +463,7 @@ export default function ProjectPage() {
                     onClick={() => navigate(`/app/project/${projectId}/sheet/${sheet.id}`)}
                     style={{ opacity: draggingSheetId === sheet.id ? 0.4 : 1, cursor: 'grab' }}>
                     <div className={s.sheetThumb}>
-                      <SheetPreview sheet={sheet} />
+                      <SheetPreview sheet={sheet} pdfAssets={pdfAssets} />
                       <div className={s.sheetCodeBadge}>{sheet.code}</div>
                     </div>
                     <div className={s.sheetInfo}>

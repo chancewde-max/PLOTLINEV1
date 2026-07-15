@@ -12,6 +12,7 @@ import { useSettings } from '../data/useSettings.jsx'
 import { STATUS_LABEL, STATUS_VARIANT } from '../data/sampleData.js'
 import { loadSubscription, SUB_KEY } from '../data/subscription.js'
 import PdfCanvas from '../components/PdfCanvas.jsx'
+import { resolveSheetPdfUrl, sheetHasPdf } from '../components/pdfCache.js'
 import { SaveStatus } from '../components/SaveStatus.jsx'
 import { AccountCard } from '../components/AccountCard.jsx'
 import { ProjectsPageSkeleton } from '../components/Skeleton.jsx'
@@ -53,7 +54,7 @@ function fmtDate(iso) {
 
 export default function ProjectsPage() {
   const navigate = useNavigate()
-  const { projects: allProjects, sheets, addProject } = useAppData()
+  const { projects: allProjects, sheets, addProject, pdfAssets } = useAppData()
   const { user: authUser, cloudEnabled, memberships, orgId, switchWorkspace, dataLoading } = useAuth()
   const { theme, setTheme, accent, setAccent } = useSettings()
   const [search, setSearch] = useState('')
@@ -297,8 +298,8 @@ export default function ProjectsPage() {
                 {(() => {
                   const firstSheetId = (project.sheetIds || [])[0]
                   const firstSheet = firstSheetId ? sheets[firstSheetId] : null
-                  if (firstSheet?.pdfUrl) {
-                    return <PdfCanvas url={firstSheet.pdfUrl} width={220} height={160} pageNumber={firstSheet.pdfPage || 1} />
+                  if (sheetHasPdf(firstSheet)) {
+                    return <PdfCanvas url={resolveSheetPdfUrl(firstSheet, pdfAssets)} width={220} height={160} pageNumber={firstSheet.pdfPage || 1} />
                   }
                   return (
                     <svg viewBox="0 0 220 160" fill="none" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>

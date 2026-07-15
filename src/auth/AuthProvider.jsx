@@ -132,13 +132,14 @@ export function AuthProvider({ children }) {
       proposalTemplates: app.proposalTemplates,
       mtoTemplates: app.mtoTemplates,
       clients: app.clients,
+      pdfAssets: app.pdfAssets,
     }
     if (orgIdRef.current) {
       await saveOrgSnapshot(orgIdRef.current, payload).catch(() => {})
     } else {
       await saveUserSnapshot(user.id, payload).catch(() => {})
     }
-  }, [user, app.projects, app.sheets, app.customCats, app.company, app.proposalTemplates, app.mtoTemplates, app.clients])
+  }, [user, app.projects, app.sheets, app.customCats, app.company, app.proposalTemplates, app.mtoTemplates, app.clients, app.pdfAssets])
 
   // Point the active workspace at `targetOrgId` (or personal, if null) and
   // hydrate from it. `membershipsList` lets callers pass a just-refreshed
@@ -255,7 +256,7 @@ export function AuthProvider({ children }) {
       if (saveTimer.current) clearTimeout(saveTimer.current)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [app.projects, app.sheets, app.customCats, app.company, app.proposalTemplates, app.mtoTemplates, app.clients, user])
+  }, [app.projects, app.sheets, app.customCats, app.company, app.proposalTemplates, app.mtoTemplates, app.clients, app.pdfAssets, user])
 
   // ---- Auth actions ----
   const signIn = useCallback(async (email, password) => {

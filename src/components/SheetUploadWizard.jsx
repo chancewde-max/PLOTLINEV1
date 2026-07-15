@@ -198,6 +198,15 @@ function guessTitle(items) {
   return candidates[candidates.length - 1] || ''
 }
 
+// How many pages to render/extract-text concurrently. Unbounded concurrency
+// (firing every page's render at once) sounds faster but for real plan sets
+// (30-100+ pages) it means dozens of canvases + pdf.js render calls all
+// contending for the main thread and memory at the same moment — in
+// practice that's slower wall-clock time AND a frozen-feeling UI (progress
+// text jumps in stalling batches instead of counting up smoothly). A capped
+// pool keeps steady throughput without saturating the browser.
+const RENDER_CONCURRENCY = 6
+
 async function processPdfFile(file, onPageDone) {
   // Read directly as ArrayBuffer — no base64 roundtrip
   const bytes = await fileToBytes(file)
@@ -205,36 +214,42 @@ async function processPdfFile(file, onPageDone) {
   pdfCache.set(fileId, bytes)
   const pdf = await getPdfDoc(fileId, bytes)
   const total = pdf.numPages
-  // Process EVERY page concurrently. getPdfDoc caches the parsed doc per fileId,
-  // so concurrent getPage() calls are safe. This turns a 7-page PDF into roughly
-  // one page's worth of wall-clock work instead of 7 sequential pdf.js round-trips.
   const pages = new Array(total)
   let done = 0
   console.time(`processPdfFile:${file.name}`)
-  const pagePromises = []
-  for (let i = 1; i <= total; i++) {
-    pagePromises.push((async () => {
-      const page = await pdf.getPage(i)
-      // Render thumbnail at 160px and extract text concurrently within the page
-      const [thumbData, textContent] = await Promise.all([renderPageThumb(page, 160), page.getTextContent()])
-      pages[i - 1] = {
-        id: `sheet-${Date.now()}-${i}`,
-        fileName: file.name,
-        pageIndex: i,
-        totalPages: total,
-        thumb: thumbData.thumb,
-        thumbAspect: thumbData.aspect,
-        sheetNum: guessSheetNumber(textContent.items),
-        title: guessTitle(textContent.items),
-        fileId,
-        sheetNumRect: null,
-        titleRect: null,
-      }
-      done++
-      onPageDone && onPageDone(done, total)
-    })())
+
+  const renderOne = async (i) => {
+    const page = await pdf.getPage(i)
+    // Render thumbnail at 160px and extract text concurrently within the page
+    const [thumbData, textContent] = await Promise.all([renderPageThumb(page, 160), page.getTextContent()])
+    pages[i - 1] = {
+      id: `sheet-${Date.now()}-${i}`,
+      fileName: file.name,
+      pageIndex: i,
+      totalPages: total,
+      thumb: thumbData.thumb,
+      thumbAspect: thumbData.aspect,
+      sheetNum: guessSheetNumber(textContent.items),
+      title: guessTitle(textContent.items),
+      fileId,
+      sheetNumRect: null,
+      titleRect: null,
+    }
+    done++
+    onPageDone && onPageDone(done, total)
   }
-  await Promise.all(pagePromises)
+
+  // Fixed-size worker pool: each worker pulls the next page index off a
+  // shared counter until none remain, so RENDER_CONCURRENCY pages are ever
+  // in flight at once regardless of total page count.
+  let next = 1
+  const workers = new Array(Math.min(RENDER_CONCURRENCY, total)).fill(0).map(async () => {
+    while (next <= total) {
+      const i = next++
+      await renderOne(i)
+    }
+  })
+  await Promise.all(workers)
   console.timeEnd(`processPdfFile:${file.name}`)
   return pages.filter(Boolean)
 }
@@ -666,31 +681,34 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
   }
 
   const handleImport = async () => {
-    // Store the ORIGINAL PDF bytes as a data:application/pdf URL so PdfCanvas
-    // can re-parse it with pdfjs (works both in-session and after reload,
-    // unlike the in-memory plotline-pdf: reference which died on reload, or a
-    // JPEG data URL which PdfCanvas would try to parse as PDF bytes).
-    const sheetArr = await Promise.all(pages.map(async (p, idx) => {
-      let pdfUrl = `plotline-pdf:${p.fileId}:${p.pageIndex}`
+    // Store the ORIGINAL PDF bytes as a data:application/pdf URL (so PdfCanvas
+    // can re-parse it with pdfjs after reload, unlike the in-memory
+    // plotline-pdf: reference which dies on reload) — but ONCE PER SOURCE
+    // FILE, not once per sheet. A multi-page PDF split into N sheets used to
+    // embed a full duplicate copy of itself in every one of those N sheets;
+    // for a real plan set that's N× the bytes re-saved on every autosave.
+    // Sheets now just carry a `pdfAssetId` pointing at a shared map entry.
+    const pdfAssets = {}
+    for (const fileId of new Set(pages.map(p => p.fileId))) {
       try {
-        const bytes = pdfCache.get(p.fileId)
-        if (bytes) {
-          let binary = ''
-          for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
-          pdfUrl = `data:application/pdf;base64,${btoa(binary)}`
-        }
-      } catch (e) { /* keep plotline-pdf fallback */ }
-      return {
-        id: p.id,
-        name: p.title || p.sheetNum || `Sheet ${idx + 1}`,
-        code: p.sheetNum || `S-${idx + 1}`,
-        pdfUrl,
-        pdfPage: p.pageIndex,
-        pxPerFt: null,
-        areas: [], lines: [], points: [],
-      }
+        const bytes = pdfCache.get(fileId)
+        if (!bytes) continue
+        let binary = ''
+        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+        pdfAssets[fileId] = `data:application/pdf;base64,${btoa(binary)}`
+      } catch (e) { /* leave unset — sheet falls back to plotline-pdf: (session-only) */ }
+    }
+    const sheetArr = pages.map((p, idx) => ({
+      id: p.id,
+      name: p.title || p.sheetNum || `Sheet ${idx + 1}`,
+      code: p.sheetNum || `S-${idx + 1}`,
+      pdfAssetId: pdfAssets[p.fileId] ? p.fileId : null,
+      pdfUrl: pdfAssets[p.fileId] ? null : `plotline-pdf:${p.fileId}:${p.pageIndex}`,
+      pdfPage: p.pageIndex,
+      pxPerFt: null,
+      areas: [], lines: [], points: [],
     }))
-    onImport(sheetArr, { versionSetName })
+    onImport(sheetArr, { versionSetName, pdfAssets })
     handleClose()
   }
 
