@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Plus, Map, Sun, Moon, Settings } from 'lucide-react'
+import { Search, Plus, Map, Sun, Moon, Settings, Check } from 'lucide-react'
 import { Button } from '../components/ui/Button.jsx'
 import { Badge } from '../components/ui/Badge.jsx'
 import { Input } from '../components/ui/Input.jsx'
@@ -55,8 +55,31 @@ function fmtDate(iso) {
 export default function ProjectsPage() {
   const navigate = useNavigate()
   const { projects: allProjects, sheets, addProject, pdfAssets } = useAppData()
-  const { user: authUser, cloudEnabled, memberships, orgId, switchWorkspace, dataLoading } = useAuth()
+  const { user: authUser, cloudEnabled, memberships, orgId, switchWorkspace, dataLoading, updateProfile } = useAuth()
   const { theme, setTheme, accent, setAccent } = useSettings()
+
+  // --- Account profile (name / position) — stored on the Supabase auth user ---
+  const [profileForm, setProfileForm] = useState({ full_name: '', position: '' })
+  const [profileStatus, setProfileStatus] = useState('idle') // idle | saving | saved | error
+  useEffect(() => {
+    setProfileForm({
+      full_name: authUser?.user_metadata?.full_name || '',
+      position: authUser?.user_metadata?.position || '',
+    })
+  }, [authUser?.id])
+  const saveProfile = async () => {
+    setProfileStatus('saving')
+    try {
+      await updateProfile({ full_name: profileForm.full_name.trim(), position: profileForm.position.trim() })
+      setProfileStatus('saved')
+      setTimeout(() => setProfileStatus('idle'), 2000)
+    } catch {
+      setProfileStatus('error')
+    }
+  }
+  const profileDirty =
+    profileForm.full_name !== (authUser?.user_metadata?.full_name || '') ||
+    profileForm.position !== (authUser?.user_metadata?.position || '')
   const [search, setSearch] = useState('')
   const [dlgOpen, setDlgOpen] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
@@ -187,6 +210,32 @@ export default function ProjectsPage() {
           <div style={{ maxWidth: 520, paddingTop: 8 }}>
             <h1 className={s.title} style={{ marginBottom: 4 }}>Settings</h1>
             <p className={s.sub} style={{ marginBottom: 32 }}>Appearance preferences saved to this browser.</p>
+
+            {authUser && (
+              <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 12, padding: 24, marginBottom: 20 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-strong)', marginBottom: 16 }}>Account</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  <Input label="Name" placeholder="Your full name" value={profileForm.full_name}
+                    onChange={e => setProfileForm(f => ({ ...f, full_name: e.target.value }))} />
+                  <Input label="Position / title" placeholder="e.g. Estimator, Project Manager" value={profileForm.position}
+                    onChange={e => setProfileForm(f => ({ ...f, position: e.target.value }))} />
+                  <Input label="Email" value={authUser.email} disabled />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <Button variant="primary" size="sm" onClick={saveProfile} disabled={!profileDirty || profileStatus === 'saving'}>
+                      {profileStatus === 'saving' ? 'Saving…' : 'Save changes'}
+                    </Button>
+                    {profileStatus === 'saved' && (
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--brand-600)', fontWeight: 600 }}>
+                        <Check size={13} /> Saved
+                      </span>
+                    )}
+                    {profileStatus === 'error' && (
+                      <span style={{ fontSize: 12, color: 'var(--danger-600, #dc2626)' }}>Couldn't save — try again.</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 12, padding: 24, marginBottom: 20 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-strong)', marginBottom: 16 }}>Theme</div>

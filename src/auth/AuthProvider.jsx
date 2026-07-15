@@ -283,6 +283,18 @@ export function AuthProvider({ children }) {
     }
   }, [])
 
+  // Personal profile fields (name, job title) — stored on the Supabase auth
+  // user itself (user_metadata), not in the project/org data model, since
+  // they describe the PERSON regardless of which workspace they're in.
+  const updateProfile = useCallback(async (updates) => {
+    if (!supabaseEnabled || !supabase) {
+      throw new Error('Cloud not configured')
+    }
+    const { data, error } = await supabase.auth.updateUser({ data: updates })
+    if (error) throw error
+    if (data?.user) setUser(data.user)
+  }, [])
+
   const signOut = useCallback(async () => {
     if (supabaseEnabled && supabase) {
       await supabase.auth.signOut().catch(() => {})
@@ -359,6 +371,7 @@ export function AuthProvider({ children }) {
     signIn,
     signUp,
     signOut,
+    updateProfile,
     cloudEnabled: supabaseEnabled,
     // Organization / team / workspace context
     memberships,

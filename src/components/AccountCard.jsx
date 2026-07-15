@@ -13,12 +13,16 @@ export function AccountCard({ onOpenSettings }) {
   const rootRef = useRef(null)
   const { user, cloudEnabled, orgName, orgRole, signOut, openAuth } = useAuth()
 
-  const name = user?.email || 'Guest'
+  const fullName = user?.user_metadata?.full_name?.trim()
+  const position = user?.user_metadata?.position?.trim()
+  const name = fullName || user?.email || 'Guest'
   const subtitle = !user
     ? 'Not signed in'
-    : orgName
-      ? `${orgName} · ${orgRole === 'admin' ? 'Admin' : 'Member'}`
-      : 'Personal workspace'
+    : position
+      ? position
+      : orgName
+        ? `${orgName} · ${orgRole === 'admin' ? 'Admin' : 'Member'}`
+        : 'Personal workspace'
 
   // Hover opens/closes on desktop. On touch devices there's no hover, so the
   // trigger's onClick below toggles it directly — close-on-outside-tap makes
