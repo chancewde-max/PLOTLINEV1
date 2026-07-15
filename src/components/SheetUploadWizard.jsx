@@ -71,6 +71,20 @@ async function renderPageThumb(page, thumbW = 220) {
   return { thumb: canvas.toDataURL('image/jpeg', 0.75), aspect: vp.height / vp.width }
 }
 
+// Never let a full-page render (in renderRectCrop / ocrRect below) exceed
+// this many pixels per side, no matter how small the selected rect is. Both
+// functions solve for "the SELECTED RECT should be N px wide" by scaling
+// the ENTIRE page up until that's true — for a small rect (e.g. a corner
+// sheet-number box that's a few percent of the page width) on a real
+// architectural sheet, that scale factor can blow the full-page canvas up
+// to tens of thousands of pixels per side (a 600+ megapixel canvas isn't
+// hypothetical — it's what a ~5%-wide rect on a 36"x24" sheet actually
+// works out to), enough to hang the tab for 30+ seconds PER PAGE. Capping
+// the full-page render trades a bit of crop resolution on unusually small
+// selections for guaranteed-bounded render cost — plenty for OCR-ing a
+// short sheet code either way.
+const MAX_FULL_RENDER_DIM = 3500
+
 // Render just the rect region of a PDF page at high res, returns a dataURL.
 // Renders the full page at a scale where rect.w fills cropW pixels, then
 // uses drawImage to extract just that region — handles rotated pages correctly.
@@ -79,8 +93,12 @@ async function renderRectCrop(fileId, bytes, pageNum, rect, cropW = 320) {
   const page = await pdf.getPage(pageNum)
   const dpr = Math.max(window.devicePixelRatio || 1, 2)
   const vp0 = page.getViewport({ scale: 1 })
-  // Scale so the rect's width maps to cropW*dpr device pixels
-  const scale = (cropW * dpr) / (rect.w * vp0.width)
+  // Scale so the rect's width maps to cropW*dpr device pixels — capped (see
+  // MAX_FULL_RENDER_DIM above) so a tiny rect can't blow the full-page
+  // render this is derived from up to an unbounded size.
+  const idealScale = (cropW * dpr) / (rect.w * vp0.width)
+  const capScale = MAX_FULL_RENDER_DIM / Math.max(vp0.width, vp0.height)
+  const scale = Math.min(idealScale, capScale)
   const vp = page.getViewport({ scale })
   // Render full page at this scale
   const full = document.createElement('canvas')
@@ -150,8 +168,11 @@ async function ocrRect(fileId, bytes, pageNum, rect) {
   const pdf = await getPdfDoc(fileId, bytes)
   const page = await pdf.getPage(pageNum)
   const vp0 = page.getViewport({ scale: 1 })
-  // Render so the selected rect fills ~1600px wide for high accuracy
-  const scale = 1600 / (rect.w * vp0.width)
+  // Render so the selected rect fills ~1600px wide for high accuracy —
+  // capped so the full page it's derived from never exceeds MAX_FULL_RENDER_DIM.
+  const idealScale = 1600 / (rect.w * vp0.width)
+  const capScale = MAX_FULL_RENDER_DIM / Math.max(vp0.width, vp0.height)
+  const scale = Math.min(idealScale, capScale)
   const vp = page.getViewport({ scale })
   const full = document.createElement('canvas')
   full.width = Math.round(vp.width); full.height = Math.round(vp.height)
