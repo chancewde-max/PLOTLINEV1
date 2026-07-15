@@ -150,7 +150,7 @@ function Hero() {
       <div className={s.heroNote}>
         <Check size={15} /> No credit card required · Cancel anytime
       </div>
-      <p className={s.heroNote} style={{ marginTop: 8 }}>
+      <p className={s.heroDisclaimer}>
         Paid plans auto-renew each billing period until cancelled. You can cancel anytime
         from your account settings or by emailing{' '}
         <a href="mailto:sales@plotline.app">sales@plotline.app</a>; you keep access through

@@ -31,6 +31,10 @@
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
   padding: 20px;
+  /* Member/Pipeline tables (rendered inside a zero-padding .card) have more
+     columns than a phone width can show; scroll horizontally within the
+     card rather than overflowing the page. */
+  overflow-x: auto;
 }
 
 .cardTitle { font-size: 15px; font-weight: 700; color: var(--text-strong); margin-bottom: 6px; }
@@ -60,7 +64,7 @@
 
 .sectionLabel { font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 22px 0 10px; }
 
-.table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.table { width: 100%; min-width: 480px; border-collapse: collapse; font-size: 13px; }
 .table th {
   text-align: left;
   font-size: 11px;

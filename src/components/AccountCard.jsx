@@ -1,15 +1,16 @@
-import React, { useState } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { Mail, Users, Cloud, CloudOff, Settings, LogOut, LogIn } from 'lucide-react'
 import { Avatar } from './ui/Avatar.jsx'
 import { Button } from './ui/Button.jsx'
 import { useAuth } from '../auth/AuthProvider.jsx'
 import s from './AccountCard.module.css'
 
-// Interactive account avatar: hover to preview who's signed in, which
-// workspace is active, and cloud-sync status, with quick actions (Settings /
-// sign out, or sign in if logged out).
+// Interactive account avatar: hover (mouse) or tap (touch) to preview who's
+// signed in, which workspace is active, and cloud-sync status, with quick
+// actions (Settings / sign out, or sign in if logged out).
 export function AccountCard({ onOpenSettings }) {
   const [show, setShow] = useState(false)
+  const rootRef = useRef(null)
   const { user, cloudEnabled, orgName, orgRole, signOut, openAuth } = useAuth()
 
   const name = user?.email || 'Guest'
@@ -19,15 +20,46 @@ export function AccountCard({ onOpenSettings }) {
       ? `${orgName} · ${orgRole === 'admin' ? 'Admin' : 'Member'}`
       : 'Personal workspace'
 
+  // Hover opens/closes on desktop. On touch devices there's no hover, so the
+  // trigger's onClick below toggles it directly — close-on-outside-tap makes
+  // that a complete interaction instead of something with no way to dismiss.
+  useEffect(() => {
+    if (!show) return
+    const onOutside = (e) => {
+      if (rootRef.current && !rootRef.current.contains(e.target)) setShow(false)
+    }
+    const onKey = (e) => { if (e.key === 'Escape') setShow(false) }
+    document.addEventListener('mousedown', onOutside)
+    document.addEventListener('touchstart', onOutside)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onOutside)
+      document.removeEventListener('touchstart', onOutside)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [show])
+
   return (
     <span
+      ref={rootRef}
       className={s.root}
-      onMouseEnter={() => setShow(true)}
-      onMouseLeave={() => setShow(false)}
+      // Pointer events (not mouse events) so pointerType lets us restrict
+      // hover-open/hover-close to real mice. Touch interactions synthesize
+      // compatibility mouseenter/mouseleave too — with plain onMouseLeave, a
+      // tap would open the card via onClick and then immediately close it
+      // again via the synthesized mouseleave from that same tap.
+      onPointerEnter={(e) => { if (e.pointerType === 'mouse') setShow(true) }}
+      onPointerLeave={(e) => { if (e.pointerType === 'mouse') setShow(false) }}
       onFocus={() => setShow(true)}
       onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setShow(false) }}
     >
-      <button type="button" className={s.trigger} aria-label="Account">
+      <button
+        type="button"
+        className={s.trigger}
+        aria-label="Account"
+        aria-expanded={show}
+        onClick={() => setShow(true)}
+      >
         <Avatar name={name} status={user ? 'online' : undefined} />
       </button>
 
@@ -65,15 +97,15 @@ export function AccountCard({ onOpenSettings }) {
             <div className={s.foot}>
               {user ? (
                 <>
-                  <Button variant="secondary" size="sm" iconLeft={<Settings size={14} />} fullWidth onClick={onOpenSettings}>
+                  <Button variant="secondary" size="sm" iconLeft={<Settings size={14} />} fullWidth onClick={() => { onOpenSettings?.(); setShow(false) }}>
                     Settings
                   </Button>
-                  <Button variant="ghost" size="sm" iconLeft={<LogOut size={14} />} fullWidth onClick={signOut}>
+                  <Button variant="ghost" size="sm" iconLeft={<LogOut size={14} />} fullWidth onClick={() => { signOut(); setShow(false) }}>
                     Sign out
                   </Button>
                 </>
               ) : (
-                <Button variant="primary" size="sm" iconLeft={<LogIn size={14} />} fullWidth onClick={() => openAuth('signin')}>
+                <Button variant="primary" size="sm" iconLeft={<LogIn size={14} />} fullWidth onClick={() => { openAuth('signin'); setShow(false) }}>
                   Sign in
                 </Button>
               )}

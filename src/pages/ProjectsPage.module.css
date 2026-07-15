@@ -73,10 +73,25 @@
   .stats { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* Header nav has 3 real tabs + workspace switcher + search + save status +
+   account, way more than a phone-width row can hold. Soon-badges are inert
+   placeholders (zero functionality lost hiding them); search/workspace
+   switcher/save-status are conveniences, not required for the account
+   button or the real tabs to stay reachable. */
+@media (max-width: 700px) {
+  .navLink[data-soon="true"] { display: none; }
+  .searchWrap { display: none; }
+}
 @media (max-width: 560px) {
   .head { flex-direction: column; align-items: stretch; }
-  .top { gap: var(--space-4); padding: 0 var(--space-5); }
+  .top { gap: var(--space-3); padding: 0 var(--space-5); }
   .main { padding: var(--space-8) var(--space-5) var(--space-12); }
+  .workspaceSwitch { display: none; }
+  .saveStatusWrap { display: none; }
+  .navLink { padding: 6px 8px; }
+}
+@media (max-width: 420px) {
+  .navLabel { display: none; }
 }
 
 .stat {

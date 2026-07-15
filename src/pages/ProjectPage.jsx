@@ -3,7 +3,6 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Plus, ChevronRight, Upload, FileText, Folder, FolderPlus, FolderOpen, X, LayoutDashboard, CheckSquare, Square, MoveRight, Printer } from 'lucide-react'
 import { Button } from '../components/ui/Button.jsx'
 import { Badge } from '../components/ui/Badge.jsx'
-import { Avatar } from '../components/ui/Avatar.jsx'
 import { Input } from '../components/ui/Input.jsx'
 import { Dialog } from '../components/ui/Dialog.jsx'
 import { Tabs } from '../components/ui/Tabs.jsx'
@@ -11,6 +10,7 @@ import SheetUploadWizard from '../components/SheetUploadWizard.jsx'
 import PdfCanvas from '../components/PdfCanvas.jsx'
 import { Tooltip } from '../components/ui/Tooltip.jsx'
 import { SaveStatus } from '../components/SaveStatus.jsx'
+import { AccountCard } from '../components/AccountCard.jsx'
 import BidProposal from './BidProposal.jsx'
 import MtoPanel from '../components/MtoPanel.jsx'
 import ProposalEditor from '../components/ProposalEditor.jsx'
@@ -190,9 +190,7 @@ export default function ProjectPage() {
             {STATUS_LABEL[project.status] || project.status}
           </Badge>
           <SaveStatus />
-          <Tooltip label="Account" side="bottom">
-            <Avatar name="Amy Reyes" status="online" />
-          </Tooltip>
+          <AccountCard onOpenSettings={() => navigate('/app')} />
         </div>
       </header>
 

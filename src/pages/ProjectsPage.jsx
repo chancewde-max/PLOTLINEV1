@@ -139,7 +139,7 @@ export default function ProjectsPage() {
           <b className={s.wordmark}>Plotline<span className={s.dot}>.</span></b>
         </div>
         {cloudEnabled && authUser && memberships.length > 0 && (
-          <div style={{ width: 180 }}>
+          <div className={s.workspaceSwitch} style={{ width: 180 }}>
             <Select
               size="sm"
               value={orgId || ''}
@@ -160,10 +160,10 @@ export default function ProjectsPage() {
             Pricebook <Badge variant="neutral">Soon</Badge>
           </span>
           <button type="button" className={s.navLink} data-on={activeTab === 'team' ? 'true' : undefined} onClick={() => setActiveTab('team')} style={{ cursor: 'pointer', background: 'none', border: 'none', font: 'inherit' }}>Team</button>
-          <button type="button" className={s.navLink} data-on={activeTab === 'settings' ? 'true' : undefined} onClick={() => setActiveTab('settings')} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', font: 'inherit' }}><Settings size={13} /> Settings</button>
+          <button type="button" aria-label="Settings" className={s.navLink} data-on={activeTab === 'settings' ? 'true' : undefined} onClick={() => setActiveTab('settings')} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', font: 'inherit' }}><Settings size={13} /> <span className={s.navLabel}>Settings</span></button>
         </nav>
         <div className={s.topRight}>
-          <div style={{ width: 240 }}>
+          <div className={s.searchWrap} style={{ width: 240 }}>
             <Input
               placeholder="Search projects…"
               size="sm"
@@ -173,7 +173,7 @@ export default function ProjectsPage() {
               leadingIcon={<Search size={14} />}
             />
           </div>
-          <SaveStatus />
+          <span className={s.saveStatusWrap}><SaveStatus /></span>
           <AccountCard onOpenSettings={() => setActiveTab('settings')} />
         </div>
       </header>
