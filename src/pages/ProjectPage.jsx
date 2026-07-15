@@ -125,7 +125,12 @@ export default function ProjectPage() {
     if (opts?.pdfAssets) addPdfAssets(opts.pdfAssets)
     if (opts?.versionSetName?.trim()) {
       const name = opts.versionSetName.trim()
-      addSheetSet(projectId, name)
+      const setId = addSheetSet(projectId, name)
+      // addSheetSet only creates the (empty) folder — actually put the
+      // sheets just imported into it, otherwise they land in "Unassigned"
+      // and the new folder shows "0 sheets" despite being the reason it
+      // was created.
+      for (const sh of sheetArray) moveSheetToSet(projectId, sh.id, setId)
       addMtoVersion(projectId, {
         id: 'mto-' + Date.now(),
         v: 1,
