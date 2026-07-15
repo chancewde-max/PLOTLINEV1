@@ -21,7 +21,7 @@
   background: linear-gradient(
     90deg,
     transparent 0%,
-    color-mix(in srgb, var(--surface-card, #fff) 65%, transparent) 50%,
+    var(--skeleton-shine, rgba(255, 255, 255, 0.5)) 50%,
     transparent 100%
   );
   animation: shimmer 1.4s ease-in-out infinite;

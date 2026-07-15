@@ -131,6 +131,11 @@
 
   /* Focus ring */
   --focus-ring: 0 0 0 3px color-mix(in srgb, var(--brand-500) 35%, transparent);
+
+  /* Skeleton loader shine — must read as LIGHTER than --surface-muted in
+     both themes, so it can't just reuse --surface-card (in dark mode that's
+     darker than surface-muted, which made the shimmer invisible). */
+  --skeleton-shine: rgba(255, 255, 255, 0.75);
 }
 
 /* ============================================================
@@ -176,4 +181,8 @@
   --shadow-md: 0 2px 4px rgba(0,0,0,0.4), 0 6px 16px rgba(0,0,0,0.45);
   --shadow-lg: 0 8px 24px rgba(0,0,0,0.5), 0 2px 6px rgba(0,0,0,0.4);
   --shadow-xl: 0 18px 48px rgba(0,0,0,0.6), 0 6px 14px rgba(0,0,0,0.4);
+
+  /* Dark surface-card (#171d1b) is darker than surface-muted (#262e2b), so
+     a much dimmer white overlay reads as a "shine" without blowing out. */
+  --skeleton-shine: rgba(255, 255, 255, 0.09);
 }
