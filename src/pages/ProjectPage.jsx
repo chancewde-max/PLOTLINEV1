@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Plus, ChevronRight, Upload, FileText, Folder, FolderPlus, FolderOpen, X, LayoutDashboard, CheckSquare, Square, MoveRight, Printer } from 'lucide-react'
+import { ArrowLeft, Plus, ChevronRight, Upload, FileText, Folder, FolderPlus, FolderOpen, X, LayoutDashboard, CheckSquare, Square, MoveRight, Printer, DollarSign, MapPin } from 'lucide-react'
 import { Button } from '../components/ui/Button.jsx'
 import { Badge } from '../components/ui/Badge.jsx'
 import { Input } from '../components/ui/Input.jsx'
@@ -250,6 +250,50 @@ export default function ProjectPage() {
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 36, fontWeight: 700, color: 'var(--text-strong)' }}>{(project.sheetSets || []).length}</div>
             </div>
           </div>
+        )}
+
+        {activeTab === 'dashboard' && (
+          <>
+            <div className={s.dashLinks}>
+              <button className={s.dashLinkCard} onClick={() => setActiveTab('sheets')}>
+                <div className={s.dashLinkIcon}><FileText size={20} /></div>
+                <div className={s.dashLinkBody}>
+                  <div className={s.dashLinkTitle}>Sheets</div>
+                  <div className={s.dashLinkSub}>{sheetList.length} {sheetList.length === 1 ? 'sheet' : 'sheets'} in this project</div>
+                </div>
+                <MoveRight size={16} className={s.dashLinkArrow} />
+              </button>
+              <button className={s.dashLinkCard} onClick={() => setActiveTab('pricebook')}>
+                <div className={s.dashLinkIcon}><DollarSign size={20} /></div>
+                <div className={s.dashLinkBody}>
+                  <div className={s.dashLinkTitle}>Pricebook</div>
+                  <div className={s.dashLinkSub}>Proposal &amp; material takeoff pricing</div>
+                </div>
+                <MoveRight size={16} className={s.dashLinkArrow} />
+              </button>
+            </div>
+
+            <div className={s.mapCard}>
+              <div className={s.sectionLabel} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <MapPin size={13} /> Project location
+              </div>
+              {project.address ? (
+                <div className={s.mapFrame}>
+                  <iframe
+                    title="Project location map"
+                    src={`https://www.google.com/maps?q=${encodeURIComponent(project.address)}&output=embed`}
+                    loading="lazy"
+                    referrerPolicy="no-referrer-when-downgrade"
+                  />
+                </div>
+              ) : (
+                <div className={s.mapEmpty}>
+                  <MapPin size={20} />
+                  Add an address to this project to see it on the map.
+                </div>
+              )}
+            </div>
+          </>
         )}
 
         {activeTab === 'sheets' && <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>

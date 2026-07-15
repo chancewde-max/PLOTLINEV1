@@ -155,6 +155,78 @@
   .grid { grid-template-columns: 1fr; }
 }
 
+/* Dashboard: quick links to Sheets / Pricebook + address map */
+.dashLinks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.dashLinkCard {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition:
+    box-shadow var(--dur-base) var(--ease-standard),
+    border-color var(--dur-base) var(--ease-standard),
+    transform var(--dur-base) var(--ease-standard);
+}
+.dashLinkCard:hover { box-shadow: var(--shadow-md); border-color: var(--border-strong); transform: translateY(-1px); }
+.dashLinkIcon {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  color: var(--brand-600);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dashLinkBody { min-width: 0; }
+.dashLinkTitle { font-family: var(--font-display); font-size: 15px; font-weight: 700; color: var(--text-strong); }
+.dashLinkSub { font-size: 12.5px; color: var(--text-muted); margin-top: 2px; }
+.dashLinkArrow { margin-left: auto; flex: 0 0 auto; color: var(--text-subtle); }
+
+.mapCard {
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  margin-bottom: 32px;
+}
+.mapFrame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 6;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  margin-top: var(--space-5);
+}
+.mapFrame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.mapEmpty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 28px 20px;
+  color: var(--text-muted);
+  font-size: 13px;
+  background: var(--surface-sunken);
+  border-radius: var(--radius-md);
+  margin-top: var(--space-5);
+}
+@media (max-width: 640px) {
+  .mapFrame { aspect-ratio: 4 / 3; }
+}
+
 /* Pricebook sub-nav (Proposal | MTO) */
 .subNav {
   display: flex;
