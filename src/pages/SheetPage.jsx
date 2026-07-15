@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import {
   Minus, Plus, Hand, SquareDashed, Spline, MapPin,
   Ruler, Lasso, Eye, EyeOff, Check, TriangleAlert, Sun, Moon,
-  Settings2, FileDown, Share2, ChevronRight, Eraser, Sparkles,
+  Settings2, FileDown, Share2, ChevronRight, ChevronLeft, Eraser, Sparkles,
   X as XIcon, Map, Pencil, Trash2, MousePointer2, Layers, Download, GripVertical,
 } from 'lucide-react'
 import { Button } from '../components/ui/Button.jsx'
@@ -157,6 +157,16 @@ export default function SheetPage() {
   const [leftPanelW, setLeftPanelW]   = useState(264)
   const [bottomRailH, setBottomRailH] = useState(56)
   const [rightPanelW, setRightPanelW] = useState(320)
+  // Collapsed by default on narrow screens so the canvas gets the room —
+  // the side panels are a lot to ask a phone-width viewport to carry
+  // alongside the drawing surface. A push-in arrow (rendered in .body,
+  // below) brings either panel back on demand.
+  const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth < 900
+  )
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth < 900
+  )
   const [activeTool, setActiveTool] = useState('region')
   const [leftPanel, setLeftPanel]   = useState(() => sessionStorage.getItem('sheetLeftPanel') || 'layers')
   const [hidden, setHidden]     = useState({})
@@ -1418,7 +1428,34 @@ export default function SheetPage() {
 
       <div className={s.body}>
 
-        <div className={s.leftPanel} style={{ width: leftPanelW, minWidth: 180, maxWidth: 500 }}>
+        <button
+          type="button"
+          className={s.panelToggle}
+          style={{ left: leftPanelCollapsed ? 6 : leftPanelW - 12 }}
+          onClick={() => setLeftPanelCollapsed(v => !v)}
+          aria-label={leftPanelCollapsed ? 'Show layers panel' : 'Hide layers panel'}
+          title={leftPanelCollapsed ? 'Show layers panel' : 'Hide layers panel'}
+        >
+          {leftPanelCollapsed ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}
+        </button>
+        <button
+          type="button"
+          className={s.panelToggle}
+          style={{ right: rightPanelCollapsed ? 6 : rightPanelW - 12 }}
+          onClick={() => setRightPanelCollapsed(v => !v)}
+          aria-label={rightPanelCollapsed ? 'Show details panel' : 'Hide details panel'}
+          title={rightPanelCollapsed ? 'Show details panel' : 'Hide details panel'}
+        >
+          {rightPanelCollapsed ? <ChevronLeft size={13} /> : <ChevronRight size={13} />}
+        </button>
+
+        <div className={s.leftPanel} style={{
+          width: leftPanelCollapsed ? 0 : leftPanelW,
+          minWidth: leftPanelCollapsed ? 0 : 180,
+          maxWidth: 500,
+          overflow: leftPanelCollapsed ? 'hidden' : undefined,
+          borderRightWidth: leftPanelCollapsed ? 0 : undefined,
+        }}>
           <div className={s.resizeHandle} style={{ right: -3 }}
             onMouseDown={e => { e.preventDefault(); const startX = e.clientX, startW = leftPanelW; const move = ev => setLeftPanelW(Math.max(180, Math.min(500, startW + ev.clientX - startX))); const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }; window.addEventListener('mousemove', move); window.addEventListener('mouseup', up) }} />
           {/* Always show Layers / Sheets */}
@@ -2029,7 +2066,13 @@ export default function SheetPage() {
         </main>
 
         {/* Tool detail panel - always visible on right */}
-        <aside className={s.rightPanel} style={{ width: rightPanelW, minWidth: 240, maxWidth: 600 }}>
+        <aside className={s.rightPanel} style={{
+          width: rightPanelCollapsed ? 0 : rightPanelW,
+          minWidth: rightPanelCollapsed ? 0 : 240,
+          maxWidth: 600,
+          overflow: rightPanelCollapsed ? 'hidden' : undefined,
+          borderLeftWidth: rightPanelCollapsed ? 0 : undefined,
+        }}>
           <div className={s.resizeHandle} style={{ left: -3 }}
             onMouseDown={e => { e.preventDefault(); const startX = e.clientX, startW = rightPanelW; const move = ev => setRightPanelW(Math.max(240, Math.min(600, startW - (ev.clientX - startX)))); const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }; window.addEventListener('mousemove', move); window.addEventListener('mouseup', up) }} />
           {activeTool === 'measure' ? (

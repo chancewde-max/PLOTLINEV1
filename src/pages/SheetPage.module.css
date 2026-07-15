@@ -100,7 +100,33 @@
 .fsRow { display: flex; align-items: center; gap: 10px; }
 
 /* ---- Body layout ---- */
-.body { flex: 1 1 auto; display: flex; min-height: 0; }
+.body { flex: 1 1 auto; display: flex; min-height: 0; position: relative; }
+
+/* Push-in arrows that collapse the left/right panels to give the canvas
+   more room — especially on narrow screens, where carrying both side
+   panels alongside the drawing surface leaves barely any canvas at all.
+   Absolutely positioned within .body (not nested inside the panels
+   themselves) so they stay visible and clickable even when a panel's
+   width collapses to 0. */
+.panelToggle {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  cursor: pointer;
+  z-index: 15;
+  transition: left var(--dur-base) var(--ease-standard), right var(--dur-base) var(--ease-standard);
+  box-shadow: var(--shadow-sm);
+}
+.panelToggle:hover { color: var(--text-strong); background: var(--surface-muted); }
 
 /* ---- Bottom toolbar rail ---- */
 .bottomRail {
@@ -188,6 +214,7 @@
   background: var(--surface-card);
   border-right: 1px solid var(--border-default);
   min-height: 0;
+  transition: width var(--dur-base) var(--ease-standard), min-width var(--dur-base) var(--ease-standard);
 }
 
 .leftPanelTabs { padding: 12px 12px 0; }
@@ -374,6 +401,7 @@
   background: var(--surface-card);
   border-left: 1px solid var(--border-default);
   min-height: 0;
+  transition: width var(--dur-base) var(--ease-standard), min-width var(--dur-base) var(--ease-standard);
 }
 
 /* ---- Folder rows ---- */
