@@ -105,11 +105,20 @@ async function renderRectCrop(fileId, bytes, pageNum, rect, cropW = 320) {
   return out.toDataURL('image/png')
 }
 
-async function renderPageFull(fileId, bytes, pageNum, targetW = 1600) {
+async function renderPageFull(fileId, bytes, pageNum, targetW = 1400) {
   const pdf = await getPdfDoc(fileId, bytes)
   const page = await pdf.getPage(pageNum)
   const vp0 = page.getViewport({ scale: 1 })
-  const dpr = Math.max(window.devicePixelRatio || 1, 2) // at least 2× for crispness
+  // Cap at the display's ACTUAL pixel ratio (max 2×) — never inflate above it.
+  // This used to force a 2× floor even on standard 1× monitors, quadrupling
+  // the rasterized pixel count for zero visible benefit (the screen can't
+  // show detail it doesn't have). On a real CAD-exported sheet with embedded
+  // raster imagery, re-rendered on every page navigation in the picker, that
+  // was slow enough to trigger the browser's own "page is slowing down"
+  // warning. This is only the overview render for placing the crop
+  // rectangle anyway — extractEmbeddedText/ocrRect do their own dedicated
+  // high-res re-render of just the selected rect afterward.
+  const dpr = Math.min(window.devicePixelRatio || 1, 2)
   const scale = (targetW / vp0.width) * dpr
   const vp = page.getViewport({ scale })
   const canvas = document.createElement('canvas')
@@ -207,6 +216,32 @@ function guessTitle(items) {
 // pool keeps steady throughput without saturating the browser.
 const RENDER_CONCURRENCY = 6
 
+// Force a real macrotask yield back to the browser's event loop. Awaiting a
+// promise alone (e.g. between pdf.js calls) only yields at the MICROtask
+// level — if a single page's render/getTextContent is itself one long
+// synchronous stretch inside pdf.js (common for CAD-exported architectural
+// sheets with heavy vector content, even at small thumbnail output size),
+// back-to-back pages with no macrotask breathing room is exactly what trips
+// a browser's "this page is slowing down / unresponsive" watchdog on large
+// (30-100+ page) plan sets. This doesn't reduce total processing time, but
+// it gives paint/input a checkpoint between every page so the tab stays
+// responsive instead of appearing frozen.
+const yieldToBrowser = () => new Promise(r => setTimeout(r, 0))
+
+// Fixed-size worker pool: each worker pulls the next item off a shared
+// index until none remain, so at most `concurrency` items are ever in
+// flight regardless of the list's total length.
+async function runPooled(items, concurrency, worker) {
+  let next = 0
+  const pool = new Array(Math.min(concurrency, items.length)).fill(0).map(async () => {
+    while (next < items.length) {
+      const i = next++
+      await worker(items[i], i)
+    }
+  })
+  await Promise.all(pool)
+}
+
 async function processPdfFile(file, onPageDone) {
   // Read directly as ArrayBuffer — no base64 roundtrip
   const bytes = await fileToBytes(file)
@@ -237,19 +272,10 @@ async function processPdfFile(file, onPageDone) {
     }
     done++
     onPageDone && onPageDone(done, total)
+    await yieldToBrowser()
   }
 
-  // Fixed-size worker pool: each worker pulls the next page index off a
-  // shared counter until none remain, so RENDER_CONCURRENCY pages are ever
-  // in flight at once regardless of total page count.
-  let next = 1
-  const workers = new Array(Math.min(RENDER_CONCURRENCY, total)).fill(0).map(async () => {
-    while (next <= total) {
-      const i = next++
-      await renderOne(i)
-    }
-  })
-  await Promise.all(workers)
+  await runPooled(Array.from({ length: total }, (_, i) => i + 1), RENDER_CONCURRENCY, renderOne)
   console.timeEnd(`processPdfFile:${file.name}`)
   return pages.filter(Boolean)
 }
@@ -669,14 +695,20 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
     }))
     setPickerField(null)
 
-    // Background-OCR every other selected page using its own PDF content
+    // Background-OCR every other selected page using its own PDF content.
+    // Pooled (not one unbounded fire-and-forget per page) — with "select all"
+    // on a real 40-100 page plan set this was firing that many concurrent
+    // pdf.js + tesseract calls at once with no cap, the same anti-pattern
+    // that made the initial file-processing step janky before it was pooled.
     const field = pickerField // capture before async
-    pages.filter(p => idSet.has(p.id) && p.id !== currentPageId).forEach(async p => {
+    const otherPages = pages.filter(p => idSet.has(p.id) && p.id !== currentPageId)
+    runPooled(otherPages, RENDER_CONCURRENCY, async (p) => {
       const bytes = pdfCache.get(p.fileId)
       if (!bytes) return
       let t = await extractEmbeddedText(p.fileId, bytes, p.pageIndex, rect)
       if (!t) t = await ocrRect(p.fileId, bytes, p.pageIndex, rect)
       if (t) setPages(ps => ps.map(pg => pg.id === p.id ? { ...pg, [field === 'sheetNum' ? 'sheetNum' : 'title']: t } : pg))
+      await yieldToBrowser()
     })
   }
 
