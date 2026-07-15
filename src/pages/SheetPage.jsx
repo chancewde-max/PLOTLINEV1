@@ -328,6 +328,7 @@ export default function SheetPage() {
   const panStartRef      = useRef(null) // for pan tool
   const panOriginRef     = useRef(null)
   const isPanningRef     = useRef(false)
+  const pinchRef         = useRef(null) // { dist } — last two-finger spacing, for incremental pinch-zoom
 
   // ---- Name counters ----
   const nameCountRef = useRef({})
@@ -346,6 +347,56 @@ export default function SheetPage() {
   const panCurrentRef   = useRef({ x: 0, y: 0 })
   const zoomRafRef      = useRef(null)
 
+  // Zoom toward a screen point (clientX/clientY) by `factor`, animating zoom+pan together.
+  // Shared by the wheel handler (desktop) and pinch gesture (touch).
+  const applyZoomAtPoint = (factor, clientX, clientY) => {
+    const el = canvasRef.current
+    if (!el) return
+    const oldZ = zoomTargetRef.current
+    const newZ = Math.max(25, Math.min(6400, oldZ * factor))
+    zoomTargetRef.current = newZ
+    // Zoom to point: adjust pan target so point under cursor/fingers stays fixed
+    const rect = el.getBoundingClientRect()
+    const cx = clientX - rect.left - rect.width / 2
+    const cy = clientY - rect.top - rect.height / 2
+    const ratio = newZ / oldZ
+    panTargetRef.current = {
+      x: cx - (cx - panTargetRef.current.x) * ratio,
+      y: cy - (cy - panTargetRef.current.y) * ratio,
+    }
+    // Single RAF loop that animates zoom + pan together
+    if (!zoomRafRef.current) {
+      const animate = () => {
+        const z  = zoomCurrentRef.current
+        const px = panCurrentRef.current.x
+        const py = panCurrentRef.current.y
+        const tz = zoomTargetRef.current
+        const tx = panTargetRef.current.x
+        const ty = panTargetRef.current.y
+        const EPS = 0.08
+        const dz = Math.abs(tz - z), dx = Math.abs(tx - px), dy = Math.abs(ty - py)
+        if (dz < EPS && dx < EPS && dy < EPS) {
+          zoomCurrentRef.current = tz
+          panCurrentRef.current  = { x: tx, y: ty }
+          setZoom(tz)
+          setPanOffset({ x: tx, y: ty })
+          zoomRafRef.current = null
+          return
+        }
+        const EASE = 0.18
+        const nz = z + (tz - z) * EASE
+        const nx = px + (tx - px) * EASE
+        const ny = py + (ty - py) * EASE
+        zoomCurrentRef.current = nz
+        panCurrentRef.current  = { x: nx, y: ny }
+        setZoom(nz)
+        setPanOffset({ x: nx, y: ny })
+        zoomRafRef.current = requestAnimationFrame(animate)
+      }
+      zoomRafRef.current = requestAnimationFrame(animate)
+    }
+  }
+
   useEffect(() => {
     const el = canvasRef.current
     if (!el) return
@@ -353,49 +404,7 @@ export default function SheetPage() {
       e.preventDefault()
       const delta = e.deltaMode === 1 ? e.deltaY * 20 : e.deltaMode === 2 ? e.deltaY * 300 : e.deltaY
       const factor = Math.pow(0.999, delta)
-      const oldZ = zoomTargetRef.current
-      const newZ = Math.max(25, Math.min(6400, oldZ * factor))
-      zoomTargetRef.current = newZ
-      // Zoom to cursor: adjust pan target so point under cursor stays fixed
-      const rect = el.getBoundingClientRect()
-      const cx = e.clientX - rect.left - rect.width / 2
-      const cy = e.clientY - rect.top - rect.height / 2
-      const ratio = newZ / oldZ
-      panTargetRef.current = {
-        x: cx - (cx - panTargetRef.current.x) * ratio,
-        y: cy - (cy - panTargetRef.current.y) * ratio,
-      }
-      // Single RAF loop that animates zoom + pan together
-      if (!zoomRafRef.current) {
-        const animate = () => {
-          const z  = zoomCurrentRef.current
-          const px = panCurrentRef.current.x
-          const py = panCurrentRef.current.y
-          const tz = zoomTargetRef.current
-          const tx = panTargetRef.current.x
-          const ty = panTargetRef.current.y
-          const EPS = 0.08
-          const dz = Math.abs(tz - z), dx = Math.abs(tx - px), dy = Math.abs(ty - py)
-          if (dz < EPS && dx < EPS && dy < EPS) {
-            zoomCurrentRef.current = tz
-            panCurrentRef.current  = { x: tx, y: ty }
-            setZoom(tz)
-            setPanOffset({ x: tx, y: ty })
-            zoomRafRef.current = null
-            return
-          }
-          const EASE = 0.18
-          const nz = z + (tz - z) * EASE
-          const nx = px + (tx - px) * EASE
-          const ny = py + (ty - py) * EASE
-          zoomCurrentRef.current = nz
-          panCurrentRef.current  = { x: nx, y: ny }
-          setZoom(nz)
-          setPanOffset({ x: nx, y: ny })
-          zoomRafRef.current = requestAnimationFrame(animate)
-        }
-        zoomRafRef.current = requestAnimationFrame(animate)
-      }
+      applyZoomAtPoint(factor, e.clientX, e.clientY)
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => { el.removeEventListener('wheel', onWheel); if (zoomRafRef.current) cancelAnimationFrame(zoomRafRef.current) }
@@ -812,6 +821,68 @@ export default function SheetPage() {
         setSelectedIds([...ptIds, ...areaIds])
       }
       setBoxSelect(null)
+    }
+  }
+
+  // ---- Touch: two-finger pan+pinch-zoom always; one-finger pan only with Hand tool active
+  // (mirrors the existing mouse behavior — right-click-drag / Hand-tool-drag). Other tools'
+  // tap-to-place-point behavior is left untouched, relying on the browser's native
+  // touch-to-click synthesis rather than duplicating point-placement logic here.
+  const touchDist = (t0, t1) => Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY)
+  const touchMid  = (t0, t1) => ({ x: (t0.clientX + t1.clientX) / 2, y: (t0.clientY + t1.clientY) / 2 })
+
+  const onTouchStart = (e) => {
+    if (e.touches.length === 2) {
+      e.preventDefault()
+      isPanningRef.current = true
+      const [t0, t1] = e.touches
+      const mid = touchMid(t0, t1)
+      pinchRef.current = { dist: touchDist(t0, t1) }
+      panStartRef.current = { x: mid.x, y: mid.y }
+      panOriginRef.current = { ...panCurrentRef.current }
+    } else if (e.touches.length === 1 && activeTool === 'pan') {
+      e.preventDefault()
+      isPanningRef.current = true
+      const t = e.touches[0]
+      panStartRef.current = { x: t.clientX, y: t.clientY }
+      panOriginRef.current = { ...panCurrentRef.current }
+    }
+  }
+
+  const onTouchMove = (e) => {
+    if (e.touches.length === 2 && isPanningRef.current && panStartRef.current) {
+      e.preventDefault()
+      const [t0, t1] = e.touches
+      const mid = touchMid(t0, t1)
+      const dx = mid.x - panStartRef.current.x
+      const dy = mid.y - panStartRef.current.y
+      const np = { x: panOriginRef.current.x + dx, y: panOriginRef.current.y + dy }
+      panTargetRef.current = np; panCurrentRef.current = np
+      setPanOffset(np)
+      const newDist = touchDist(t0, t1)
+      if (pinchRef.current) {
+        const factor = newDist / pinchRef.current.dist
+        if (isFinite(factor) && factor > 0) applyZoomAtPoint(factor, mid.x, mid.y)
+      }
+      pinchRef.current = { dist: newDist }
+      return
+    }
+    if (e.touches.length === 1 && isPanningRef.current && panStartRef.current && activeTool === 'pan') {
+      e.preventDefault()
+      const t = e.touches[0]
+      const dx = t.clientX - panStartRef.current.x
+      const dy = t.clientY - panStartRef.current.y
+      const np = { x: panOriginRef.current.x + dx, y: panOriginRef.current.y + dy }
+      panTargetRef.current = np; panCurrentRef.current = np
+      setPanOffset(np)
+    }
+  }
+
+  const onTouchEnd = (e) => {
+    if (e.touches.length < 2) pinchRef.current = null
+    if (e.touches.length === 0) {
+      isPanningRef.current = false
+      panStartRef.current = null
     }
   }
 
@@ -1594,7 +1665,11 @@ export default function SheetPage() {
 
         <main className={s.canvas} ref={canvasRef}
           onMouseMove={onMouseMove}
-          onMouseUp={onMouseUp}>
+          onMouseUp={onMouseUp}
+          onTouchStart={onTouchStart}
+          onTouchMove={onTouchMove}
+          onTouchEnd={onTouchEnd}
+          onTouchCancel={onTouchEnd}>
           <div className={s.hint}>
             {activeTool === 'scale' ? (
               scalePts.length === 0
