@@ -201,6 +201,25 @@ async function ocrRect(fileId, bytes, pageNum, rect) {
   return (data.text || '').replace(/\s+/g, ' ').trim()
 }
 
+// Reject OCR output that's more noise than text. Tesseract regularly reads
+// dashed border lines, leader lines, and scale-bar tick marks caught in the
+// padded crop as strings of dashes/symbols mixed with a few real
+// characters (e.g. "- ————y 1 GRADING PLAN ENL..."). Better to leave the
+// field blank — so the estimator types the real value — than to silently
+// fill it with garbage that looks plausible enough to miss on a quick scan.
+function isGarbageOcrText(text) {
+  if (!text) return true
+  const t = text.trim()
+  if (!t) return true
+  const alnum = (t.match(/[a-zA-Z0-9]/g) || []).length
+  if (alnum === 0) return true
+  if (alnum / t.length < 0.5) return true
+  // A run of 3+ repeated symbol characters is the signature of a dashed
+  // line / leader / tick marks being read as text, not real content.
+  if (/[-—–_|~.·•=]{3,}/.test(t)) return true
+  return false
+}
+
 function guessSheetNumber(items) {
   const text = items.map(i => i.str).join(' ')
   const patterns = [
@@ -493,7 +512,7 @@ function FullPageAreaPicker({ pages, startIndex = 0, field, onSave, onCancel }) 
       // Try embedded text first (accurate for CAD/vector PDFs); OCR only as fallback for scanned pages
       let t = bytes ? await extractEmbeddedText(page.fileId, bytes, page.pageIndex, r) : ''
       if (!t) t = await ocrRect(page.fileId, bytes, page.pageIndex, r)
-      setExtracted(t)
+      setExtracted(isGarbageOcrText(t) ? '' : t)
     } finally { setExtracting(false) }
   }, [panning, dragging, clientToNorm, page])
 
@@ -728,7 +747,7 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
       if (!bytes) return
       let t = await extractEmbeddedText(p.fileId, bytes, p.pageIndex, rect)
       if (!t) t = await ocrRect(p.fileId, bytes, p.pageIndex, rect)
-      if (t) setPages(ps => ps.map(pg => pg.id === p.id ? { ...pg, [field === 'sheetNum' ? 'sheetNum' : 'title']: t } : pg))
+      if (t && !isGarbageOcrText(t)) setPages(ps => ps.map(pg => pg.id === p.id ? { ...pg, [field === 'sheetNum' ? 'sheetNum' : 'title']: t } : pg))
       await yieldToBrowser()
     })
   }
