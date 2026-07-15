@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react'
 import { PROJECTS as D_PROJECTS, SHEETS as D_SHEETS } from './sampleData.js'
+import { emptyOcrMemory, addSample as addOcrSample, addCorrection as addOcrCorrection } from './ocrLearning.js'
 
 const Ctx = createContext(null)
 const VER = '6'
@@ -58,6 +59,7 @@ function load() {
         clients: d.clients && typeof d.clients === 'object' ? d.clients : {},
         mtoTemplates: d.mtoTemplates && typeof d.mtoTemplates === 'object' ? d.mtoTemplates : {},
         pdfAssets: d.pdfAssets && typeof d.pdfAssets === 'object' ? d.pdfAssets : {},
+        ocrMemory: d.ocrMemory && typeof d.ocrMemory === 'object' ? d.ocrMemory : emptyOcrMemory(),
       }
     }
   } catch {}
@@ -83,6 +85,10 @@ export function AppDataProvider({ children }) {
   // instead. Legacy sheets (pre-dating this) still carry their own `pdfUrl`
   // directly and keep working unchanged.
   const [pdfAssets, setPdfAssets] = useState(saved?.pdfAssets ?? {})
+  // "Correction memory" for the sheet-upload wizard's OCR guesses — see
+  // src/data/ocrLearning.js for what this actually does (pattern learning,
+  // not ML).
+  const [ocrMemory, setOcrMemory] = useState(saved?.ocrMemory ?? emptyOcrMemory())
   // Account-level company profile (logo + identity used on customer-facing docs).
   const [company, setCompany] = useState(saved?.company ?? {
     name: '', address: '', phone: '', email: '', logoDataUrl: '',
@@ -99,7 +105,7 @@ export function AppDataProvider({ children }) {
     setSaveStatus('saving')
     if (lsTimerRef.current) clearTimeout(lsTimerRef.current)
     lsTimerRef.current = setTimeout(() => {
-      const snapshot = { v: VER, projects, sheets, customCats, clients, mtoTemplates, proposalTemplates, company, pdfAssets }
+      const snapshot = { v: VER, projects, sheets, customCats, clients, mtoTemplates, proposalTemplates, company, pdfAssets, ocrMemory }
       localStorage.setItem('plotline-appdata', JSON.stringify(snapshot))
       // Keep the module cache in sync so remounts reuse fresh data.
       dataCache.loaded = true
@@ -107,7 +113,7 @@ export function AppDataProvider({ children }) {
       setSaveStatus('saved')
     }, 500)
     return () => clearTimeout(lsTimerRef.current)
-  }, [projects, sheets, customCats, clients, mtoTemplates, proposalTemplates, company, pdfAssets])
+  }, [projects, sheets, customCats, clients, mtoTemplates, proposalTemplates, company, pdfAssets, ocrMemory])
 
   const addProject = (proj) =>
     setProjects(p => ({ ...p, [proj.id]: proj }))
@@ -181,6 +187,15 @@ export function AppDataProvider({ children }) {
     if (!assetsMap || !Object.keys(assetsMap).length) return
     setPdfAssets(a => ({ ...a, ...assetsMap }))
   }
+
+  // Record a confirmed sheet-number/title value (whether auto-filled
+  // correctly or hand-typed) so its FORMAT feeds future pattern-matching.
+  const recordOcrSample = (field, value) =>
+    setOcrMemory(m => addOcrSample(m, field, value))
+
+  // Record that the bot's guess was wrong and what the real value was.
+  const recordOcrCorrection = (field, guess, corrected) =>
+    setOcrMemory(m => addOcrCorrection(m, field, guess, corrected))
 
   const addCustomCat = (cat) =>
     setCustomCats(prev => [...prev, cat])
@@ -362,6 +377,9 @@ export function AppDataProvider({ children }) {
     setPdfAssets(a => merge && a && Object.keys(a).length
       ? { ...a, ...(snapshot.pdfAssets ?? {}) }
       : (snapshot.pdfAssets ?? {}))
+    setOcrMemory(m => merge && m
+      ? { ...m, ...(snapshot.ocrMemory ?? {}) }
+      : (snapshot.ocrMemory ?? emptyOcrMemory()))
     setCompany(prev => merge && prev && prev.name
       ? { ...prev, ...(snapshot.company ?? {}) }
       : (snapshot.company ?? prev))
@@ -376,6 +394,7 @@ export function AppDataProvider({ children }) {
     setMtoTemplates({})
     setProposalTemplates({})
     setPdfAssets({})
+    setOcrMemory(emptyOcrMemory())
     setCompany({ name: '', address: '', phone: '', email: '', logoDataUrl: '' })
   }
 
@@ -383,6 +402,7 @@ export function AppDataProvider({ children }) {
     <Ctx.Provider value={{
       projects, sheets, customCats, clients, mtoTemplates, proposalTemplates,
       pdfAssets, addPdfAssets,
+      ocrMemory, recordOcrSample, recordOcrCorrection,
       company, updateCompany,
       saveStatus,
       addProject, updateProject,

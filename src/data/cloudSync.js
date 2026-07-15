@@ -11,18 +11,22 @@
 //   - clients            (object keyed by client id)
 //   - pdfAssets          (object keyed by source-PDF fileId — shared bytes for
 //                          sheets split from the same multi-page upload)
+//   - ocrMemory          (sheet-upload wizard's OCR "correction memory" —
+//                          see src/data/ocrLearning.js)
 //
 // All functions are guarded by `supabaseEnabled`. When cloud is not configured
 // they return null (or reject, for the save path) so callers can fall back to
 // localStorage without erroring. Nothing here ever throws on a missing key.
 
 import { supabase, supabaseEnabled } from '../lib/supabaseClient.js'
+import { emptyOcrMemory } from './ocrLearning.js'
 
 // Default snapshot used when a row does not yet exist.
 export function emptySnapshot() {
   return {
     projects: {}, sheets: {}, customCats: [], company: null,
     proposalTemplates: {}, mtoTemplates: {}, clients: {}, pdfAssets: {},
+    ocrMemory: emptyOcrMemory(),
   }
 }
 
@@ -33,7 +37,7 @@ export async function loadUserSnapshot(userId) {
   if (!supabaseEnabled || !supabase) return null
   const { data, error } = await supabase
     .from('app_data')
-    .select('projects, sheets, custom_cats, company, proposal_templates, mto_templates, clients, pdf_assets')
+    .select('projects, sheets, custom_cats, company, proposal_templates, mto_templates, clients, pdf_assets, ocr_memory')
     .eq('user_id', userId)
     .maybeSingle()
 
@@ -53,6 +57,7 @@ export async function loadUserSnapshot(userId) {
     mtoTemplates: data.mto_templates ?? {},
     clients: data.clients ?? {},
     pdfAssets: data.pdf_assets ?? {},
+    ocrMemory: data.ocr_memory ?? emptyOcrMemory(),
   }
 }
 
@@ -76,6 +81,7 @@ export async function saveUserSnapshot(userId, snapshot) {
         mto_templates: snapshot.mtoTemplates ?? {},
         clients: snapshot.clients ?? {},
         pdf_assets: snapshot.pdfAssets ?? {},
+        ocr_memory: snapshot.ocrMemory ?? emptyOcrMemory(),
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'user_id' }

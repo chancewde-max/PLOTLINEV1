@@ -5,6 +5,8 @@ import { Upload, X, ChevronRight, CheckCircle, Loader, Square, ChevronLeft, Chec
 import { Button } from './ui/Button.jsx'
 import { Skeleton } from './Skeleton.jsx'
 import { pdfCache } from './pdfCache.js'
+import { useAppData } from '../data/useAppData.jsx'
+import { predictFromNeighbors } from '../data/ocrLearning.js'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
@@ -374,6 +376,7 @@ function DropZone({ onFiles }) {
 // Shows the actual PDF at full resolution; user draws a rect; can navigate pages.
 // On "Save and apply" the rect is applied to all selected pages (passed as `pages`).
 function FullPageAreaPicker({ pages, startIndex = 0, field, onSave, onCancel }) {
+  const { ocrMemory } = useAppData()
   const [idx, setIdx] = useState(startIndex)
   const [canvas, setCanvas] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -512,9 +515,14 @@ function FullPageAreaPicker({ pages, startIndex = 0, field, onSave, onCancel }) 
       // Try embedded text first (accurate for CAD/vector PDFs); OCR only as fallback for scanned pages
       let t = bytes ? await extractEmbeddedText(page.fileId, bytes, page.pageIndex, r) : ''
       if (!t) t = await ocrRect(page.fileId, bytes, page.pageIndex, r)
-      setExtracted(isGarbageOcrText(t) ? '' : t)
+      if (isGarbageOcrText(t)) t = ''
+      // OCR failed entirely — fall back to predicting from a confirmed
+      // neighbor page using the account's learned numbering pattern, e.g.
+      // page N-1 = "L-4" + a known "A-9" shape -> guess "L-5" for page N.
+      if (!t) t = predictFromNeighbors(pages, page, field, ocrMemory) || ''
+      setExtracted(t)
     } finally { setExtracting(false) }
-  }, [panning, dragging, clientToNorm, page])
+  }, [panning, dragging, clientToNorm, page, pages, field, ocrMemory])
 
   const handleSave = () => {
     onSave(rect, extracted || '', pages.map(p => p.id), page.id)
@@ -674,6 +682,7 @@ function VersionSetInput({ value, onChange }) {
 
 // ---- Main wizard ------------------------------------------------------------
 export default function SheetUploadWizard({ open, onClose, onImport }) {
+  const { ocrMemory, recordOcrSample, recordOcrCorrection } = useAppData()
   const [step, setStep] = useState(0)
   const [pages, setPages] = useState([])
   const [processing, setProcessing] = useState(false)
@@ -726,11 +735,16 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
     const textField = pickerField === 'sheetNum' ? 'sheetNum' : 'title'
     const idSet = new Set(pageIds)
 
-    // Apply rect immediately; text only for the page that was displayed in picker
+    // Apply rect immediately; text only for the page that was displayed in picker.
+    // Also snapshot it as [field]Guess — "what the bot said" — so a later
+    // hand-edit before Import can be logged as a correction.
     setPages(ps => ps.map(p => {
       if (!idSet.has(p.id)) return p
       const updated = { ...p, [rectField]: rect }
-      if (text && p.id === currentPageId) updated[textField] = text
+      if (text && p.id === currentPageId) {
+        updated[textField] = text
+        updated[`${textField}Guess`] = text
+      }
       return updated
     }))
     setPickerField(null)
@@ -741,13 +755,21 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
     // pdf.js + tesseract calls at once with no cap, the same anti-pattern
     // that made the initial file-processing step janky before it was pooled.
     const field = pickerField // capture before async
+    // `pages` here is a snapshot from when Save was clicked — predictions
+    // see each other's ORIGINAL values (heuristic guess or the one page
+    // just confirmed in the picker), not other pages finishing concurrently
+    // in this same background pass. Good enough for a sequence hint; a
+    // fully cascading chain isn't worth the added complexity.
+    const pagesSnapshot = pages
     const otherPages = pages.filter(p => idSet.has(p.id) && p.id !== currentPageId)
     runPooled(otherPages, RENDER_CONCURRENCY, async (p) => {
       const bytes = pdfCache.get(p.fileId)
       if (!bytes) return
       let t = await extractEmbeddedText(p.fileId, bytes, p.pageIndex, rect)
       if (!t) t = await ocrRect(p.fileId, bytes, p.pageIndex, rect)
-      if (t && !isGarbageOcrText(t)) setPages(ps => ps.map(pg => pg.id === p.id ? { ...pg, [field === 'sheetNum' ? 'sheetNum' : 'title']: t } : pg))
+      if (t && isGarbageOcrText(t)) t = ''
+      if (!t) t = predictFromNeighbors(pagesSnapshot, p, field, ocrMemory) || ''
+      if (t) setPages(ps => ps.map(pg => pg.id === p.id ? { ...pg, [field]: t, [`${field}Guess`]: t } : pg))
       await yieldToBrowser()
     })
   }
@@ -780,6 +802,18 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
       pxPerFt: null,
       areas: [], lines: [], points: [],
     }))
+    // Feed the correction memory: for each field, if the bot guessed
+    // something and the estimator changed it before importing, that's an
+    // explicit correction; either way the final confirmed value is a
+    // sample of this account's numbering/title format.
+    for (const p of pages) {
+      for (const field of ['sheetNum', 'title']) {
+        const guess = p[`${field}Guess`]
+        const final = p[field]
+        if (guess && final && guess !== final) recordOcrCorrection(field, guess, final)
+        if (final) recordOcrSample(field, final)
+      }
+    }
     onImport(sheetArr, { versionSetName, pdfAssets })
     handleClose()
   }
@@ -823,9 +857,20 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
             {/* Step 0 — Files */}
             {step === 0 && (
               processing ? (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '56px 0' }}>
-                  <Loader size={28} style={{ color: 'var(--brand-600)', animation: 'spin 1s linear infinite' }} />
-                  <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>{processingMsg}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '8px 0' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--text-muted)' }}>
+                    <Loader size={15} style={{ color: 'var(--brand-600)', animation: 'spin 1s linear infinite', flexShrink: 0 }} />
+                    {processingMsg}
+                  </div>
+                  {/* Shape-of-the-table-to-come shimmer, not a lonely spinner */}
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                      <Skeleton width={20} height={20} radius={4} />
+                      <Skeleton width={44} height={60} radius={4} />
+                      <Skeleton width={140} height={36} radius={4} />
+                      <Skeleton height={30} radius={6} style={{ flex: 1 }} />
+                    </div>
+                  ))}
                 </div>
               ) : <DropZone onFiles={handleFiles} />
             )}

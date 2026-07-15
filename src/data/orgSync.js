@@ -6,6 +6,7 @@
 // supabase/schema_teams.sql for the tables and RLS these calls depend on.
 
 import { supabase, supabaseEnabled } from '../lib/supabaseClient.js'
+import { emptyOcrMemory } from './ocrLearning.js'
 
 // ---- Membership -----------------------------------------------------------
 
@@ -137,7 +138,7 @@ export async function loadOrgSnapshot(orgId) {
   if (!supabaseEnabled || !supabase || !orgId) return null
   const { data, error } = await supabase
     .from('org_data')
-    .select('projects, sheets, custom_cats, company, proposal_templates, mto_templates, clients, pdf_assets')
+    .select('projects, sheets, custom_cats, company, proposal_templates, mto_templates, clients, pdf_assets, ocr_memory')
     .eq('org_id', orgId)
     .maybeSingle()
 
@@ -156,6 +157,7 @@ export async function loadOrgSnapshot(orgId) {
     mtoTemplates: data.mto_templates ?? {},
     clients: data.clients ?? {},
     pdfAssets: data.pdf_assets ?? {},
+    ocrMemory: data.ocr_memory ?? emptyOcrMemory(),
   }
 }
 
@@ -176,6 +178,7 @@ export async function saveOrgSnapshot(orgId, snapshot) {
         mto_templates: snapshot.mtoTemplates ?? {},
         clients: snapshot.clients ?? {},
         pdf_assets: snapshot.pdfAssets ?? {},
+        ocr_memory: snapshot.ocrMemory ?? emptyOcrMemory(),
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'org_id' }
