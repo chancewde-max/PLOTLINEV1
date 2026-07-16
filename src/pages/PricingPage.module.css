@@ -35,6 +35,7 @@
   align-items: center;
   gap: var(--space-8);
   height: var(--topbar);
+  position: relative;
 }
 .brand {
   display: inline-flex;
@@ -77,6 +78,21 @@
   gap: var(--space-4);
 }
 .signIn { color: var(--text-body); }
+
+/* Hamburger toggle — hidden on desktop, shown once .navLinks collapses. */
+.navMenuToggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid var(--border-default);
+  background: var(--bg-app);
+  color: var(--text-strong);
+  cursor: pointer;
+}
+.navMenuToggle:hover { background: var(--surface-muted); }
 
 /* ---- Hero ---- */
 .hero {
@@ -435,7 +451,30 @@
 /* ---- Responsive ---- */
 @media (max-width: 960px) {
   .pricingGrid { grid-template-columns: repeat(2, 1fr); }
-  .navLinks { display: none; }
+  .navMenuToggle { display: flex; }
+  .navLinks {
+    display: none;
+    position: absolute;
+    top: calc(100% + 12px);
+    right: 0;
+    min-width: 200px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    margin-left: 0;
+    padding: 10px;
+    background: var(--surface-card);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-lg, 14px);
+    box-shadow: var(--shadow-lg);
+  }
+  .navLinks.navLinksOpen { display: flex; }
+  .navLinks a {
+    padding: 10px 8px;
+    border-radius: var(--radius-md, 8px);
+  }
+  .navLinks a:hover { background: var(--surface-muted); }
+  .navLinks .signIn { justify-content: flex-start; }
 }
 @media (max-width: 720px) {
   .container { padding-left: var(--space-6); padding-right: var(--space-6); }
@@ -443,7 +482,4 @@
   .pricingGrid { grid-template-columns: 1fr; }
   .footerTop { flex-direction: column; gap: var(--space-9); }
   .finalCtaInner { padding: var(--space-10) var(--space-7); }
-}
-@media (max-width: 520px) {
-  .navRight .signIn { display: none; }
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import {
   Ruler,
@@ -8,6 +8,8 @@ import {
   Clock,
   Target,
   Award,
+  Menu,
+  X,
 } from 'lucide-react'
 import { Button } from '../components/ui/Button.jsx'
 import { Badge } from '../components/ui/Badge.jsx'
@@ -23,6 +25,7 @@ export default function LandingPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const { openAuth, user } = useAuth()
+  const [menuOpen, setMenuOpen] = useState(false)
 
   useEffect(() => {
     const id = location.hash ? location.hash.slice(1) : ''
@@ -30,7 +33,13 @@ export default function LandingPage() {
       const el = document.getElementById(id)
       if (el) requestAnimationFrame(() => el.scrollIntoView({ behavior: 'smooth' }))
     }
+    setMenuOpen(false)
   }, [location.hash])
+
+  const goTo = (path) => {
+    setMenuOpen(false)
+    navigate(path)
+  }
 
   // Scroll-parallax background blobs. Deliberately NOT driven through
   // SideRays' React props — its effect tears down and rebuilds the whole
@@ -91,11 +100,13 @@ export default function LandingPage() {
           <span className={s.navWordmark}>Plotline<span>.</span></span>
         </Link>
         <div className={s.navSpacer}>
-          <a className={s.navLink} href="/#product" onClick={(e) => { e.preventDefault(); navigate('/#product') }}>Product</a>
-          <a className={s.navLink} href="/pricing" onClick={(e) => { e.preventDefault(); navigate('/pricing') }}>Pricing</a>
-          <a className={s.navLink} href="/#customers" onClick={(e) => { e.preventDefault(); navigate('/#customers') }}>Customers</a>
-          <a className={s.navLink} href="/#docs" onClick={(e) => { e.preventDefault(); navigate('/#docs') }}>Docs</a>
-          <Button variant="ghost" onClick={() => openAuth()}>Sign in</Button>
+          <div id="nav-links-panel" className={`${s.navLinksPanel} ${menuOpen ? s.navLinksPanelOpen : ''}`}>
+            <a className={s.navLink} href="/#product" onClick={(e) => { e.preventDefault(); goTo('/#product') }}>Product</a>
+            <a className={s.navLink} href="/pricing" onClick={(e) => { e.preventDefault(); goTo('/pricing') }}>Pricing</a>
+            <a className={s.navLink} href="/#customers" onClick={(e) => { e.preventDefault(); goTo('/#customers') }}>Customers</a>
+            <a className={s.navLink} href="/#docs" onClick={(e) => { e.preventDefault(); goTo('/#docs') }}>Docs</a>
+            <Button variant="ghost" onClick={() => { setMenuOpen(false); openAuth() }}>Sign in</Button>
+          </div>
           <Button
             variant="primary"
             iconRight={<ArrowRight size={16} />}
@@ -103,6 +114,16 @@ export default function LandingPage() {
           >
             Start free trial
           </Button>
+          <button
+            type="button"
+            className={s.navMenuToggle}
+            aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={menuOpen}
+            aria-controls="nav-links-panel"
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            {menuOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
         </div>
       </nav>
 

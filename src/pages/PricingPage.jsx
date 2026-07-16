@@ -12,6 +12,8 @@ import {
   Twitter,
   Linkedin,
   Github,
+  Menu,
+  X,
 } from 'lucide-react'
 import s from './PricingPage.module.css'
 import { useAuth } from '../auth/AuthProvider.jsx'
@@ -100,28 +102,30 @@ const FAQ = [
 function Nav() {
   const navigate = useNavigate()
   const { openAuth } = useAuth()
+  const [menuOpen, setMenuOpen] = useState(false)
+  const goTo = (path) => { setMenuOpen(false); navigate(path) }
   return (
     <header className={s.nav}>
       <div className={`${s.container} ${s.navInner}`}>
-        <a className={s.brand} href="/" aria-label="Plotline home" onClick={(e) => { e.preventDefault(); navigate('/') }}>
+        <a className={s.brand} href="/" aria-label="Plotline home" onClick={(e) => { e.preventDefault(); goTo('/') }}>
           <img src="/plotline-mark.svg" alt="" />
           <b>Plotline<span className={s.dot}>.</span></b>
         </a>
-        <nav className={s.navLinks}>
-          <a href="/#product" onClick={(e) => { e.preventDefault(); navigate('/#product') }}>Product</a>
-          <a href="/pricing" className={s.navLinkActive} onClick={(e) => { e.preventDefault(); navigate('/pricing') }}>Pricing</a>
-          <a href="/#customers" onClick={(e) => { e.preventDefault(); navigate('/#customers') }}>Customers</a>
-          <a href="/#docs" onClick={(e) => { e.preventDefault(); navigate('/#docs') }}>Docs</a>
-        </nav>
-        <div className={s.navRight}>
+        <nav id="pricing-nav-links-panel" className={`${s.navLinks} ${menuOpen ? s.navLinksOpen : ''}`}>
+          <a href="/#product" onClick={(e) => { e.preventDefault(); goTo('/#product') }}>Product</a>
+          <a href="/pricing" className={s.navLinkActive} onClick={(e) => { e.preventDefault(); goTo('/pricing') }}>Pricing</a>
+          <a href="/#customers" onClick={(e) => { e.preventDefault(); goTo('/#customers') }}>Customers</a>
+          <a href="/#docs" onClick={(e) => { e.preventDefault(); goTo('/#docs') }}>Docs</a>
           <Button
             variant="ghost"
             size="sm"
             className={s.signIn}
-            onClick={() => openAuth()}
+            onClick={() => { setMenuOpen(false); openAuth() }}
           >
             Sign in
           </Button>
+        </nav>
+        <div className={s.navRight}>
           <Button
             variant="primary"
             size="sm"
@@ -129,6 +133,16 @@ function Nav() {
           >
             Start free trial
           </Button>
+          <button
+            type="button"
+            className={s.navMenuToggle}
+            aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={menuOpen}
+            aria-controls="pricing-nav-links-panel"
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            {menuOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
         </div>
       </div>
     </header>

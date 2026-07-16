@@ -30,3 +30,21 @@
   gap: var(--space-3, 10px);
   flex: 0 0 auto;
 }
+
+/* Small viewports: the row layout plus full text pushes this card tall
+   enough to bury whatever's underneath, so switch to a stacked, tighter
+   layout instead of just shrinking the row. */
+@media (max-width: 560px) {
+  .root {
+    bottom: 12px;
+    width: calc(100vw - 24px);
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3, 10px);
+    padding: var(--space-4, 14px);
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
+  }
+  .text { font-size: 12px; }
+  .actions { justify-content: flex-end; }
+}
