@@ -5,6 +5,7 @@ import {
   Ruler, Lasso, Eye, EyeOff, Check, TriangleAlert, Sun, Moon,
   Settings2, FileDown, Share2, ChevronRight, ChevronLeft, Eraser, Sparkles,
   X as XIcon, Map, Pencil, Trash2, MousePointer2, Layers, Download, GripVertical,
+  Printer,
 } from 'lucide-react'
 import { Button } from '../components/ui/Button.jsx'
 import { Badge } from '../components/ui/Badge.jsx'
@@ -19,9 +20,10 @@ import { useSettings } from '../data/useSettings.jsx'
 import { useAuth } from '../auth/AuthProvider.jsx'
 import { SheetPageSkeleton } from '../components/Skeleton.jsx'
 import PdfCanvas from '../components/PdfCanvas.jsx'
+import SheetPrintView from '../components/SheetPrintView.jsx'
 import { resolveSheetPdfUrl, sheetHasPdf } from '../components/pdfCache.js'
 import { CATS, CAT_COLOR, SHEET_W, SHEET_H } from '../data/sampleData.js'
-import { inside, polyAreaPx, perimPx, centroid, clipPx2, dist } from '../workspace/geometry.js'
+import { inside, polyAreaPx, perimPx, centroid, clipPx2, dist, buildAreaPath, buildLinePath, linePathLenPx, circularArcSeg } from '../workspace/geometry.js'
 import s from './SheetPage.module.css'
 
 const TOOLS = [
@@ -68,84 +70,6 @@ function singularize(name) {
   return name.replace(/s\s*$/, '').trim()
 }
 
-// True circular arc SVG segment through 3 points S, T (through-point), E
-function circularArcSeg(S, T, E) {
-  const ax = S.x, ay = S.y, bx = T.x, by = T.y, cx = E.x, cy = E.y
-  const D = 2 * (ax*(by-cy) + bx*(cy-ay) + cx*(ay-by))
-  if (Math.abs(D) < 1e-10) return ` L ${E.x} ${E.y}` // collinear → straight line
-  const ux = ((ax*ax+ay*ay)*(by-cy) + (bx*bx+by*by)*(cy-ay) + (cx*cx+cy*cy)*(ay-by)) / D
-  const uy = ((ax*ax+ay*ay)*(cx-bx) + (bx*bx+by*by)*(ax-cx) + (cx*cx+cy*cy)*(bx-ax)) / D
-  const r = Math.hypot(ax-ux, ay-uy)
-  // In SVG y-down coords, CW on screen = increasing atan2 angle.
-  // Determine sweep/large by checking which arc (CW vs CCW) T falls on.
-  const n2pi = a => ((a % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI)
-  const angS = Math.atan2(ay - uy, ax - ux)
-  const angT = Math.atan2(by - uy, bx - ux)
-  const angE = Math.atan2(cy - uy, cx - ux)
-  const cwSE = n2pi(angE - angS) // CW span from S to E
-  const cwST = n2pi(angT - angS) // CW span from S to T
-  const sweep = cwST < cwSE ? 1 : 0 // T reached before E going CW → use CW
-  const span = sweep === 1 ? cwSE : (2 * Math.PI - cwSE)
-  const large = span > Math.PI ? 1 : 0
-  return ` A ${r} ${r} 0 ${large} ${sweep} ${E.x} ${E.y}`
-}
-
-function buildAreaPath(poly, arcSegs = {}) {
-  if (!poly || poly.length < 2) return ''
-  let d = `M ${poly[0].x} ${poly[0].y}`
-  for (let i = 1; i < poly.length; i++) {
-    const S = poly[i - 1], E = poly[i]
-    if (arcSegs[i - 1]) d += circularArcSeg(S, arcSegs[i - 1], E)
-    else d += ` L ${E.x} ${E.y}`
-  }
-  const last = poly[poly.length - 1], first = poly[0]
-  const closeIdx = poly.length - 1
-  if (arcSegs[closeIdx]) d += circularArcSeg(last, arcSegs[closeIdx], first)
-  return d + ' Z'
-}
-
-function buildLinePath(pts, arcSegs = {}) {
-  if (!pts || pts.length < 2) return ''
-  let d = `M ${pts[0].x} ${pts[0].y}`
-  for (let i = 1; i < pts.length; i++) {
-    const S = pts[i - 1], E = pts[i]
-    if (arcSegs[i - 1]) d += circularArcSeg(S, arcSegs[i - 1], E)
-    else d += ` L ${E.x} ${E.y}`
-  }
-  return d
-}
-
-// True circular arc LENGTH (px) between S and E through T — mirrors circularArcSeg.
-function circularArcLen(S, T, E) {
-  const ax = S.x, ay = S.y, bx = T.x, by = T.y, cx = E.x, cy = E.y
-  const D = 2 * (ax*(by-cy) + bx*(cy-ay) + cx*(ay-by))
-  if (Math.abs(D) < 1e-10) return Math.hypot(cx - ax, cy - ay) // collinear → straight chord
-  const ux = ((ax*ax+ay*ay)*(by-cy) + (bx*bx+by*by)*(cy-ay) + (cx*cx+cy*cy)*(ay-by)) / D
-  const uy = ((ax*ax+ay*ay)*(cx-bx) + (bx*bx+by*by)*(ax-cx) + (cx*cx+cy*cy)*(bx-ax)) / D
-  const r = Math.hypot(ax-ux, ay-uy)
-  const n2pi = a => ((a % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI)
-  const angS = Math.atan2(ay - uy, ax - ux)
-  const angT = Math.atan2(by - uy, bx - ux)
-  const angE = Math.atan2(cy - uy, cx - ux)
-  const cwSE = n2pi(angE - angS)
-  const cwST = n2pi(angT - angS)
-  const sweep = cwST < cwSE ? 1 : 0
-  const span = sweep === 1 ? cwSE : (2 * Math.PI - cwSE)
-  return r * span
-}
-
-// Arc-aware polyline length (px): arc segments use true curve length, others use chords.
-function linePathLenPx(pts, arcSegs = {}) {
-  if (!pts || pts.length < 2) return 0
-  let d = 0
-  for (let i = 1; i < pts.length; i++) {
-    const S = pts[i - 1], E = pts[i]
-    if (arcSegs && arcSegs[i - 1]) d += circularArcLen(S, arcSegs[i - 1], E)
-    else d += Math.hypot(E.x - S.x, E.y - S.y)
-  }
-  return d
-}
-
 export default function SheetPage() {
   const { projectId, sheetId } = useParams()
   const navigate = useNavigate()
@@ -179,6 +103,7 @@ export default function SheetPage() {
   const [strokeW, setStrokeW]     = useState(0.4)  // area/linear stroke multiplier
   const [measureSize, setMeasureSize] = useState(0.5) // measure label/tick size multiplier
   const [exportOpen, setExportOpen] = useState(false)
+  const [printOpen, setPrintOpen]   = useState(false)
   const [quoteOpen, setQuoteOpen]   = useState(false)
   const [quoteVendor, setQuoteVendor] = useState('')
   const [quoteCopied, setQuoteCopied] = useState(false)
@@ -1432,6 +1357,7 @@ export default function SheetPage() {
           <Button size="sm" variant="secondary" iconLeft={<Share2 size={14} />}>Share</Button>
           <Button size="sm" variant="ghost" iconLeft={<Share2 size={14} />} onClick={() => { setQuoteVendor(''); setQuoteCopied(false); setQuoteOpen(true) }}>Quote email</Button>
           <Button size="sm" variant="ghost" iconLeft={<Download size={14} />} onClick={exportMTO}>MTO</Button>
+          <Button size="sm" variant="ghost" iconLeft={<Printer size={14} />} onClick={() => setPrintOpen(true)}>Print</Button>
           <Button size="sm" variant="primary" iconLeft={<FileDown size={14} />} onClick={() => setExportOpen(true)}>Export</Button>
         </div>
       </header>
@@ -2294,6 +2220,23 @@ export default function SheetPage() {
           </div>
         </div>
       </Dialog>
+
+      <SheetPrintView
+        open={printOpen}
+        onClose={() => setPrintOpen(false)}
+        project={project}
+        sheet={sheet}
+        pdfUrl={sheetHasPdf(sheet) ? resolveSheetPdfUrl(sheet, pdfAssets) : null}
+        pdfPage={sheet.pdfPage || 1}
+        allAreas={allAreas}
+        allLines={allLines}
+        allPoints={allPoints}
+        sqft={sqft}
+        lnft={lnft}
+        fSq={fSq}
+        fLn={fLn}
+        calib={calib}
+      />
 
       {/* Page Overlay Dialog */}
       <Dialog open={overlayDlg} onClose={() => setOverlayDlg(false)} title="Page overlay"

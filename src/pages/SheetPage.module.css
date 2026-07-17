@@ -263,6 +263,13 @@
   justify-content: center;
   overflow: hidden;
   min-width: 0;
+  /* The pinch-zoom/pan handlers below (onTouchStart/Move/End) implement
+     their own gesture logic and call preventDefault() — but on iOS Safari
+     that alone doesn't stop the native page-zoom gesture recognizer, which
+     runs in parallel and fights the app's own transform, producing a torn,
+     partially-zoomed canvas that also can't be panned. touch-action: none
+     tells the browser this element owns all touch gestures itself. */
+  touch-action: none;
 }
 
 .sheetWrap { transition: transform var(--dur-base) var(--ease-out); }

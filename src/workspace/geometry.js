@@ -59,3 +59,81 @@ export function clipPx2(subj, region, step = 4) {
 
 // Distance between two points
 export function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y) }
+
+// True circular arc SVG segment through 3 points S, T (through-point), E
+export function circularArcSeg(S, T, E) {
+  const ax = S.x, ay = S.y, bx = T.x, by = T.y, cx = E.x, cy = E.y
+  const D = 2 * (ax*(by-cy) + bx*(cy-ay) + cx*(ay-by))
+  if (Math.abs(D) < 1e-10) return ` L ${E.x} ${E.y}` // collinear → straight line
+  const ux = ((ax*ax+ay*ay)*(by-cy) + (bx*bx+by*by)*(cy-ay) + (cx*cx+cy*cy)*(ay-by)) / D
+  const uy = ((ax*ax+ay*ay)*(cx-bx) + (bx*bx+by*by)*(ax-cx) + (cx*cx+cy*cy)*(bx-ax)) / D
+  const r = Math.hypot(ax-ux, ay-uy)
+  // In SVG y-down coords, CW on screen = increasing atan2 angle.
+  // Determine sweep/large by checking which arc (CW vs CCW) T falls on.
+  const n2pi = a => ((a % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI)
+  const angS = Math.atan2(ay - uy, ax - ux)
+  const angT = Math.atan2(by - uy, bx - ux)
+  const angE = Math.atan2(cy - uy, cx - ux)
+  const cwSE = n2pi(angE - angS) // CW span from S to E
+  const cwST = n2pi(angT - angS) // CW span from S to T
+  const sweep = cwST < cwSE ? 1 : 0 // T reached before E going CW → use CW
+  const span = sweep === 1 ? cwSE : (2 * Math.PI - cwSE)
+  const large = span > Math.PI ? 1 : 0
+  return ` A ${r} ${r} 0 ${large} ${sweep} ${E.x} ${E.y}`
+}
+
+export function buildAreaPath(poly, arcSegs = {}) {
+  if (!poly || poly.length < 2) return ''
+  let d = `M ${poly[0].x} ${poly[0].y}`
+  for (let i = 1; i < poly.length; i++) {
+    const S = poly[i - 1], E = poly[i]
+    if (arcSegs[i - 1]) d += circularArcSeg(S, arcSegs[i - 1], E)
+    else d += ` L ${E.x} ${E.y}`
+  }
+  const last = poly[poly.length - 1], first = poly[0]
+  const closeIdx = poly.length - 1
+  if (arcSegs[closeIdx]) d += circularArcSeg(last, arcSegs[closeIdx], first)
+  return d + ' Z'
+}
+
+export function buildLinePath(pts, arcSegs = {}) {
+  if (!pts || pts.length < 2) return ''
+  let d = `M ${pts[0].x} ${pts[0].y}`
+  for (let i = 1; i < pts.length; i++) {
+    const S = pts[i - 1], E = pts[i]
+    if (arcSegs[i - 1]) d += circularArcSeg(S, arcSegs[i - 1], E)
+    else d += ` L ${E.x} ${E.y}`
+  }
+  return d
+}
+
+// True circular arc LENGTH (px) between S and E through T — mirrors circularArcSeg.
+export function circularArcLen(S, T, E) {
+  const ax = S.x, ay = S.y, bx = T.x, by = T.y, cx = E.x, cy = E.y
+  const D = 2 * (ax*(by-cy) + bx*(cy-ay) + cx*(ay-by))
+  if (Math.abs(D) < 1e-10) return Math.hypot(cx - ax, cy - ay) // collinear → straight chord
+  const ux = ((ax*ax+ay*ay)*(by-cy) + (bx*bx+by*by)*(cy-ay) + (cx*cx+cy*cy)*(ay-by)) / D
+  const uy = ((ax*ax+ay*ay)*(cx-bx) + (bx*bx+by*by)*(ax-cx) + (cx*cx+cy*cy)*(bx-ax)) / D
+  const r = Math.hypot(ax-ux, ay-uy)
+  const n2pi = a => ((a % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI)
+  const angS = Math.atan2(ay - uy, ax - ux)
+  const angT = Math.atan2(by - uy, bx - ux)
+  const angE = Math.atan2(cy - uy, cx - ux)
+  const cwSE = n2pi(angE - angS)
+  const cwST = n2pi(angT - angS)
+  const sweep = cwST < cwSE ? 1 : 0
+  const span = sweep === 1 ? cwSE : (2 * Math.PI - cwSE)
+  return r * span
+}
+
+// Arc-aware polyline length (px): arc segments use true curve length, others use chords.
+export function linePathLenPx(pts, arcSegs = {}) {
+  if (!pts || pts.length < 2) return 0
+  let d = 0
+  for (let i = 1; i < pts.length; i++) {
+    const S = pts[i - 1], E = pts[i]
+    if (arcSegs && arcSegs[i - 1]) d += circularArcLen(S, arcSegs[i - 1], E)
+    else d += Math.hypot(E.x - S.x, E.y - S.y)
+  }
+  return d
+}

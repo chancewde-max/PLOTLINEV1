@@ -1,8 +1,9 @@
 /* ============================================================
-   Print — Plotline bid proposal
-   When the export overlay is open it renders into a top-level
-   #print-proposal-root via portal. These rules hide ALL app
-   chrome and print only the proposal.
+   Print — Plotline bid proposal & sheet print
+   Both the bid-proposal export and the sheet print view render
+   into a top-level portal (#print-proposal-root / #print-sheet-root,
+   both tagged .plotline-print-root) via createPortal. These rules
+   hide ALL app chrome and print only whichever portal is mounted.
    ============================================================ */
 
 @media print {
@@ -11,8 +12,8 @@
     margin: 16mm 14mm;
   }
 
-  /* Hide everything in <body> except the proposal portal. */
-  body > *:not(#print-proposal-root) {
+  /* Hide everything in <body> except the active print portal. */
+  body > *:not(.plotline-print-root) {
     display: none !important;
   }
 
@@ -20,7 +21,7 @@
     background: #ffffff !important;
   }
 
-  #print-proposal-root {
+  .plotline-print-root {
     display: block !important;
     position: static !important;
     inset: auto !important;
@@ -34,6 +35,20 @@
   /* The on-screen toolbar / scrim are screen-only. */
   .printChrome {
     display: none !important;
+  }
+
+  /* Both print docs render inside a fixed, flex-column, overflow:auto
+     overlay meant for on-screen scrolling. Printing only what's on
+     screen would clip everything past one page-height — reset the
+     overlay/scroll shells to normal flow so the whole document paginates. */
+  .plotline-print-overlay {
+    position: static !important;
+    height: auto !important;
+  }
+  .plotline-print-scroll {
+    overflow: visible !important;
+    height: auto !important;
+    padding: 0 !important;
   }
 
   .proposal {
@@ -64,6 +79,42 @@
   }
   .proposal h2, .proposal h3, .proposal h4 {
     page-break-after: avoid;
+  }
+
+  /* Sheet print — unlike the proposal, this is a colored plan diagram, so
+     text stays dark but measured-item colors (area fills, line strokes,
+     legend swatches) must survive print's default color-stripping. */
+  .sheet-print-doc {
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .sheet-print-doc, .sheet-print-doc * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .sheet-print-doc table {
+    page-break-inside: auto;
+  }
+  .sheet-print-doc tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
+  .sheet-print-doc thead {
+    display: table-header-group;
+  }
+  .sheet-print-doc h2, .sheet-print-doc h3, .sheet-print-doc h4 {
+    page-break-after: avoid;
+  }
+
+  /* Keep the plan graphic itself from splitting across a page break. */
+  .sheet-print-plan {
+    page-break-inside: avoid;
   }
 
   a[href]::after { content: ""; }

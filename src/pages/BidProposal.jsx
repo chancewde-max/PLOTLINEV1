@@ -80,6 +80,7 @@ export default function BidProposal({
     || (typeof document !== 'undefined' && (() => {
         const el = document.createElement('div')
         el.id = 'print-proposal-root'
+        el.className = 'plotline-print-root'
         document.body.appendChild(el)
         return el
       })())
@@ -129,9 +130,9 @@ export default function BidProposal({
   }
 
   const content = (
-    <div className={s.overlay} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose?.() }}>
+    <div className={`${s.overlay} plotline-print-overlay`} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose?.() }}>
       {/* Screen-only toolbar (hidden in print via .printChrome) */}
-      <div className={s.printChrome}>
+      <div className={`${s.printChrome} printChrome`}>
         <div className={s.chromeInner}>
           <div className={s.chromeTitle}>
             <img src="/plotline-mark.svg" alt="" className={s.chromeLogo} />
@@ -146,7 +147,7 @@ export default function BidProposal({
         </div>
       </div>
 
-      <div className={s.scroll}>
+      <div className={`${s.scroll} plotline-print-scroll`}>
         <div className={`${s.proposal} proposal`}>
           {/* Header */}
           <header className={s.head}>

@@ -1,0 +1,225 @@
+/* ============================================================
+   Sheet print overlay + print layout — Plotline
+   Mirrors BidProposal.module.css's screen chrome / doc pattern.
+   ============================================================ */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-overlay);
+}
+
+/* Screen-only toolbar */
+.printChrome {
+  flex: 0 0 auto;
+  background: var(--surface-inverse);
+  color: var(--text-inverse);
+  box-shadow: var(--shadow-lg);
+}
+.chromeInner {
+  max-width: 1100px;
+  margin: 0 auto;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-6);
+  padding: var(--space-5) var(--space-8);
+}
+.chromeTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--slate-0);
+  min-width: 0;
+}
+.chromeLogo { width: 22px; height: 22px; flex: 0 0 auto; }
+.chromeActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+.chromeHint {
+  font-size: var(--text-xs);
+  color: var(--slate-300);
+}
+.iconX { font-size: 13px; line-height: 1; }
+
+.scroll {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: var(--space-10) var(--space-8);
+}
+
+/* The printable document itself */
+.doc {
+  max-width: 1040px;
+  margin: 0 auto;
+  background: var(--slate-0);
+  color: var(--text-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  padding: var(--space-11);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+/* Header (same layout language as the bid proposal) */
+.head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-8);
+  padding-bottom: var(--space-6);
+  border-bottom: 2px solid var(--brand-600);
+  margin-bottom: var(--space-3);
+}
+.headLeft { min-width: 0; }
+.brandRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+.brandMark { width: 30px; height: 30px; }
+.brandName {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-tight);
+  color: var(--text-strong);
+}
+.dot { color: var(--brand-600); }
+.docType {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--text-muted);
+  font-weight: var(--weight-semibold);
+}
+.headMeta {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-2) var(--space-6);
+  text-align: left;
+}
+.headMeta > div { display: contents; }
+.metaLabel {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--text-subtle);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+}
+.metaValue {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text-strong);
+  text-align: right;
+}
+
+.scaleNote {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-bottom: var(--space-5);
+  font-family: var(--font-mono);
+}
+
+/* The plan graphic — responsive box that keeps the sheet's aspect ratio so
+   it scales to fit whatever paper size/orientation the print dialog uses,
+   while PdfCanvas still renders at full native resolution internally. */
+.planFrame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 900 / 620;
+  background: var(--surface-paper);
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: var(--space-10);
+}
+.blankSheet {
+  position: absolute;
+  inset: 0;
+  background: var(--surface-paper);
+}
+.overlaySvg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Blocks */
+.block { margin-bottom: var(--space-10); }
+.blockTitle {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--text-strong);
+  margin: 0 0 var(--space-5);
+  letter-spacing: var(--tracking-snug);
+}
+
+/* Table */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+.table th {
+  text-align: left;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--text-muted);
+  font-weight: var(--weight-semibold);
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1.5px solid var(--border-default);
+}
+.table td {
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-body);
+}
+.table tbody tr:last-child td { border-bottom: none; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.kind { text-transform: capitalize; color: var(--text-muted); }
+.empty { text-align: center; color: var(--text-muted); padding: var(--space-7); }
+
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: var(--space-4);
+  vertical-align: middle;
+}
+
+/* Footer */
+.foot {
+  margin-top: var(--space-9);
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--border-subtle);
+  font-size: var(--text-xs);
+  color: var(--text-subtle);
+  line-height: var(--leading-relaxed);
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .scroll { padding: var(--space-6) var(--space-4); }
+  .doc { padding: var(--space-8) var(--space-6); }
+  .head { flex-direction: column; }
+  .headMeta { grid-template-columns: 1fr; gap: var(--space-2); }
+  .metaValue { text-align: left; }
+  .chromeInner { flex-direction: column; align-items: stretch; gap: var(--space-4); }
+  .chromeActions { flex-wrap: wrap; }
+  .chromeHint { display: none; }
+}
