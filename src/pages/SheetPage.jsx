@@ -96,7 +96,7 @@ export default function SheetPage() {
     () => typeof window !== 'undefined' && window.innerWidth < 900
   )
   const [activeTool, setActiveTool] = useState('region')
-  const [leftPanel, setLeftPanel]   = useState(() => sessionStorage.getItem('sheetLeftPanel') || 'layers')
+  const [leftPanel, setLeftPanel]   = useState(() => sessionStorage.getItem('sheetLeftPanel') || 'conditions')
   const [hidden, setHidden]     = useState({})
   // ---- Display settings ----
   const [dotSize, setDotSize]     = useState(0.5)  // count dot radius multiplier (screen px base)
@@ -184,6 +184,7 @@ export default function SheetPage() {
   // ---- Edit group popup ----
   const [editGroupDlg, setEditGroupDlg] = useState(null)  // { kind, group } | null
   const [eName, setEName] = useState('')
+  const [eKey, setEKey] = useState('')
   const [eColor, setEColor] = useState('')
   const [eShape, setEShape] = useState('circle')
   const [eDepth, setEDepth] = useState('')
@@ -192,6 +193,7 @@ export default function SheetPage() {
 
   const openEditGroup = (kind, group) => {
     setEName(group.name)
+    setEKey(group.key || '')
     setEColor(group.color)
     setEShape(group.shape || 'circle')
     setEDepth(group.depth || '')
@@ -203,15 +205,16 @@ export default function SheetPage() {
   const saveEditGroup = () => {
     if (!editGroupDlg) return
     const { kind, group } = editGroupDlg
+    const key = eKey.trim().toUpperCase()
     if (kind === 'count') {
       setCountGroups(prev => prev.map(g => g.id === group.id
-        ? { ...g, name: eName, color: eColor, shape: eShape, points: g.points.map(p => ({ ...p, color: eColor })) }
+        ? { ...g, name: eName, key, color: eColor, shape: eShape, points: g.points.map(p => ({ ...p, color: eColor })) }
         : g))
     } else if (kind === 'linear') {
-      setLinearGroups(prev => prev.map(g => g.id === group.id ? { ...g, name: eName, color: eColor } : g))
+      setLinearGroups(prev => prev.map(g => g.id === group.id ? { ...g, name: eName, key, color: eColor } : g))
       setAddedLines(prev => prev.map(l => l.groupId === group.id ? { ...l, color: eColor, name: eName } : l))
     } else if (kind === 'area') {
-      setAreaGroups(prev => prev.map(g => g.id === group.id ? { ...g, name: eName, color: eColor, depth: eDepth, topsoil: eTopsoil, topsoilCustom: eTopsoilCustom } : g))
+      setAreaGroups(prev => prev.map(g => g.id === group.id ? { ...g, name: eName, key, color: eColor, depth: eDepth, topsoil: eTopsoil, topsoilCustom: eTopsoilCustom } : g))
       setAddedAreas(prev => prev.map(a => a.groupId === group.id ? { ...a, color: eColor, name: eName } : a))
     }
     setEditGroupDlg(null)
@@ -439,9 +442,17 @@ export default function SheetPage() {
       if (e.key === 'F8') { e.preventDefault(); setOrthoEnabled(v => !v) }
       if (e.ctrlKey && key === 'Z') {
         e.preventDefault()
+        // Cancel a pending arc through-point before touching any placed vertex
+        if ((activeTool === 'area' || activeTool === 'linear') && pendingArcThrough) { setPendingArcThrough(null); return }
         // Undo last in-progress vertex first
-        if (activeTool === 'area' && areaVerts.length > 0) { setAreaVerts(v => v.slice(0, -1)); return }
-        if (activeTool === 'linear' && linearVerts.length > 0) { setLinearVerts(v => v.slice(0, -1)); return }
+        if (activeTool === 'area' && areaVerts.length > 0) {
+          setAreaVerts(v => { delete arcSegsRef.current[v.length - 1]; return v.slice(0, -1) })
+          return
+        }
+        if (activeTool === 'linear' && linearVerts.length > 0) {
+          setLinearVerts(v => { delete linearArcSegsRef.current[v.length - 1]; return v.slice(0, -1) })
+          return
+        }
         const stack = undoStackRef.current
         if (stack.length > 0) {
           const last = stack[stack.length - 1]
@@ -524,7 +535,7 @@ export default function SheetPage() {
       window.removeEventListener('keydown', onKey)
       window.removeEventListener('keydown', onEnter)
     }
-  }, [project, sheet, activeTool, regionVerts, measureDone, measurePts, areaVerts, areaType, linearVerts, linearType, arcMode, selectedId, selectedKind, selectedIds])
+  }, [project, sheet, activeTool, regionVerts, measureDone, measurePts, areaVerts, areaType, linearVerts, linearType, arcMode, pendingArcThrough, selectedId, selectedKind, selectedIds])
 
   if (dataLoading) return <SheetPageSkeleton />
   if (!project || !sheet) {
@@ -1137,41 +1148,8 @@ export default function SheetPage() {
   // Per-category counts for "Place Legend" — everything currently on the sheet.
   const legendTotals = categoryTotals(allAreas, allLines, allPoints, sqft, lnft)
 
-  // Project-wide totals aggregated across all sheets, with per-sheet breakdown for hover
-  const projectLayers = (() => {
-    const byName = {}
-    ;(project.sheetIds || []).forEach(sid => {
-      const sh = sheets[sid]
-      if (!sh) return
-      ;(sh.savedCountGroups || []).forEach(g => {
-        const key = `count::${g.name}`
-        if (!byName[key]) byName[key] = { label: g.name, kind: 'count', color: g.color || 'var(--takeoff-count)', count: 0, sheets: 0, sheetList: [] }
-        byName[key].count += g.points?.length || 0
-        byName[key].sheets += 1
-        byName[key].sheetList.push({ sid, name: sh.name, code: sh.code, count: g.points?.length || 0 })
-      })
-      ;(sh.savedAreaGroups || []).forEach(g => {
-        const key = `area::${g.name}`
-        if (!byName[key]) byName[key] = { label: g.name, kind: 'area', color: g.color || 'var(--takeoff-area)', count: 0, sheets: 0, sheetList: [] }
-        const n = (sh.savedAreas || []).filter(a => a.groupId === g.id).length
-        byName[key].count += n
-        byName[key].sheets += 1
-        byName[key].sheetList.push({ sid, name: sh.name, code: sh.code, count: n })
-      })
-      ;(sh.savedLinearGroups || []).forEach(g => {
-        const key = `linear::${g.name}`
-        if (!byName[key]) byName[key] = { label: g.name, kind: 'linear', color: g.color || 'var(--takeoff-linear)', count: 0, sheets: 0, sheetList: [] }
-        const n = (sh.savedLines || []).filter(l => l.groupId === g.id).length
-        byName[key].count += n
-        byName[key].sheets += 1
-        byName[key].sheetList.push({ sid, name: sh.name, code: sh.code, count: n })
-      })
-    })
-    return Object.values(byName)
-  })()
-
-  const toggleCat   = (id) => setCatActive(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
-  const toggleLayer = (id) => setHidden(h => ({ ...h, [id]: !h[id] }))
+  const toggleCat    = (id) => setCatActive(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const toggleHidden = (id) => setHidden(h => ({ ...h, [id]: !h[id] }))
 
   const ac = ACCENTS[accent] || ACCENTS.green
   const accentStyle = { '--brand-50': ac[50], '--brand-500': ac[500], '--brand-600': ac[600], '--brand-700': ac[700] }
@@ -1405,6 +1383,7 @@ export default function SheetPage() {
       onReorderLinearGroups={order => setLinearGroups(prev => order.map(id => prev.find(g => g.id === id)).filter(Boolean))}
       onReorderAreaGroups={order => setAreaGroups(prev => order.map(id => prev.find(g => g.id === id)).filter(Boolean))}
       onEditGroup={openEditGroup}
+      hidden={hidden} onToggleHidden={toggleHidden}
       fs={fs}
     />
   )
@@ -1434,8 +1413,7 @@ export default function SheetPage() {
           <button className={s.iconBtn} data-on={settings} onClick={() => setSettings(v => !v)}>
             <Settings2 size={17} />
           </button>
-          <Button size="sm" variant="secondary" iconLeft={<Share2 size={14} />}>Share</Button>
-          <Button size="sm" variant="ghost" iconLeft={<Share2 size={14} />} onClick={() => { setQuoteVendor(''); setQuoteCopied(false); setQuoteOpen(true) }}>Quote email</Button>
+          <Button size="sm" variant="secondary" iconLeft={<Share2 size={14} />} onClick={() => { setQuoteVendor(''); setQuoteCopied(false); setQuoteOpen(true) }}>Quote email</Button>
           <Button size="sm" variant="ghost" iconLeft={<Download size={14} />} onClick={exportMTO}>MTO</Button>
           <Button size="sm" variant="ghost" iconLeft={<Printer size={14} />} onClick={() => setPrintOpen(true)}>Print</Button>
           <Button size="sm" variant="primary" iconLeft={<FileDown size={14} />} onClick={() => setExportOpen(true)}>Export</Button>
@@ -1548,63 +1526,17 @@ export default function SheetPage() {
         }}>
           <div className={s.resizeHandle} style={{ right: -3 }}
             onMouseDown={e => { e.preventDefault(); const startX = e.clientX, startW = leftPanelW; const move = ev => setLeftPanelW(Math.max(180, Math.min(500, startW + ev.clientX - startX))); const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }; window.addEventListener('mousemove', move); window.addEventListener('mouseup', up) }} />
-          {/* Always show Layers / Sheets */}
+          {/* Always show Regions / Conditions / Sheets */}
           <div className={s.leftPanelTabs}>
             <Tabs variant="pill" value={leftPanel} onChange={setLeftPanel}
               items={[
-                { value: 'layers', label: 'Layers', count: projectLayers.length },
                 { value: 'regions', label: 'Regions', count: projectRegions.length },
                 { value: 'conditions', label: 'Conditions', count: (countGroups.length + linearGroups.length + areaGroups.length) },
                 { value: 'sheets', label: 'Sheets', count: (project.sheetIds || []).length },
               ]}
             />
           </div>
-          {leftPanel === 'layers' ? (
-            <div className={s.scroll}>
-              <div style={{ padding: '8px 10px 4px', fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-subtle)' }}>Project totals</div>
-              {projectLayers.length === 0 && (
-                <div style={{ padding: '24px 8px', textAlign: 'center', color: 'var(--text-subtle)', fontSize: 12 }}>No takeoffs yet</div>
-              )}
-              {projectLayers.map((item, i) => (
-                <div key={i} className={s.layerRow} style={{ position: 'relative' }}
-                  onMouseEnter={e => e.currentTarget.querySelector('[data-flyout]').style.display = 'block'}
-                  onMouseLeave={e => e.currentTarget.querySelector('[data-flyout]').style.display = 'none'}>
-                  <span className={`${s.layerDot} ${item.kind === 'linear' ? s.layerLine : ''}`}
-                    style={{ background: item.color, borderRadius: item.kind === 'count' ? '50%' : '3px', flexShrink: 0 }} />
-                  <span className={s.layerLabel}>{item.label}</span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginLeft: 'auto', paddingRight: 4, flexShrink: 0 }}>
-                    {item.count}
-                    {item.sheets > 1 && <span style={{ fontWeight: 400, color: 'var(--text-subtle)', marginLeft: 3 }}>({item.sheets})</span>}
-                  </span>
-                  {/* Hover flyout — sheet list */}
-                  <div data-flyout="" style={{
-                    display: 'none', position: 'absolute', left: '100%', top: 0, zIndex: 200,
-                    background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8,
-                    boxShadow: '0 4px 16px rgba(0,0,0,0.14)', minWidth: 200, padding: '6px 0',
-                  }}>
-                    <div style={{ padding: '4px 12px 6px', fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-subtle)', borderBottom: '1px solid var(--border)', marginBottom: 2 }}>
-                      {item.label}
-                    </div>
-                    {item.sheetList.map(sh => (
-                      <div key={sh.sid}
-                        onClick={() => navigate(`/app/project/${projectId}/sheet/${sh.sid}`)}
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px',
-                          cursor: 'pointer', fontSize: 12,
-                          background: sh.sid === sheetId ? 'var(--brand-50)' : 'transparent',
-                        }}
-                        onMouseEnter={e => { if (sh.sid !== sheetId) e.currentTarget.style.background = 'var(--surface-hover)' }}
-                        onMouseLeave={e => { e.currentTarget.style.background = sh.sid === sheetId ? 'var(--brand-50)' : 'transparent' }}>
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700, color: 'var(--text-subtle)', minWidth: 28 }}>{sh.code}</span>
-                        <span style={{ flex: 1, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{sh.name}</span>
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>{sh.count}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : leftPanel === 'regions' ? (
+          {leftPanel === 'regions' ? (
             <div className={s.scroll}>
               <div style={{ padding: '8px 10px 4px', fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-subtle)' }}>Project regions</div>
               {projectRegions.length === 0 && (
@@ -1827,7 +1759,7 @@ export default function SheetPage() {
 
                 {/* Added areas (may have arc segs) */}
                 {addedAreas.map(a => {
-                  if (hidden[a.id]) return null
+                  if (hidden[a.id] || hidden[a.groupId]) return null
                   const inRegionMode = activeTool === 'region' && hasRegion
                   const isSelected = selectedId === a.id
                   const hasArcs = a.arcSegs && Object.keys(a.arcSegs).length > 0
@@ -1848,7 +1780,7 @@ export default function SheetPage() {
                 {/* Clipped area bright overlay */}
                 {activeTool === 'region' && previewPoly.length >= 3 && (
                   <g clipPath="url(#region-clip)">
-                    {allAreas.filter(a => catActive.has(a.type) && !hidden[a.id]).map(a => {
+                    {allAreas.filter(a => catActive.has(a.type) && !hidden[a.id] && !hidden[a.groupId]).map(a => {
                       const hasArcs = a.arcSegs && Object.keys(a.arcSegs).length > 0
                       return hasArcs
                         ? <path key={a.id} d={buildAreaPath(a.poly, a.arcSegs)}
@@ -1877,7 +1809,7 @@ export default function SheetPage() {
 
                 {/* Added linear features */}
                 {addedLines.map(l => {
-                  if (hidden[l.id]) return null
+                  if (hidden[l.id] || hidden[l.groupId]) return null
                   const isIn = inLines[l.id]
                   const isSelected = selectedId === l.id
                   const dim = (activeTool === 'region' && hasRegion && !isIn) || !catActive.has(l.type)
@@ -2069,7 +2001,7 @@ export default function SheetPage() {
                 })()}
 
                 {/* Count group dots — zoom-invariant so size stays consistent at any zoom */}
-                {countGroups.map(g =>
+                {countGroups.filter(g => !hidden[g.id]).map(g =>
                   g.points.map(p => {
                     const isSelected = selectedId === p.id
                     const r = dotSize * u * 5 * (isSelected ? 1.5 : 1)
@@ -2451,10 +2383,20 @@ export default function SheetPage() {
           <div style={{ background: 'var(--surface-card)', borderRadius: 12, padding: 28, width: 380, boxShadow: '0 8px 40px rgba(0,0,0,0.22)' }}
             onClick={e => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 18px', fontSize: 17, fontWeight: 700, color: 'var(--text-strong)' }}>Edit — {editGroupDlg.group.name}</h3>
-            <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>Name</div>
-              <input value={eName} onChange={e => setEName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') saveEditGroup() }}
-                style={{ width: '100%', padding: '8px 12px', border: '1.5px solid var(--border-default)', borderRadius: 8, fontSize: 14, fontWeight: 600, color: 'var(--text-strong)', background: 'var(--surface-card)', boxSizing: 'border-box' }} />
+            <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+              <div style={{ width: 74, flexShrink: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>Key</div>
+                <input autoFocus value={eKey}
+                  onChange={e => setEKey(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4))}
+                  onKeyDown={e => { if (e.key === 'Enter') saveEditGroup() }}
+                  placeholder="TR" maxLength={4}
+                  style={{ width: '100%', padding: '8px 10px', border: '1.5px solid var(--border-default)', borderRadius: 8, fontSize: 14, fontWeight: 700, textAlign: 'center', letterSpacing: '0.05em', color: 'var(--text-strong)', background: 'var(--surface-card)', boxSizing: 'border-box', fontFamily: 'var(--font-mono)' }} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>Name</div>
+                <input value={eName} onChange={e => setEName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') saveEditGroup() }}
+                  style={{ width: '100%', padding: '8px 12px', border: '1.5px solid var(--border-default)', borderRadius: 8, fontSize: 14, fontWeight: 600, color: 'var(--text-strong)', background: 'var(--surface-card)', boxSizing: 'border-box' }} />
+              </div>
             </div>
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>Color</div>
@@ -2521,7 +2463,7 @@ export default function SheetPage() {
             <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
               <div style={{ width: 90, flexShrink: 0 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 10 }}>Key</div>
-                <input value={newItemKey}
+                <input autoFocus value={newItemKey}
                   onChange={e => setNewItemKey(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4))}
                   onKeyDown={e => { if (e.key === 'Enter') confirmNewItem(); if (e.key === 'Escape') setNewCountDlg(false) }}
                   placeholder="TR" maxLength={4}
@@ -2529,7 +2471,7 @@ export default function SheetPage() {
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 10 }}>Name</div>
-                <input autoFocus value={newItemName} onChange={e => setNewItemName(e.target.value)}
+                <input value={newItemName} onChange={e => setNewItemName(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') confirmNewItem(); if (e.key === 'Escape') setNewCountDlg(false) }}
                   placeholder={newCountDlg === 'count' ? 'e.g. Trees, Shrubs…' : newCountDlg === 'linear' ? 'e.g. Edging, Irrigation…' : 'e.g. Sod area, Mulch bed…'}
                   style={{ width: '100%', padding: '9px 12px', border: '1.5px solid var(--border-default)', borderRadius: 8, fontSize: 15, fontWeight: 600, color: 'var(--text-strong)', background: 'var(--surface-card)', boxSizing: 'border-box' }} />
@@ -3409,7 +3351,7 @@ function DefaultPanel({ sheet, allAreas, allPoints, allLines, onActivate, onExpo
 }
 
 // ---- Conditions (always-visible counts/areas) panel ------------------------
-function ConditionsPanel({ countGroups, activeCountGroupId, onSetActiveCountGroup, linearGroups, activeLinearGroupId, onSetActiveLinearGroup, areaGroups, activeAreaGroupId, onSetActiveAreaGroup, addedAreas, addedPoints, addedLines, sqft, fSq, lnft, fLn, areaDepth, topsoilType, topsoilCustom, onNewCount, onNewArea, onNewLinear, onDeleteCountGroup, onDeleteAreaGroup, onDeleteLinearGroup, onReorderCountGroups, onReorderLinearGroups, onReorderAreaGroups, onEditGroup, fs }) {
+function ConditionsPanel({ countGroups, activeCountGroupId, onSetActiveCountGroup, linearGroups, activeLinearGroupId, onSetActiveLinearGroup, areaGroups, activeAreaGroupId, onSetActiveAreaGroup, addedAreas, addedPoints, addedLines, sqft, fSq, lnft, fLn, areaDepth, topsoilType, topsoilCustom, onNewCount, onNewArea, onNewLinear, onDeleteCountGroup, onDeleteAreaGroup, onDeleteLinearGroup, onReorderCountGroups, onReorderLinearGroups, onReorderAreaGroups, onEditGroup, hidden, onToggleHidden, fs }) {
   const depthIn = parseFloat(areaDepth) || 0
   const dragIdRef = React.useRef(null)
   const makeDragHandlers = (groups, onReorder) => ({
@@ -3464,12 +3406,16 @@ function ConditionsPanel({ countGroups, activeCountGroupId, onSetActiveCountGrou
                   onDragStart={() => dh.onDragStart(g.id)}
                   onDragOver={dh.onDragOver}
                   onDrop={() => dh.onDrop(g.id)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, marginBottom: 2, border: `1.5px solid ${g.id === activeCountGroupId ? g.color : 'transparent'}`, background: g.id === activeCountGroupId ? `${g.color}18` : 'transparent', cursor: 'grab' }}>
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, marginBottom: 2, border: `1.5px solid ${g.id === activeCountGroupId ? g.color : 'transparent'}`, background: g.id === activeCountGroupId ? `${g.color}18` : 'transparent', cursor: 'grab', opacity: hidden[g.id] ? 0.45 : 1 }}>
                   <GripVertical size={12} style={{ color: 'var(--text-muted)', flexShrink: 0, cursor: 'grab' }} />
                   <span style={{ width: 12, height: 12, borderRadius: g.shape === 'square' ? 2 : g.shape === 'diamond' ? 0 : '50%', background: g.color, flexShrink: 0, rotate: g.shape === 'diamond' ? '45deg' : undefined }} />
                   {g.key && <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(10px * ${fs})`, fontWeight: 700, color: 'var(--text-subtle)', background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 4, padding: '1px 5px', flexShrink: 0, letterSpacing: '0.04em' }}>{g.key}</span>}
                   <span style={{ flex: 1, fontSize: `calc(13px * ${fs})`, fontWeight: 600, color: 'var(--text-strong)' }}>{g.name}</span>
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(13px * ${fs})`, fontWeight: 700, color: g.color }}>{g.points.length}</span>
+                  <button className={s.eyeBtn} onClick={e => { e.stopPropagation(); onToggleHidden(g.id) }}
+                    aria-label={hidden[g.id] ? 'Show count' : 'Hide count'} title={hidden[g.id] ? 'Show count' : 'Hide count'}>
+                    {hidden[g.id] ? <EyeOff size={13} /> : <Eye size={13} />}
+                  </button>
                   <button onClick={e => { e.stopPropagation(); onEditGroup('count', g) }}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', padding: 2, display: 'inline-flex' }}>
                     <Pencil size={11} />
@@ -3497,12 +3443,16 @@ function ConditionsPanel({ countGroups, activeCountGroupId, onSetActiveCountGrou
                   onDragStart={() => dh.onDragStart(g.id)}
                   onDragOver={dh.onDragOver}
                   onDrop={() => dh.onDrop(g.id)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, marginBottom: 2, border: `1.5px solid ${g.id === activeLinearGroupId ? g.color : 'transparent'}`, background: g.id === activeLinearGroupId ? `${g.color}18` : 'transparent', cursor: 'grab' }}>
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, marginBottom: 2, border: `1.5px solid ${g.id === activeLinearGroupId ? g.color : 'transparent'}`, background: g.id === activeLinearGroupId ? `${g.color}18` : 'transparent', cursor: 'grab', opacity: hidden[g.id] ? 0.45 : 1 }}>
                   <GripVertical size={12} style={{ color: 'var(--text-muted)', flexShrink: 0, cursor: 'grab' }} />
                   <span style={{ width: 20, height: 4, borderRadius: 2, background: g.color, flexShrink: 0 }} />
                   {g.key && <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(10px * ${fs})`, fontWeight: 700, color: 'var(--text-subtle)', background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 4, padding: '1px 5px', flexShrink: 0, letterSpacing: '0.04em' }}>{g.key}</span>}
                   <span style={{ flex: 1, fontSize: `calc(13px * ${fs})`, fontWeight: 600, color: 'var(--text-strong)' }}>{g.name}</span>
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(11px * ${fs})`, fontWeight: 700, color: g.color }}>{groupLnft > 0 ? `${groupLnft.toFixed(0)} ft` : '0'}</span>
+                  <button className={s.eyeBtn} onClick={e => { e.stopPropagation(); onToggleHidden(g.id) }}
+                    aria-label={hidden[g.id] ? 'Show linear' : 'Hide linear'} title={hidden[g.id] ? 'Show linear' : 'Hide linear'}>
+                    {hidden[g.id] ? <EyeOff size={13} /> : <Eye size={13} />}
+                  </button>
                   <button onClick={e => { e.stopPropagation(); onEditGroup('linear', g) }}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', padding: 2, display: 'inline-flex' }}>
                     <Pencil size={11} />
@@ -3530,12 +3480,16 @@ function ConditionsPanel({ countGroups, activeCountGroupId, onSetActiveCountGrou
                   onDragStart={() => dh.onDragStart(g.id)}
                   onDragOver={dh.onDragOver}
                   onDrop={() => dh.onDrop(g.id)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, marginBottom: 2, border: `1.5px solid ${g.id === activeAreaGroupId ? g.color : 'transparent'}`, background: g.id === activeAreaGroupId ? `${g.color}18` : 'transparent', cursor: 'grab' }}>
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, marginBottom: 2, border: `1.5px solid ${g.id === activeAreaGroupId ? g.color : 'transparent'}`, background: g.id === activeAreaGroupId ? `${g.color}18` : 'transparent', cursor: 'grab', opacity: hidden[g.id] ? 0.45 : 1 }}>
                   <GripVertical size={12} style={{ color: 'var(--text-muted)', flexShrink: 0, cursor: 'grab' }} />
                   <span style={{ width: 12, height: 12, borderRadius: 3, background: g.color, flexShrink: 0 }} />
                   {g.key && <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(10px * ${fs})`, fontWeight: 700, color: 'var(--text-subtle)', background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 4, padding: '1px 5px', flexShrink: 0, letterSpacing: '0.04em' }}>{g.key}</span>}
                   <span style={{ flex: 1, fontSize: `calc(13px * ${fs})`, fontWeight: 600, color: 'var(--text-strong)' }}>{g.name}</span>
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(11px * ${fs})`, fontWeight: 700, color: g.color }}>{groupSqft > 0 ? `${fSq(groupSqft)} ft²` : '0'}</span>
+                  <button className={s.eyeBtn} onClick={e => { e.stopPropagation(); onToggleHidden(g.id) }}
+                    aria-label={hidden[g.id] ? 'Show area' : 'Hide area'} title={hidden[g.id] ? 'Show area' : 'Hide area'}>
+                    {hidden[g.id] ? <EyeOff size={13} /> : <Eye size={13} />}
+                  </button>
                   <button onClick={e => { e.stopPropagation(); onEditGroup('area', g) }}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', padding: 2, display: 'inline-flex' }}>
                     <Pencil size={11} />

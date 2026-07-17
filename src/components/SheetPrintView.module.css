@@ -100,6 +100,20 @@
   color: var(--slate-100);
   cursor: pointer;
 }
+
+.pointScaleInput {
+  width: 52px;
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.08);
+  color: var(--slate-100);
+  font-size: var(--text-sm);
+}
+.pointScaleInput:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 .emptyNote {
   text-align: center;
   color: var(--text-muted);

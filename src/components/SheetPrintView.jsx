@@ -79,6 +79,8 @@ export default function SheetPrintView({
 }) {
   const [scope, setScope] = useState('current') // 'current' | 'all' | 'choose'
   const [chosenIds, setChosenIds] = useState(() => new Set())
+  const [scalePointsEnabled, setScalePointsEnabled] = useState(false)
+  const [pointScale, setPointScale] = useState('1')
 
   useEffect(() => {
     if (!open) return
@@ -174,6 +176,14 @@ export default function SheetPrintView({
               })}
             </div>
           )}
+          <label className={s.chooseItem}>
+            <input type="checkbox" checked={scalePointsEnabled} onChange={(e) => setScalePointsEnabled(e.target.checked)} />
+            <span>Scale count markers ×</span>
+            <input type="number" min="0.25" max="5" step="0.25" placeholder="1.0" value={pointScale}
+              disabled={!scalePointsEnabled}
+              onChange={(e) => setPointScale(e.target.value)}
+              className={s.pointScaleInput} />
+          </label>
         </div>
       </div>
 
@@ -183,6 +193,7 @@ export default function SheetPrintView({
         )}
         {docs.map((d, i) => {
           const totals = categoryTotals(d.areas, d.lines, d.points, d.sqft, d.lnft)
+          const ptScale = scalePointsEnabled ? (parseFloat(pointScale) || 1) : 1
           const scaleLabel = d.calib
             ? `1 : ${Math.round(d.calib.px / (d.calib.feet || 1))} px/ft · calibrated ${d.calib.feet} ${d.calib.unit}`
             : 'Default scale — not calibrated on this sheet'
@@ -224,8 +235,8 @@ export default function SheetPrintView({
                       fill="none" stroke={CAT_COLOR[l.type]} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
                   ))}
                   {d.points.map((p) => (
-                    <circle key={p.id} cx={p.x} cy={p.y} r="6"
-                      fill="#ffffff" stroke={CAT_COLOR[p.type]} strokeWidth="2.5" />
+                    <circle key={p.id} cx={p.x} cy={p.y} r={6 * ptScale}
+                      fill="#ffffff" stroke={CAT_COLOR[p.type]} strokeWidth={2.5 * ptScale} />
                   ))}
                 </svg>
               </div>

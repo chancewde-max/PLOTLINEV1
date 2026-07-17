@@ -62,9 +62,14 @@ export default function PdfCanvas({ url, width, height, onReuploadNeeded, pageNu
         const viewport0 = page.getViewport({ scale: 1 })
         const dpr = window.devicePixelRatio || 1
         const baseFit = Math.min(width / viewport0.width, height / viewport0.height)
-        // Higher resolution so PDF stays sharp when zoomed in for counting
+        // Higher resolution so PDF stays sharp when zoomed in for counting.
+        // The pixel budget below must cover dpr*5 at the common Retina dpr
+        // of 2 (maxDim tops out around SHEET_W=900) — a lower budget was
+        // silently clipping the intended dpr*5 multiplier on every
+        // HiDPI/Retina screen, rendering the plan under native pixel
+        // density (visibly soft/blurry) even before any zooming.
         const maxDim = Math.max(viewport0.width, viewport0.height) * baseFit
-        const multiplier = Math.min(dpr * 5, 5000 / maxDim)
+        const multiplier = Math.min(dpr * 5, 9000 / maxDim)
         const scale = baseFit * multiplier
 
         const viewport = page.getViewport({ scale })
