@@ -1,3 +1,5 @@
+import { polyAreaPx, linePathLenPx } from '../workspace/geometry.js'
+
 // Sheet canvas dimensions
 export const SHEET_W = 900
 export const SHEET_H = 620
@@ -271,6 +273,27 @@ export const CAT_COLOR = {
   rock:       'var(--mat-rock)',
   hydroseed:  'var(--mat-hydroseed)',
   'lime-wall': 'var(--mat-lime-wall)',
+}
+
+// Roll every measured feature up into per-category totals (count, sq ft,
+// lin ft) — the taxonomy the Layers panel, the print view, and the
+// on-canvas Legend all share.
+export function categoryTotals(allAreas, allLines, allPoints, sqft, lnft) {
+  const totals = {}
+  CATS.forEach((c) => { totals[c.id] = { ...c, count: 0, sqft: 0, lnft: 0 } })
+  allAreas.forEach((a) => {
+    const t = totals[a.type]
+    if (t) { t.count += 1; t.sqft += sqft(polyAreaPx(a.poly)) }
+  })
+  allLines.forEach((l) => {
+    const t = totals[l.type]
+    if (t) { t.count += 1; t.lnft += lnft(linePathLenPx(l.pts, l.arcSegs)) }
+  })
+  allPoints.forEach((p) => {
+    const t = totals[p.type]
+    if (t) t.count += 1
+  })
+  return Object.values(totals).filter((t) => t.count > 0)
 }
 
 // ---- Seed the demo sheets with the sample plan geometry -------------------

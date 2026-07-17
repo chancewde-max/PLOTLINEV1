@@ -117,5 +117,10 @@
     page-break-inside: avoid;
   }
 
+  /* Multi-sheet print: one sheet per printed page. */
+  .sheet-print-doc + .sheet-print-doc {
+    page-break-before: always;
+  }
+
   a[href]::after { content: ""; }
 }

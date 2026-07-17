@@ -838,7 +838,7 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
 
       <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
 >
-        <div style={{ background: 'var(--surface-paper)', borderRadius: 16, boxShadow: 'var(--shadow-xl)', width: '92vw', maxWidth: 900, maxHeight: '92vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ background: 'var(--surface-card)', borderRadius: 16, boxShadow: 'var(--shadow-xl)', width: '92vw', maxWidth: 900, maxHeight: '92vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
           {/* Header */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 24px 0' }}>
@@ -947,7 +947,7 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
                 </div>
 
                 {/* Footer */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 24px', borderTop: '1px solid var(--border-subtle)', background: 'var(--surface-paper)', flexShrink: 0, gap: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 24px', borderTop: '1px solid var(--border-subtle)', background: 'var(--surface-card)', flexShrink: 0, gap: 16 }}>
             {/* Row height slider */}
             {(step === 1 || step === 2) && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

@@ -22,7 +22,7 @@ import { SheetPageSkeleton } from '../components/Skeleton.jsx'
 import PdfCanvas from '../components/PdfCanvas.jsx'
 import SheetPrintView from '../components/SheetPrintView.jsx'
 import { resolveSheetPdfUrl, sheetHasPdf } from '../components/pdfCache.js'
-import { CATS, CAT_COLOR, SHEET_W, SHEET_H } from '../data/sampleData.js'
+import { CATS, CAT_COLOR, SHEET_W, SHEET_H, categoryTotals } from '../data/sampleData.js'
 import { inside, polyAreaPx, perimPx, centroid, clipPx2, dist, buildAreaPath, buildLinePath, linePathLenPx, circularArcSeg } from '../workspace/geometry.js'
 import s from './SheetPage.module.css'
 
@@ -102,12 +102,18 @@ export default function SheetPage() {
   const [dotSize, setDotSize]     = useState(0.5)  // count dot radius multiplier (screen px base)
   const [strokeW, setStrokeW]     = useState(0.4)  // area/linear stroke multiplier
   const [measureSize, setMeasureSize] = useState(0.5) // measure label/tick size multiplier
+  const [precision, setPrecision] = useState(0)    // measurement decimal places (0 = whole/nearest-5 like before)
   const [exportOpen, setExportOpen] = useState(false)
   const [printOpen, setPrintOpen]   = useState(false)
   const [quoteOpen, setQuoteOpen]   = useState(false)
   const [quoteVendor, setQuoteVendor] = useState('')
   const [quoteCopied, setQuoteCopied] = useState(false)
   const [toast, setToast]       = useState(null)
+
+  // ---- Right-click context menu + on-canvas legends ----
+  const [ctxMenu, setCtxMenu]   = useState(null) // { x, y } in viewport coords, or null
+  const [legends, setLegends]   = useState([])   // [{ id, x, y, w, h }] — viewport-relative floating legend boxes
+  const legendDragRef = useRef(null)  // { id, mode: 'move'|'resize', startX, startY, origX, origY, origW, origH }
 
   // ---- Scale ----
   const [pxPerFt, setPxPerFt]   = useState(DEFAULT_PXFT)
@@ -257,6 +263,7 @@ export default function SheetPage() {
   const panStartRef      = useRef(null) // for pan tool
   const panOriginRef     = useRef(null)
   const isPanningRef     = useRef(false)
+  const rightDragMovedRef = useRef(false) // did a right-button press turn into an actual pan drag?
   const pinchRef         = useRef(null) // { dist } — last two-finger spacing, for incremental pinch-zoom
 
   // ---- Name counters ----
@@ -344,6 +351,41 @@ export default function SheetPage() {
     const up = () => { isPanningRef.current = false }
     window.addEventListener('mouseup', up)
     return () => window.removeEventListener('mouseup', up)
+  }, [])
+
+  // Dismiss the right-click context menu on Escape or an outside click.
+  useEffect(() => {
+    if (!ctxMenu) return
+    const close = () => setCtxMenu(null)
+    const onKey = (e) => { if (e.key === 'Escape') close() }
+    window.addEventListener('mousedown', close)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', close)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [ctxMenu])
+
+  // Drag-to-move / drag-to-resize for on-canvas legend boxes.
+  useEffect(() => {
+    const onMove = (e) => {
+      const drag = legendDragRef.current
+      if (!drag) return
+      const dx = e.clientX - drag.startX
+      const dy = e.clientY - drag.startY
+      setLegends((prev) => prev.map((l) => {
+        if (l.id !== drag.id) return l
+        if (drag.mode === 'move') return { ...l, x: drag.origX + dx, y: drag.origY + dy }
+        return { ...l, w: Math.max(140, drag.origW + dx), h: Math.max(90, drag.origH + dy) }
+      }))
+    }
+    const onUp = () => { legendDragRef.current = null }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
   }, [])
 
   // Persist active left panel tab across sheet navigations (component remounts with key=sheetId)
@@ -586,11 +628,33 @@ export default function SheetPage() {
   }
 
   // ---- Event handlers ----
+  const isRecording = areaVerts.length > 0 || linearVerts.length > 0
+    || (measurePts.length > 0 && !measureDone) || (activeTool === 'region' && regionVerts.length > 0 && !regionClosed)
+
+  const stopRecording = () => {
+    setAreaVerts([]); setAreaCursor(null)
+    setLinearVerts([]); setLinearCursor(null)
+    setMeasurePts([]); setMeasureDone(false); setMeasureCursor(null)
+    setRegionVerts([]); setRegionCursor(null)
+    setArcMode(false); setPendingArcThrough(null)
+    arcSegsRef.current = {}; linearArcSegsRef.current = {}
+  }
+
+  const placeLegendAt = (clientX, clientY) => {
+    const rect = canvasRef.current?.getBoundingClientRect()
+    const x = rect ? clientX - rect.left : clientX
+    const y = rect ? clientY - rect.top : clientY
+    setLegends((prev) => [...prev, { id: `legend-${Date.now()}`, x, y, w: 220, h: 180 }])
+  }
+
+  // Only suppresses the native OS menu — our own menu is decided in
+  // onMouseUp (see the comment there for why).
   const onContextMenu = (e) => { e.preventDefault() }
   const onMouseDown = (e) => {
     // Right-click always pans (except pan tool uses left click)
     if (e.button === 2) {
       isPanningRef.current = true
+      rightDragMovedRef.current = false
       panStartRef.current = { x: e.clientX, y: e.clientY }
       panOriginRef.current = { ...panCurrentRef.current }
       return
@@ -669,6 +733,7 @@ export default function SheetPage() {
     if (isPanningRef.current && panStartRef.current) {
       const dx = e.clientX - panStartRef.current.x
       const dy = e.clientY - panStartRef.current.y
+      if (e.buttons === 2 && Math.hypot(dx, dy) > 4) rightDragMovedRef.current = true
       const np = { x: panOriginRef.current.x + dx, y: panOriginRef.current.y + dy }
       panTargetRef.current = np; panCurrentRef.current = np
       setPanOffset(np)
@@ -734,7 +799,15 @@ export default function SheetPage() {
     }
   }
 
-  const onMouseUp = () => {
+  const onMouseUp = (e) => {
+    // A right-click that never turned into a pan-drag opens the context
+    // menu. Decided here (on release) rather than in the 'contextmenu'
+    // event handler — that event fires right alongside mousedown, before
+    // any drag has had a chance to happen, so checking it there would
+    // always see "no drag yet" and pop the menu even when one follows.
+    if (e?.button === 2 && !rightDragMovedRef.current) {
+      setCtxMenu({ x: e.clientX, y: e.clientY })
+    }
     isPanningRef.current = false
     isDraggingRef.current = false
     dragVertIdxRef.current = null
@@ -971,8 +1044,12 @@ export default function SheetPage() {
 
   const sqft = (px2) => px2 / (pxPerFt * pxPerFt)
   const lnft = (px)  => px  / pxPerFt
-  const fSq  = (n)   => (Math.round(n / 5) * 5).toLocaleString()
-  const fLn  = (n)   => Math.round(n).toLocaleString()
+  const fSq  = (n)   => precision === 0
+    ? (Math.round(n / 5) * 5).toLocaleString()
+    : n.toLocaleString(undefined, { minimumFractionDigits: precision, maximumFractionDigits: precision })
+  const fLn  = (n)   => precision === 0
+    ? Math.round(n).toLocaleString()
+    : n.toLocaleString(undefined, { minimumFractionDigits: precision, maximumFractionDigits: precision })
   // Scale marker sizes proportionally to plan scale so they look right at any calibration
   const mk = pxPerFt * 0.25
   // Zoom-invariant unit: 1 screen pixel in SVG coords regardless of CSS zoom
@@ -1056,6 +1133,9 @@ export default function SheetPage() {
     ...linearGroups.map(g => ({ id: g.id, color: g.color, kind: 'linearGroup', label: g.name, count: addedLines.filter(l => l.groupId === g.id).length })),
     ...areaGroups.map(g => ({ id: g.id, color: g.color, kind: 'areaGroup', label: g.name, count: addedAreas.filter(a => a.groupId === g.id).length })),
   ]
+
+  // Per-category counts for "Place Legend" — everything currently on the sheet.
+  const legendTotals = categoryTotals(allAreas, allLines, allPoints, sqft, lnft)
 
   // Project-wide totals aggregated across all sheets, with per-sheet breakdown for hover
   const projectLayers = (() => {
@@ -1423,6 +1503,14 @@ export default function SheetPage() {
                 onChange={e => setMeasureSize(parseFloat(e.target.value))} />
               <span style={{ fontSize: 13, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>ft</span>
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, minWidth: 38, textAlign: 'right' }}>{measureSize.toFixed(1)}×</span>
+            </div>
+          </div>
+          <div>
+            <div className={s.popHead}>Measurement precision</div>
+            <div className={s.seg}>
+              <button data-on={precision === 0} onClick={() => setPrecision(0)}>Whole</button>
+              <button data-on={precision === 1} onClick={() => setPrecision(1)}>0.1</button>
+              <button data-on={precision === 2} onClick={() => setPrecision(2)}>0.01</button>
             </div>
           </div>
         </div>
@@ -2072,6 +2160,50 @@ export default function SheetPage() {
             <span className={s.zoomPanVal}>{Math.round(zoom)}%</span>
             <button className={s.zoomPanBtn} onClick={() => setZoom(z => Math.min(6400, z + 25))}><Plus size={14} /></button>
           </div>
+
+          {legends.map((l) => (
+            <div key={l.id} className={s.legendBox} style={{ left: l.x, top: l.y, width: l.w, height: l.h }}>
+              <div className={s.legendHeader}
+                onMouseDown={(e) => {
+                  e.stopPropagation()
+                  legendDragRef.current = { id: l.id, mode: 'move', startX: e.clientX, startY: e.clientY, origX: l.x, origY: l.y }
+                }}>
+                <span>Legend</span>
+                <button onClick={() => setLegends(ls => ls.filter(x => x.id !== l.id))} aria-label="Remove legend"><XIcon size={12} /></button>
+              </div>
+              <div className={s.legendBody}>
+                {legendTotals.length === 0 && <div className={s.legendEmpty}>Nothing measured yet.</div>}
+                {legendTotals.map((t) => (
+                  <div key={t.id} className={s.legendItem}>
+                    <span className={s.legendSwatch} style={{ background: CAT_COLOR[t.id] }} />
+                    <span className={s.legendName}>{t.name}</span>
+                    <span className={s.legendCount}>
+                      {t.count}
+                      {t.sqft > 0 ? ` · ${fSq(t.sqft)} ft²` : ''}
+                      {t.lnft > 0 ? ` · ${fLn(t.lnft)} ft` : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className={s.legendResize}
+                onMouseDown={(e) => {
+                  e.stopPropagation()
+                  legendDragRef.current = { id: l.id, mode: 'resize', startX: e.clientX, startY: e.clientY, origW: l.w, origH: l.h }
+                }} />
+            </div>
+          ))}
+
+          {ctxMenu && (
+            <div className={s.ctxMenu} style={{ left: ctxMenu.x, top: ctxMenu.y }} onMouseDown={(e) => e.stopPropagation()}>
+              {isRecording && (
+                <button onClick={() => { stopRecording(); setCtxMenu(null) }}>Stop recording</button>
+              )}
+              {activeTool === 'area' && (
+                <button onClick={() => { setAreaVerts([]); setAreaCursor(null); setArcMode(false); setPendingArcThrough(null); arcSegsRef.current = {}; setCtxMenu(null) }}>New area</button>
+              )}
+              <button onClick={() => { placeLegendAt(ctxMenu.x, ctxMenu.y); setCtxMenu(null) }}>Place Legend</button>
+            </div>
+          )}
         </main>
 
         {/* Tool detail panel - always visible on right */}
@@ -2226,6 +2358,7 @@ export default function SheetPage() {
         onClose={() => setPrintOpen(false)}
         project={project}
         sheet={sheet}
+        sheetId={sheetId}
         pdfUrl={sheetHasPdf(sheet) ? resolveSheetPdfUrl(sheet, pdfAssets) : null}
         pdfPage={sheet.pdfPage || 1}
         allAreas={allAreas}
@@ -2236,6 +2369,10 @@ export default function SheetPage() {
         fSq={fSq}
         fLn={fLn}
         calib={calib}
+        precision={precision}
+        sheets={sheets}
+        pdfAssets={pdfAssets}
+        sheetOrder={project.sheetIds}
       />
 
       {/* Page Overlay Dialog */}
@@ -2311,7 +2448,7 @@ export default function SheetPage() {
       {editGroupDlg && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           onClick={() => setEditGroupDlg(null)}>
-          <div style={{ background: 'var(--surface-paper)', borderRadius: 12, padding: 28, width: 380, boxShadow: '0 8px 40px rgba(0,0,0,0.22)' }}
+          <div style={{ background: 'var(--surface-card)', borderRadius: 12, padding: 28, width: 380, boxShadow: '0 8px 40px rgba(0,0,0,0.22)' }}
             onClick={e => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 18px', fontSize: 17, fontWeight: 700, color: 'var(--text-strong)' }}>Edit — {editGroupDlg.group.name}</h3>
             <div style={{ marginBottom: 14 }}>
@@ -2376,7 +2513,7 @@ export default function SheetPage() {
       {newCountDlg && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           onClick={() => setNewCountDlg(false)}>
-          <div style={{ background: 'var(--surface-paper)', borderRadius: 12, padding: 28, width: 380, boxShadow: '0 8px 40px rgba(0,0,0,0.22)' }}
+          <div style={{ background: 'var(--surface-card)', borderRadius: 12, padding: 28, width: 380, boxShadow: '0 8px 40px rgba(0,0,0,0.22)' }}
             onClick={e => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 18px', fontSize: 18, fontWeight: 700, color: 'var(--text-strong)' }}>
               New {newCountDlg === 'count' ? 'count' : newCountDlg === 'linear' ? 'linear' : 'area'}
@@ -2574,7 +2711,7 @@ function SelectPanel({ selectedArea, selectedPoint, selectedLine, selectedId, se
               onChange={e => setEditName(e.target.value)}
               onBlur={commitName}
               onKeyDown={e => { if (e.key === 'Enter') commitName(); if (e.key === 'Escape') { setEditName(item.name || ''); setEditing(false) } }}
-              style={{ width: '100%', fontFamily: 'var(--font-sans)', fontSize: `calc(14px * ${fs})`, fontWeight: 600, border: 'none', outline: '1.5px solid var(--brand-600)', borderRadius: 6, padding: '6px 10px', background: 'var(--surface-paper)', color: 'var(--text-strong)', boxSizing: 'border-box' }}
+              style={{ width: '100%', fontFamily: 'var(--font-sans)', fontSize: `calc(14px * ${fs})`, fontWeight: 600, border: 'none', outline: '1.5px solid var(--brand-600)', borderRadius: 6, padding: '6px 10px', background: 'var(--surface-card)', color: 'var(--text-strong)', boxSizing: 'border-box' }}
             />
           ) : (
             <div onClick={() => setEditing(true)}

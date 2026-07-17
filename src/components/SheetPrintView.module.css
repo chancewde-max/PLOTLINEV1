@@ -50,6 +50,62 @@
 }
 .iconX { font-size: 13px; line-height: 1; }
 
+/* Sheet-scope selector (This sheet / All sheets / Choose sheets) */
+.scopeBar {
+  max-width: 1100px;
+  margin: 0 auto;
+  width: 100%;
+  padding: 0 var(--space-8) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.seg {
+  display: inline-flex;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: var(--radius-md);
+  padding: 3px;
+  gap: 3px;
+}
+.seg button {
+  height: 30px;
+  padding: 0 14px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  font: 600 13px/1 var(--font-sans);
+  color: var(--slate-300);
+  cursor: pointer;
+}
+.seg button[data-on="true"] {
+  background: var(--slate-0);
+  color: var(--text-strong);
+}
+.chooseList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-6);
+  max-height: 140px;
+  overflow-y: auto;
+  padding: var(--space-4);
+  background: rgba(255,255,255,0.06);
+  border-radius: var(--radius-md);
+}
+.chooseItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--slate-100);
+  cursor: pointer;
+}
+.emptyNote {
+  text-align: center;
+  color: var(--text-muted);
+  padding: var(--space-10);
+}
+
 .scroll {
   flex: 1 1 auto;
   overflow: auto;
