@@ -472,6 +472,12 @@ export default function SheetPage() {
       }
       if (e.key === 'F3') { e.preventDefault(); setSnapEnabled(v => !v) }
       if (e.key === 'F8') { e.preventDefault(); setOrthoEnabled(v => !v) }
+      // Minus flips the selected item between add and deduction; with nothing
+      // selected it toggles deduct-draw mode for new items.
+      if ((e.key === '-' || e.key === '_' || e.key === 'Subtract') && !e.ctrlKey && !e.metaKey) {
+        if (selectedId && selectedKind) { e.preventDefault(); toggleSelectedDeduct() }
+        else { e.preventDefault(); setDeductMode(v => !v) }
+      }
       if (e.ctrlKey && key === 'Z') {
         e.preventDefault()
         // Undo last in-progress vertex first
@@ -1423,6 +1429,22 @@ export default function SheetPage() {
   const selectedArea  = selectedKind === 'area'  ? addedAreas.find(a => a.id === selectedId) : null
   const selectedPoint = selectedKind === 'point' ? addedPoints.find(p => p.id === selectedId) : null
   const selectedLine  = selectedKind === 'line'  ? addedLines.find(l => l.id === selectedId) : null
+  const selectedItem  = selectedArea || selectedPoint || selectedLine
+
+  // Flip the selected item between a normal add and a deduction (negative).
+  const toggleSelectedDeduct = () => {
+    if (!selectedId || !selectedKind) return
+    pushUndo()
+    if (selectedKind === 'area') {
+      setAddedAreas(prev => prev.map(a => a.id === selectedId ? { ...a, deduct: !a.deduct } : a))
+    } else if (selectedKind === 'line') {
+      setAddedLines(prev => prev.map(l => l.id === selectedId ? { ...l, deduct: !l.deduct } : l))
+    } else if (selectedKind === 'point') {
+      setCountGroups(prev => prev.map(g => ({
+        ...g, points: g.points.map(p => p.id === selectedId ? { ...p, deduct: !p.deduct } : p),
+      })))
+    }
+  }
 
   const canvasCursor = activeTool === 'pan' ? 'grab'
     : activeTool === 'select' ? (isDraggingRef.current ? 'grabbing' : 'default')
@@ -2337,6 +2359,11 @@ export default function SheetPage() {
             <div className={s.ctxMenu} style={{ left: ctxMenu.x, top: ctxMenu.y }} onMouseDown={(e) => e.stopPropagation()}>
               {isRecording && (
                 <button onClick={() => { stopRecording(); setCtxMenu(null) }}>Stop recording</button>
+              )}
+              {selectedItem && (
+                <button onClick={() => { toggleSelectedDeduct(); setCtxMenu(null) }}>
+                  {selectedItem.deduct ? 'Make positive (+)' : 'Make deduction (−)'}
+                </button>
               )}
               {activeTool === 'area' && (
                 <button onClick={() => { setAreaVerts([]); setAreaCursor(null); setArcMode(false); setPendingArcThrough(null); arcSegsRef.current = {}; setCtxMenu(null) }}>New area</button>
