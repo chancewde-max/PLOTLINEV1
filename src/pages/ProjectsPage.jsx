@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Plus, Map, Sun, Moon, Settings, Check } from 'lucide-react'
+import { Search, Plus, Map, Sun, Moon, Settings, Check, FileSignature, Undo2 } from 'lucide-react'
 import { Button } from '../components/ui/Button.jsx'
 import { Badge } from '../components/ui/Badge.jsx'
 import { Input } from '../components/ui/Input.jsx'
@@ -54,7 +54,7 @@ function fmtDate(iso) {
 
 export default function ProjectsPage() {
   const navigate = useNavigate()
-  const { projects: allProjects, sheets, addProject, pdfAssets } = useAppData()
+  const { projects: allProjects, sheets, addProject, updateProject, pdfAssets } = useAppData()
   const { user: authUser, cloudEnabled, memberships, orgId, switchWorkspace, dataLoading, updateProfile } = useAuth()
   const { theme, setTheme, accent, setAccent } = useSettings()
 
@@ -83,7 +83,7 @@ export default function ProjectsPage() {
   const [search, setSearch] = useState('')
   const [dlgOpen, setDlgOpen] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
-  const [activeTab, setActiveTab] = useState('projects')
+  const [activeTab, setActiveTab] = useState('estimates')
 
   // --- Self-contained subscription / cancellation state (no backend required) ---
   const [subscription, setSubscription] = useState(loadSubscription)
@@ -127,10 +127,24 @@ export default function ProjectsPage() {
   // Honest fallback notice whenever Stripe isn't wired and the plan is cancelled.
   const showEmailFallback = isCancelled && !stripePortalUrl
 
-  const projectList = Object.values(allProjects).filter(p =>
-    p.name.toLowerCase().includes(search.toLowerCase()) ||
-    (p.client || '').toLowerCase().includes(search.toLowerCase())
-  )
+  const viewingContracted = activeTab === 'contracted'
+  const projectList = Object.values(allProjects).filter(p => {
+    // Estimates tab shows un-contracted jobs; Contracted tab shows the rest.
+    if (!!p.contracted !== viewingContracted) return false
+    return (
+      p.name.toLowerCase().includes(search.toLowerCase()) ||
+      (p.client || '').toLowerCase().includes(search.toLowerCase())
+    )
+  })
+
+  const moveToContracted = (e, projectId) => {
+    e.stopPropagation()
+    updateProject(projectId, { contracted: true })
+  }
+  const moveToEstimates = (e, projectId) => {
+    e.stopPropagation()
+    updateProject(projectId, { contracted: false })
+  }
 
   const totalPipeline = Object.values(allProjects).reduce((s, p) => s + (p.status !== 'archived' ? (p.bidValue || 0) : 0), 0)
   const openBids = Object.values(allProjects).filter(p => p.status === 'bid_sent').length
@@ -179,7 +193,8 @@ export default function ProjectsPage() {
           </div>
         )}
         <nav className={s.nav}>
-          <button type="button" className={s.navLink} data-on={activeTab === 'projects' ? 'true' : undefined} onClick={() => setActiveTab('projects')} style={{ cursor: 'pointer', background: 'none', border: 'none', font: 'inherit' }}>Projects</button>
+          <button type="button" className={s.navLink} data-on={activeTab === 'estimates' ? 'true' : undefined} onClick={() => setActiveTab('estimates')} style={{ cursor: 'pointer', background: 'none', border: 'none', font: 'inherit' }}>Estimates</button>
+          <button type="button" className={s.navLink} data-on={activeTab === 'contracted' ? 'true' : undefined} onClick={() => setActiveTab('contracted')} style={{ cursor: 'pointer', background: 'none', border: 'none', font: 'inherit' }}>Contracted</button>
           <span className={s.navLink} data-soon="true" aria-disabled="true">
             Templates <Badge variant="neutral">Soon</Badge>
           </span>
@@ -310,8 +325,8 @@ export default function ProjectsPage() {
         <>
         <div className={s.head}>
           <div>
-            <h1 className={s.title}>Projects</h1>
-            <p className={s.sub}>{Object.keys(allProjects).length} projects · {openBids} bids out</p>
+            <h1 className={s.title}>{viewingContracted ? 'Contracted' : 'Estimates'}</h1>
+            <p className={s.sub}>{projectList.length} {viewingContracted ? 'contracted' : 'estimate'}{projectList.length === 1 ? '' : 's'} · {openBids} bids out</p>
           </div>
           <Button variant="secondary" iconLeft={<Map size={16} />} onClick={() => navigate('/app/project/proj-1/sheet/sheet-1')}>Try a sample takeoff</Button>
           <Button variant="primary" iconLeft={<Plus size={16} />} onClick={openDlg}>New project</Button>
@@ -388,13 +403,46 @@ export default function ProjectsPage() {
                   </span>
                   {project.bidValue > 0 && <span className={s.bidVal}>${project.bidValue.toLocaleString()}</span>}
                 </div>
+                {viewingContracted ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    iconLeft={<Undo2 size={14} />}
+                    onClick={(e) => moveToEstimates(e, project.id)}
+                  >
+                    Move to Estimates
+                  </Button>
+                ) : (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    iconLeft={<FileSignature size={14} />}
+                    onClick={(e) => moveToContracted(e, project.id)}
+                  >
+                    Move to Contracted
+                  </Button>
+                )}
               </div>
             </div>
           )) : (
             <div className={s.empty}>
-              <div className={s.emptyTitle}>No projects match “{search}”</div>
-              <div className={s.emptyHint}>Check the spelling, or start a new project.</div>
-              <Button variant="ghost" size="sm" onClick={() => setSearch('')}>Clear search</Button>
+              {search ? (
+                <>
+                  <div className={s.emptyTitle}>No {viewingContracted ? 'contracted jobs' : 'estimates'} match “{search}”</div>
+                  <div className={s.emptyHint}>Check the spelling, or start a new project.</div>
+                  <Button variant="ghost" size="sm" onClick={() => setSearch('')}>Clear search</Button>
+                </>
+              ) : viewingContracted ? (
+                <>
+                  <div className={s.emptyTitle}>No contracted jobs yet</div>
+                  <div className={s.emptyHint}>Move a job here from the Estimates tab once it's contracted.</div>
+                </>
+              ) : (
+                <>
+                  <div className={s.emptyTitle}>No estimates yet</div>
+                  <div className={s.emptyHint}>Start a new project to begin an estimate.</div>
+                </>
+              )}
             </div>
           )}
         </div>
