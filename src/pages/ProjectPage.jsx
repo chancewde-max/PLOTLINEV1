@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Plus, ChevronRight, Upload, FileText, Folder, FolderPlus, FolderOpen, X, LayoutDashboard, CheckSquare, Square, MoveRight, Printer, DollarSign, MapPin } from 'lucide-react'
+import { ArrowLeft, Plus, ChevronRight, Upload, FileText, Folder, FolderPlus, FolderOpen, X, LayoutDashboard, CheckSquare, Square, MoveRight, Printer, DollarSign, MapPin, Pencil, Check } from 'lucide-react'
 import { Button } from '../components/ui/Button.jsx'
 import { Badge } from '../components/ui/Badge.jsx'
 import { Input } from '../components/ui/Input.jsx'
@@ -72,6 +72,8 @@ export default function ProjectPage() {
   const pdfInputRef = useRef(null)
   const [folderDlg, setFolderDlg] = useState(false)
   const [folderName, setFolderName] = useState('')
+  const [renamingSetId, setRenamingSetId] = useState(null)
+  const [renameSetVal, setRenameSetVal] = useState('')
   const [expandedSets, setExpandedSets] = useState({})
   const [moveSheetDlg, setMoveSheetDlg] = useState(null)
   const [activeTab, setActiveTab] = useState('dashboard')
@@ -116,6 +118,13 @@ export default function ProjectPage() {
     // null → removes from all sets (unassigned); setId → moves to that folder
     moveSheetToSet(projectId, sheetId, targetId === 'unassigned' ? null : targetId)
     setDraggingSheetId(null); setDragOverTarget(null)
+  }
+
+  const startRenameSet = (set) => { setRenamingSetId(set.id); setRenameSetVal(set.name) }
+  const commitRenameSet = (setId) => {
+    const name = renameSetVal.trim()
+    if (name) renameSheetSet(projectId, setId, name)
+    setRenamingSetId(null)
   }
 
   const openDlg = () => setWizardOpen(true)
@@ -393,9 +402,45 @@ export default function ProjectPage() {
                 onDrop={e => onFolderDrop(e, set.id)}
               >
                 {expanded ? <FolderOpen size={16} style={{ color: 'var(--brand-600)' }} /> : <Folder size={16} style={{ color: 'var(--brand-600)' }} />}
-                <span style={{ flex: 1, fontWeight: 600, fontSize: 14, color: 'var(--text-strong)' }}>{set.name}</span>
+                {renamingSetId === set.id ? (
+                  <input
+                    autoFocus
+                    value={renameSetVal}
+                    onClick={e => e.stopPropagation()}
+                    onChange={e => setRenameSetVal(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') { commitRenameSet(set.id) }
+                      else if (e.key === 'Escape') { setRenamingSetId(null) }
+                    }}
+                    onBlur={() => commitRenameSet(set.id)}
+                    style={{ flex: 1, fontWeight: 600, fontSize: 14, color: 'var(--text-strong)', background: 'var(--surface-paper)', border: '1px solid var(--brand-600)', borderRadius: 'var(--radius-sm)', padding: '2px 6px' }}
+                  />
+                ) : (
+                  <span
+                    style={{ flex: 1, fontWeight: 600, fontSize: 14, color: 'var(--text-strong)' }}
+                    onDoubleClick={e => { e.stopPropagation(); startRenameSet(set) }}
+                    title="Double-click to rename"
+                  >{set.name}</span>
+                )}
                 {isOver && <span style={{ fontSize: 11, color: 'var(--brand-600)', fontWeight: 600 }}>Drop to add</span>}
-                {!isOver && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{setSheets.length} sheet{setSheets.length !== 1 ? 's' : ''}</span>}
+                {!isOver && renamingSetId !== set.id && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{setSheets.length} sheet{setSheets.length !== 1 ? 's' : ''}</span>}
+                {renamingSetId === set.id ? (
+                  <Tooltip label="Save name" side="left">
+                    <button onClick={e => { e.stopPropagation(); commitRenameSet(set.id) }}
+                      aria-label="Save folder name"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--brand-600)', padding: 2, display: 'flex', alignItems: 'center' }}>
+                      <Check size={15} />
+                    </button>
+                  </Tooltip>
+                ) : (
+                  <Tooltip label="Rename folder" side="left">
+                    <button onClick={e => { e.stopPropagation(); startRenameSet(set) }}
+                      aria-label="Rename folder"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', padding: 2, display: 'flex', alignItems: 'center' }}>
+                      <Pencil size={13} />
+                    </button>
+                  </Tooltip>
+                )}
                 {setSheets.length > 0 && (
                   <Tooltip label={allSelected ? 'Deselect all' : 'Select all'} side="left">
                     <button onClick={toggleSelectAll}
