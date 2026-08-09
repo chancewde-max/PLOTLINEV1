@@ -246,54 +246,8 @@ export default function ProjectPage() {
         </div>
 
         {activeTab === 'dashboard' && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16, marginBottom: 32 }}>
-            <div style={{ background: 'var(--surface-sunken)', borderRadius: 'var(--radius-lg)', padding: 20 }}>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Sheets</div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 36, fontWeight: 700, color: 'var(--text-strong)' }}>{sheetList.length}</div>
-            </div>
-            <div style={{ background: 'var(--surface-sunken)', borderRadius: 'var(--radius-lg)', padding: 20 }}>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Total areas</div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 36, fontWeight: 700, color: 'var(--text-strong)' }}>{sheetList.reduce((s, sh) => s + (sh.areas || []).length, 0)}</div>
-            </div>
-            <div style={{ background: 'var(--surface-sunken)', borderRadius: 'var(--radius-lg)', padding: 20 }}>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Total items</div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 36, fontWeight: 700, color: 'var(--text-strong)' }}>{sheetList.reduce((s, sh) => s + (sh.points || []).length, 0)}</div>
-            </div>
-            {project.bidValue > 0 && (
-              <div style={{ background: 'var(--surface-sunken)', borderRadius: 'var(--radius-lg)', padding: 20 }}>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Bid value</div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 28, fontWeight: 700, color: 'var(--brand-600)' }}>${project.bidValue.toLocaleString()}</div>
-              </div>
-            )}
-            <div style={{ background: 'var(--surface-sunken)', borderRadius: 'var(--radius-lg)', padding: 20 }}>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Folders</div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 36, fontWeight: 700, color: 'var(--text-strong)' }}>{(project.sheetSets || []).length}</div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'dashboard' && (
           <>
-            <div className={s.dashLinks}>
-              <button className={s.dashLinkCard} onClick={() => setActiveTab('sheets')}>
-                <div className={s.dashLinkIcon}><FileText size={20} /></div>
-                <div className={s.dashLinkBody}>
-                  <div className={s.dashLinkTitle}>Sheets</div>
-                  <div className={s.dashLinkSub}>{sheetList.length} {sheetList.length === 1 ? 'sheet' : 'sheets'} in this project</div>
-                </div>
-                <MoveRight size={16} className={s.dashLinkArrow} />
-              </button>
-              <button className={s.dashLinkCard} onClick={() => setActiveTab('pricebook')}>
-                <div className={s.dashLinkIcon}><DollarSign size={20} /></div>
-                <div className={s.dashLinkBody}>
-                  <div className={s.dashLinkTitle}>Pricebook</div>
-                  <div className={s.dashLinkSub}>Proposal &amp; material takeoff pricing</div>
-                </div>
-                <MoveRight size={16} className={s.dashLinkArrow} />
-              </button>
-            </div>
-
-            <div className={s.mapCard}>
+            <div className={s.mapCard} style={{ marginBottom: 24 }}>
               <div className={s.sectionLabel} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <MapPin size={13} /> Project location
               </div>
@@ -312,6 +266,25 @@ export default function ProjectPage() {
                   Add an address to this project to see it on the map.
                 </div>
               )}
+            </div>
+
+            <div className={s.dashLinks}>
+              <button className={s.dashLinkCard} onClick={() => setActiveTab('sheets')}>
+                <div className={s.dashLinkIcon}><FileText size={20} /></div>
+                <div className={s.dashLinkBody}>
+                  <div className={s.dashLinkTitle}>Sheets</div>
+                  <div className={s.dashLinkSub}>{sheetList.length} {sheetList.length === 1 ? 'sheet' : 'sheets'} in this project</div>
+                </div>
+                <MoveRight size={16} className={s.dashLinkArrow} />
+              </button>
+              <button className={s.dashLinkCard} onClick={() => setActiveTab('pricebook')}>
+                <div className={s.dashLinkIcon}><DollarSign size={20} /></div>
+                <div className={s.dashLinkBody}>
+                  <div className={s.dashLinkTitle}>Pricebook</div>
+                  <div className={s.dashLinkSub}>Proposal &amp; material takeoff pricing</div>
+                </div>
+                <MoveRight size={16} className={s.dashLinkArrow} />
+              </button>
             </div>
           </>
         )}
