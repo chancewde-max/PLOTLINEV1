@@ -59,6 +59,32 @@ const NEAR = 16
 const FIT = 0.72
 const FOLDER_PALETTE = ['#157a52','#2563eb','#7c3aed','#d97706','#dc2626','#0891b2']
 
+// Perpendicular distance from point p to segment a-b (all in sheet coords).
+function distToSeg(p, a, b) {
+  const dx = b.x - a.x, dy = b.y - a.y
+  const len2 = dx * dx + dy * dy
+  if (len2 === 0) return Math.hypot(p.x - a.x, p.y - a.y)
+  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2
+  t = Math.max(0, Math.min(1, t))
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy))
+}
+const ptInRect = (p, r) => p.x >= r.minX && p.x <= r.maxX && p.y >= r.minY && p.y <= r.maxY
+// Do segments p1-p2 and p3-p4 cross?
+function segsCross(p1, p2, p3, p4) {
+  const cross = (a, b, c) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+  const d1 = cross(p3, p4, p1), d2 = cross(p3, p4, p2)
+  const d3 = cross(p1, p2, p3), d4 = cross(p1, p2, p4)
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))
+}
+// Does segment a-b touch/cross axis-aligned rectangle r?
+function segIntersectsRect(a, b, r) {
+  if (ptInRect(a, r) || ptInRect(b, r)) return true
+  const c1 = { x: r.minX, y: r.minY }, c2 = { x: r.maxX, y: r.minY }
+  const c3 = { x: r.maxX, y: r.maxY }, c4 = { x: r.minX, y: r.maxY }
+  return segsCross(a, b, c1, c2) || segsCross(a, b, c2, c3) ||
+         segsCross(a, b, c3, c4) || segsCross(a, b, c4, c1)
+}
+
 const COUNT_COLORS = ['#258c62','#2563eb','#7c3aed','#d97706','#dc2626','#0891b2','#db2777','#65a30d','#ea580c','#6366f1']
 const randColor = () => COUNT_COLORS[Math.floor(Math.random() * COUNT_COLORS.length)]
 
@@ -254,6 +280,7 @@ export default function SheetPage() {
   const [selectedKind, setSelectedKind] = useState(null)
   const [selectedIds, setSelectedIds]   = useState([]) // multi-select from box drag
   const [boxSelect, setBoxSelect]       = useState(null) // { x1,y1,x2,y2 } in sheet coords
+  const [hoverLabel, setHoverLabel]     = useState(null) // { x, y, text } — name shown on hover
   const isDraggingRef    = useRef(false)
   const dragStartRef     = useRef(null)
   const origDragRef      = useRef(null)
@@ -667,6 +694,8 @@ export default function SheetPage() {
     }
     if (activeTool !== 'select') return
     const p = toSheet(e)
+    // A fresh press clears any prior marquee multi-selection.
+    if (selectedIds.length) setSelectedIds([])
     // Hit thresholds fixed in screen pixels (~10px) regardless of zoom
     const hitPx = 10 / ((zoom / 100) * FIT)
     // Check added points first
@@ -722,9 +751,22 @@ export default function SheetPage() {
           return
         }
       }
+      // Click anywhere along a segment selects the whole line and starts moving it
+      for (let j = 0; j < l.pts.length - 1; j++) {
+        if (distToSeg(p, l.pts[j], l.pts[j + 1]) < hitPx) {
+          pushUndo()
+          setSelectedId(l.id); setSelectedKind('line')
+          isDraggingRef.current = true
+          dragStartRef.current = p
+          origDragRef.current = l.pts.map(v => ({ ...v }))
+          dragVertIdxRef.current = null
+          dragAreaIdRef.current = l.id
+          return
+        }
+      }
     }
     // Start box select on empty space
-    setSelectedId(null); setSelectedKind(null)
+    setSelectedId(null); setSelectedKind(null); setSelectedIds([])
     setBoxSelect({ x1: p.x, y1: p.y, x2: p.x, y2: p.y })
   }
 
@@ -789,13 +831,51 @@ export default function SheetPage() {
           ))
         }
       } else if (selectedKind === 'line') {
-        const orig = origDragRef.current
-        setAddedLines(prev => prev.map(l =>
-          l.id === dragAreaIdRef.current
-            ? { ...l, pts: l.pts.map((v, i) => i === dragVertIdxRef.current ? { x: orig.x + dx, y: orig.y + dy } : v) }
-            : l
-        ))
+        if (dragVertIdxRef.current !== null) {
+          // Move single vertex
+          const orig = origDragRef.current
+          setAddedLines(prev => prev.map(l =>
+            l.id === dragAreaIdRef.current
+              ? { ...l, pts: l.pts.map((v, i) => i === dragVertIdxRef.current ? { x: orig.x + dx, y: orig.y + dy } : v) }
+              : l
+          ))
+        } else {
+          // Move whole line
+          const origPts = origDragRef.current
+          setAddedLines(prev => prev.map(l =>
+            l.id === dragAreaIdRef.current
+              ? { ...l, pts: origPts.map(v => ({ x: v.x + dx, y: v.y + dy })) }
+              : l
+          ))
+        }
       }
+    }
+
+    // Hover-to-reveal: show the item's name when idly hovering with the Select tool
+    if (activeTool === 'select' && !isDraggingRef.current && !boxSelect) {
+      const hp = 10 / ((zoom / 100) * FIT)
+      let found = null
+      for (let i = addedPoints.length - 1; i >= 0 && !found; i--) {
+        const pt = addedPoints[i]
+        if (dist(rawP, { x: pt.x, y: pt.y }) < hp) found = { x: pt.x, y: pt.y, text: pt.name || 'Point' }
+      }
+      for (let i = addedAreas.length - 1; i >= 0 && !found; i--) {
+        const a = addedAreas[i]
+        if (a.poly.some(v => dist(rawP, v) < hp) || inside(rawP, a.poly)) found = { x: rawP.x, y: rawP.y, text: a.name || 'Area' }
+      }
+      for (let i = addedLines.length - 1; i >= 0 && !found; i--) {
+        const l = addedLines[i]
+        const near = l.pts.some(v => dist(rawP, v) < hp) ||
+          l.pts.some((v, j) => j < l.pts.length - 1 && distToSeg(rawP, v, l.pts[j + 1]) < hp)
+        if (near) found = { x: rawP.x, y: rawP.y, text: l.name || 'Line' }
+      }
+      setHoverLabel(prev => {
+        if (!found && !prev) return prev
+        if (found && prev && prev.text === found.text && prev.x === found.x && prev.y === found.y) return prev
+        return found
+      })
+    } else if (hoverLabel) {
+      setHoverLabel(null)
     }
   }
 
@@ -818,10 +898,22 @@ export default function SheetPage() {
       const minX = Math.min(boxSelect.x1, boxSelect.x2), maxX = Math.max(boxSelect.x1, boxSelect.x2)
       const minY = Math.min(boxSelect.y1, boxSelect.y2), maxY = Math.max(boxSelect.y1, boxSelect.y2)
       if (maxX - minX > 4 || maxY - minY > 4) {
-        const inBox = (pt) => pt.x >= minX && pt.x <= maxX && pt.y >= minY && pt.y <= maxY
+        const r = { minX, minY, maxX, maxY }
+        const inBox = (pt) => ptInRect(pt, r)
         const ptIds = addedPoints.filter(p => inBox(p)).map(p => p.id)
-        const areaIds = addedAreas.filter(a => a.poly.some(v => inBox(v))).map(a => a.id)
-        setSelectedIds([...ptIds, ...areaIds])
+        // Areas/lines count as selected if the marquee merely TOUCHES them —
+        // a vertex inside the box, an edge crossing the box, or the box sitting
+        // entirely inside the shape.
+        const areaIds = addedAreas.filter(a =>
+          a.poly.some(v => inBox(v)) ||
+          a.poly.some((v, i) => segIntersectsRect(v, a.poly[(i + 1) % a.poly.length], r)) ||
+          inside({ x: minX, y: minY }, a.poly)
+        ).map(a => a.id)
+        const lineIds = addedLines.filter(l =>
+          l.pts.some(v => inBox(v)) ||
+          l.pts.some((v, i) => i < l.pts.length - 1 && segIntersectsRect(v, l.pts[i + 1], r))
+        ).map(l => l.id)
+        setSelectedIds([...ptIds, ...areaIds, ...lineIds])
       }
       setBoxSelect(null)
     }
@@ -1685,6 +1777,7 @@ export default function SheetPage() {
         <main className={s.canvas} ref={canvasRef}
           onMouseMove={onMouseMove}
           onMouseUp={onMouseUp}
+          onMouseLeave={() => setHoverLabel(null)}
           onTouchStart={onTouchStart}
           onTouchMove={onTouchMove}
           onTouchEnd={onTouchEnd}
@@ -1829,7 +1922,7 @@ export default function SheetPage() {
                 {addedAreas.map(a => {
                   if (hidden[a.id]) return null
                   const inRegionMode = activeTool === 'region' && hasRegion
-                  const isSelected = selectedId === a.id
+                  const isSelected = selectedId === a.id || selectedIds.includes(a.id)
                   const hasArcs = a.arcSegs && Object.keys(a.arcSegs).length > 0
                   const areaColor = a.color || CAT_COLOR[a.type]
                   const fillOp = inRegionMode ? 0.05 : 0.18
@@ -1879,7 +1972,7 @@ export default function SheetPage() {
                 {addedLines.map(l => {
                   if (hidden[l.id]) return null
                   const isIn = inLines[l.id]
-                  const isSelected = selectedId === l.id
+                  const isSelected = selectedId === l.id || selectedIds.includes(l.id)
                   const dim = (activeTool === 'region' && hasRegion && !isIn) || !catActive.has(l.type)
                   const lineColor = l.color || CAT_COLOR[l.type]
                   const hasArcs = l.arcSegs && Object.keys(l.arcSegs).length > 0
@@ -1899,7 +1992,7 @@ export default function SheetPage() {
                 {/* Point items (sample/base) */}
                 {allPoints.map(p => {
                   const isIn = inPoints[p.id]
-                  const isSelected = selectedId === p.id
+                  const isSelected = selectedId === p.id || selectedIds.includes(p.id)
                   const dim = (activeTool === 'region' && hasRegion && !isIn) || !catActive.has(p.type)
                   const col = p.color || CAT_COLOR[p.type]
                   const dr = dotSize * u * 5
@@ -2107,6 +2200,29 @@ export default function SheetPage() {
                   <rect x={Math.min(boxSelect.x1, boxSelect.x2)} y={Math.min(boxSelect.y1, boxSelect.y2)}
                     width={Math.abs(boxSelect.x2 - boxSelect.x1)} height={Math.abs(boxSelect.y2 - boxSelect.y1)}
                     fill="var(--brand-500)" fillOpacity="0.08" stroke="var(--brand-500)" strokeWidth="1.5" strokeDasharray="5 3" />
+                )}
+
+                {/* Hover name tooltip (Select tool) */}
+                {hoverLabel && (
+                  <g pointerEvents="none">
+                    <rect
+                      x={hoverLabel.x + 12 * u}
+                      y={hoverLabel.y - 22 * u}
+                      width={(hoverLabel.text.length * 6.2 + 14) * u}
+                      height={18 * u}
+                      rx={4 * u}
+                      fill="rgba(17,24,39,0.92)"
+                    />
+                    <text
+                      x={hoverLabel.x + 12 * u + 7 * u}
+                      y={hoverLabel.y - 22 * u + 12.5 * u}
+                      fill="#fff"
+                      fontSize={11 * u}
+                      fontFamily="system-ui, -apple-system, sans-serif"
+                    >
+                      {hoverLabel.text}
+                    </text>
+                  </g>
                 )}
               </svg>
 
