@@ -59,6 +59,11 @@ const NEAR = 16
 const FIT = 0.72
 const FOLDER_PALETTE = ['#157a52','#2563eb','#7c3aed','#d97706','#dc2626','#0891b2']
 
+// Deduction sign for a takeoff item: negative items subtract from totals.
+const itemSign = (it) => (it && it.deduct ? -1 : 1)
+// Signed count of a points array (each deduct point counts as -1).
+const signedPointCount = (points) => (points || []).reduce((s, p) => s + (p.deduct ? -1 : 1), 0)
+
 // Perpendicular distance from point p to segment a-b (all in sheet coords).
 function distToSeg(p, a, b) {
   const dx = b.x - a.x, dy = b.y - a.y
@@ -246,6 +251,9 @@ export default function SheetPage() {
   // ---- Snapping ----
   const [snapEnabled, setSnapEnabled]   = useState(false)
   const [orthoEnabled, setOrthoEnabled] = useState(false)
+  // Deduct mode: while on, every new area / line / count marker is recorded as
+  // a negative quantity and subtracts from its condition's total.
+  const [deductMode, setDeductMode]     = useState(false)
 
   // ---- Page overlay ----
   const [overlaySheetId, setOverlaySheetId] = useState(null)  // which sheet to overlay
@@ -625,6 +633,7 @@ export default function SheetPage() {
         color: grp?.color || null,
         poly: capturedVerts,
         arcSegs: capturedArcSegs,
+        deduct: deductMode,
       }]
     })
     setAreaVerts([]); setAreaCursor(null)
@@ -647,6 +656,7 @@ export default function SheetPage() {
         color: grp?.color || null,
         pts: capturedVerts,
         arcSegs: capturedArcSegs,
+        deduct: deductMode,
       }]
     })
     setLinearVerts([]); setLinearCursor(null)
@@ -855,19 +865,20 @@ export default function SheetPage() {
     if (activeTool === 'select' && !isDraggingRef.current && !boxSelect) {
       const hp = 10 / ((zoom / 100) * FIT)
       let found = null
+      const suffix = (it) => (it.deduct ? ' (deduct −)' : '')
       for (let i = addedPoints.length - 1; i >= 0 && !found; i--) {
         const pt = addedPoints[i]
-        if (dist(rawP, { x: pt.x, y: pt.y }) < hp) found = { x: pt.x, y: pt.y, text: pt.name || 'Point' }
+        if (dist(rawP, { x: pt.x, y: pt.y }) < hp) found = { x: pt.x, y: pt.y, text: (pt.name || 'Point') + suffix(pt) }
       }
       for (let i = addedAreas.length - 1; i >= 0 && !found; i--) {
         const a = addedAreas[i]
-        if (a.poly.some(v => dist(rawP, v) < hp) || inside(rawP, a.poly)) found = { x: rawP.x, y: rawP.y, text: a.name || 'Area' }
+        if (a.poly.some(v => dist(rawP, v) < hp) || inside(rawP, a.poly)) found = { x: rawP.x, y: rawP.y, text: (a.name || 'Area') + suffix(a) }
       }
       for (let i = addedLines.length - 1; i >= 0 && !found; i--) {
         const l = addedLines[i]
         const near = l.pts.some(v => dist(rawP, v) < hp) ||
           l.pts.some((v, j) => j < l.pts.length - 1 && distToSeg(rawP, v, l.pts[j + 1]) < hp)
-        if (near) found = { x: rawP.x, y: rawP.y, text: l.name || 'Line' }
+        if (near) found = { x: rawP.x, y: rawP.y, text: (l.name || 'Line') + suffix(l) }
       }
       setHoverLabel(prev => {
         if (!found && !prev) return prev
@@ -1042,7 +1053,7 @@ export default function SheetPage() {
 
     if (activeTool === 'count') {
       pushUndo()
-      const newPt = { id: `up-${Date.now()}`, type: addCountType, name: genName(addCountType), x: p.x, y: p.y }
+      const newPt = { id: `up-${Date.now()}`, type: addCountType, name: genName(addCountType), x: p.x, y: p.y, deduct: deductMode }
       if (activeCountGroupId) {
         setCountGroups(prev => prev.map(g =>
           g.id === activeCountGroupId ? { ...g, points: [...g.points, newPt] } : g
@@ -1158,18 +1169,18 @@ export default function SheetPage() {
   if (hasRegion && activeTool === 'region') {
     allPoints.forEach(p => {
       if (catActive.has(p.type) && inside(p, regionPoly)) {
-        regionRes[p.type].count++; inPoints[p.id] = true
+        regionRes[p.type].count += itemSign(p); inPoints[p.id] = true
       }
     })
     allAreas.forEach(a => {
       if (!catActive.has(a.type)) return
       const cp = clipPx2(a.poly, regionPoly, clipStep)
-      if (cp.px2 > 0) { regionRes[a.type].count++; regionRes[a.type].sqft += sqft(cp.px2); areaClip[a.id] = cp }
+      if (cp.px2 > 0) { regionRes[a.type].count += itemSign(a); regionRes[a.type].sqft += sqft(cp.px2) * itemSign(a); areaClip[a.id] = cp }
     })
     allLines.forEach(l => {
       const lc = centroid(l.pts)
       if (catActive.has(l.type) && inside(lc, regionPoly)) {
-        regionRes[l.type].count++; regionRes[l.type].lnft += lnft(linePathLenPx(l.pts, l.arcSegs)); inLines[l.id] = true
+        regionRes[l.type].count += itemSign(l); regionRes[l.type].lnft += lnft(linePathLenPx(l.pts, l.arcSegs)) * itemSign(l); inLines[l.id] = true
       }
     })
   }
@@ -1221,7 +1232,7 @@ export default function SheetPage() {
   }
 
   const layerItems = [
-    ...countGroups.map(g => ({ id: g.id, color: g.color, kind: 'countGroup', label: g.name, count: g.points.length })),
+    ...countGroups.map(g => ({ id: g.id, color: g.color, kind: 'countGroup', label: g.name, count: signedPointCount(g.points) })),
     ...linearGroups.map(g => ({ id: g.id, color: g.color, kind: 'linearGroup', label: g.name, count: addedLines.filter(l => l.groupId === g.id).length })),
     ...areaGroups.map(g => ({ id: g.id, color: g.color, kind: 'areaGroup', label: g.name, count: addedAreas.filter(a => a.groupId === g.id).length })),
   ]
@@ -1290,18 +1301,18 @@ export default function SheetPage() {
     rows.push(['Category', 'Group / Item', 'Count', 'Sq Ft', 'Lin Ft', 'Notes'])
     // Count groups
     countGroups.forEach(g => {
-      rows.push(['Count', g.name, g.points.length, '', '', ''])
+      rows.push(['Count', g.name, signedPointCount(g.points), '', '', ''])
     })
     // Area groups
     areaGroups.forEach(g => {
-      const totalSqFt = addedAreas.filter(a => a.groupId === g.id).reduce((s, a) => s + sqft(polyAreaPx(a.poly)), 0)
+      const totalSqFt = addedAreas.filter(a => a.groupId === g.id).reduce((s, a) => s + sqft(polyAreaPx(a.poly)) * itemSign(a), 0)
       const depth = g.depth ? `Depth: ${g.depth}"` : ''
       const topsoil = g.topsoil && g.topsoil !== 'none' ? `Topsoil: ${g.topsoil}` : ''
       rows.push(['Area', g.name, addedAreas.filter(a => a.groupId === g.id).length, Math.round(totalSqFt), '', [depth, topsoil].filter(Boolean).join('; ')])
     })
     // Linear groups
     linearGroups.forEach(g => {
-      const totalLnFt = addedLines.filter(l => l.groupId === g.id).reduce((s, l) => s + lnft(linePathLenPx(l.pts, l.arcSegs)), 0)
+      const totalLnFt = addedLines.filter(l => l.groupId === g.id).reduce((s, l) => s + lnft(linePathLenPx(l.pts, l.arcSegs)) * itemSign(l), 0)
       rows.push(['Linear', g.name, addedLines.filter(l => l.groupId === g.id).length, '', Math.round(totalLnFt), ''])
     })
     const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n')
@@ -1324,9 +1335,9 @@ export default function SheetPage() {
       if (!poly || poly.length < 3) return
       const res = {}
       CATS.forEach(c => { res[c.id] = { count: 0, sqft: 0, lnft: 0 } })
-      allPoints.forEach(p => { if (inside(p, poly)) res[p.type].count++ })
-      allAreas.forEach(a => { const cp = clipPx2(a.poly, poly, 4); if (cp.px2 > 0) { res[a.type].count++; res[a.type].sqft += sqft(cp.px2) } })
-      allLines.forEach(l => { const lc = centroid(l.pts); if (inside(lc, poly)) { res[l.type].count++; res[l.type].lnft += lnft(linePathLenPx(l.pts, l.arcSegs)) } })
+      allPoints.forEach(p => { if (inside(p, poly)) res[p.type].count += itemSign(p) })
+      allAreas.forEach(a => { const cp = clipPx2(a.poly, poly, 4); if (cp.px2 > 0) { res[a.type].count += itemSign(a); res[a.type].sqft += sqft(cp.px2) * itemSign(a) } })
+      allLines.forEach(l => { const lc = centroid(l.pts); if (inside(lc, poly)) { res[l.type].count += itemSign(l); res[l.type].lnft += lnft(linePathLenPx(l.pts, l.arcSegs)) * itemSign(l) } })
       CATS.forEach(c => {
         const r = res[c.id]
         if (r.count > 0 || r.sqft > 0 || r.lnft > 0)
@@ -1929,13 +1940,22 @@ export default function SheetPage() {
                   const strokeOp = inRegionMode ? 0.3 : 0.85
                   const sharedProps = {
                     fill: areaColor, fillOpacity: fillOp,
-                    stroke: isSelected ? '#000' : areaColor,
+                    stroke: isSelected ? '#000' : (a.deduct ? '#dc2626' : areaColor),
                     strokeOpacity: strokeOp, strokeWidth: isSelected ? strokeW * u * 2 : strokeW * u * 0.75,
-                    strokeDasharray: isSelected ? '0' : undefined,
+                    strokeDasharray: a.deduct ? `${5 * u} ${3 * u}` : (isSelected ? '0' : undefined),
                   }
-                  return hasArcs
-                    ? <path key={a.id} d={buildAreaPath(a.poly, a.arcSegs)} {...sharedProps} />
-                    : <polygon key={a.id} points={a.poly.map(p => `${p.x},${p.y}`).join(' ')} {...sharedProps} />
+                  const shape = hasArcs
+                    ? <path d={buildAreaPath(a.poly, a.arcSegs)} {...sharedProps} />
+                    : <polygon points={a.poly.map(p => `${p.x},${p.y}`).join(' ')} {...sharedProps} />
+                  if (!a.deduct) return <g key={a.id}>{shape}</g>
+                  const c = centroid(a.poly)
+                  return (
+                    <g key={a.id}>
+                      {shape}
+                      <text x={c.x} y={c.y} textAnchor="middle" dominantBaseline="central"
+                        fontSize={16 * u} fontWeight="800" fill="#dc2626" pointerEvents="none">−</text>
+                    </g>
+                  )
                 })}
 
                 {/* Clipped area bright overlay */}
@@ -1978,11 +1998,11 @@ export default function SheetPage() {
                   const hasArcs = l.arcSegs && Object.keys(l.arcSegs).length > 0
                   const pathD = hasArcs ? buildLinePath(l.pts, l.arcSegs) : null
                   const sharedProps = {
-                    fill: 'none', stroke: lineColor,
+                    fill: 'none', stroke: l.deduct ? '#dc2626' : lineColor,
                     strokeOpacity: dim ? 0.25 : 1,
                     strokeWidth: strokeW * u * (isSelected ? 2.5 : (isIn ? 2.5 : 1.5)),
                     strokeLinecap: 'round', strokeLinejoin: 'round',
-                    strokeDasharray: isSelected ? '6 3' : undefined,
+                    strokeDasharray: l.deduct ? `${6 * u} ${3 * u}` : (isSelected ? '6 3' : undefined),
                   }
                   return hasArcs
                     ? <path key={l.id} d={pathD} {...sharedProps} />
@@ -1996,13 +2016,17 @@ export default function SheetPage() {
                   const dim = (activeTool === 'region' && hasRegion && !isIn) || !catActive.has(p.type)
                   const col = p.color || CAT_COLOR[p.type]
                   const dr = dotSize * u * 5
+                  const ringStroke = isSelected ? '#000' : (p.deduct ? '#dc2626' : col)
                   return (
                     <g key={p.id} opacity={dim ? 0.22 : 1}>
                       {(isIn || isSelected) && <circle cx={p.x} cy={p.y} r={dr * 2.3} fill={col} opacity="0.15" />}
                       <circle cx={p.x} cy={p.y} r={isIn || isSelected ? dr * 1.33 : dr}
-                        fill={(isIn || isSelected) ? col : '#fff'} stroke={isSelected ? '#000' : col}
+                        fill={(isIn || isSelected) ? col : '#fff'} stroke={ringStroke}
                         strokeWidth={(isIn || isSelected) ? strokeW * u * 1.5 : strokeW * u} />
-                      {(isIn || isSelected) && <circle cx={p.x} cy={p.y} r={dr * 0.4} fill="#fff" />}
+                      {p.deduct
+                        ? <rect x={p.x - dr * 0.6} y={p.y - dr * 0.16} width={dr * 1.2} height={dr * 0.32}
+                            rx={dr * 0.1} fill={(isIn || isSelected) ? '#fff' : '#dc2626'} />
+                        : (isIn || isSelected) && <circle cx={p.x} cy={p.y} r={dr * 0.4} fill="#fff" />}
                     </g>
                   )
                 })}
@@ -2412,6 +2436,12 @@ export default function SheetPage() {
         <Tooltip label={`Ortho ${orthoEnabled ? 'ON' : 'OFF'} (F8)`} side="top">
           <button className={s.tool} data-on={orthoEnabled} onClick={() => setOrthoEnabled(v => !v)} aria-label="Toggle ortho">
             <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '-0.02em' }}>ORTH</span>
+          </button>
+        </Tooltip>
+        <Tooltip label={`Deduct ${deductMode ? 'ON — new items subtract' : 'OFF'}`} side="top">
+          <button className={s.tool} data-on={deductMode} onClick={() => setDeductMode(v => !v)} aria-label="Toggle deduct mode"
+            style={deductMode ? { color: '#dc2626' } : undefined}>
+            <Minus size={20} />
           </button>
         </Tooltip>
         <Tooltip label="Page overlay" side="top">
@@ -3005,24 +3035,24 @@ function RegionPanel({ folders, activeFolderId, renamingId, renameVal, onSwitch,
   // Per-group breakdown for the active region polygon
   const countResults = (countGroups || []).map(g => ({
     id: g.id, name: g.name, color: g.color,
-    count: poly && poly.length >= 3 ? g.points.filter(p => inside(p, poly)).length : 0,
-  })).filter(r => r.count > 0)
+    count: poly && poly.length >= 3 ? signedPointCount(g.points.filter(p => inside(p, poly))) : 0,
+  })).filter(r => r.count !== 0)
 
   const areaResults = (areaGroups || []).map(g => {
     const groupAreas = (addedAreas || []).filter(a => a.groupId === g.id)
     const totalSqft = poly && poly.length >= 3
-      ? groupAreas.reduce((s, a) => { const cp = clipPx2(a.poly, poly, 4); return s + sqft(cp.px2) }, 0)
+      ? groupAreas.reduce((s, a) => { const cp = clipPx2(a.poly, poly, 4); return s + sqft(cp.px2) * itemSign(a) }, 0)
       : 0
     return { id: g.id, name: g.name, color: g.color, sqft: totalSqft }
-  }).filter(r => r.sqft > 0)
+  }).filter(r => r.sqft !== 0)
 
   const linearResults = (linearGroups || []).map(g => {
     const groupLines = (addedLines || []).filter(l => l.groupId === g.id)
     const totalLnft = poly && poly.length >= 3
-      ? groupLines.reduce((s, l) => { const lc = centroid(l.pts); return inside(lc, poly) ? s + lnft(linePathLenPx(l.pts, l.arcSegs)) : s }, 0)
+      ? groupLines.reduce((s, l) => { const lc = centroid(l.pts); return inside(lc, poly) ? s + lnft(linePathLenPx(l.pts, l.arcSegs)) * itemSign(l) : s }, 0)
       : 0
     return { id: g.id, name: g.name, color: g.color, lnft: totalLnft }
-  }).filter(r => r.lnft > 0)
+  }).filter(r => r.lnft !== 0)
 
   const activeHasData = countResults.length > 0 || areaResults.length > 0 || linearResults.length > 0
   const totalItems = countResults.reduce((s, r) => s + r.count, 0)
@@ -3299,7 +3329,7 @@ function LinearPanel({ linearType, onSetLinearType, addedLines, lnft, fLn, onCle
 function CountPanel({ countType, onSetCountType, addedPoints, countGroups, activeCountGroupId, onSetActiveGroup, onClearAdded, fs }) {
   const byType = {}
   COUNT_CATS.forEach(c => { byType[c.id] = 0 })
-  addedPoints.forEach(p => { if (byType[p.type] !== undefined) byType[p.type]++ })
+  addedPoints.forEach(p => { if (byType[p.type] !== undefined) byType[p.type] += (p.deduct ? -1 : 1) })
   const activeGroup = countGroups.find(g => g.id === activeCountGroupId)
 
   return (
@@ -3323,7 +3353,7 @@ function CountPanel({ countType, onSetCountType, addedPoints, countGroups, activ
                 style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 'var(--radius-md)', border: `1.5px solid ${g.id === activeCountGroupId ? 'var(--brand-500)' : 'transparent'}`, background: g.id === activeCountGroupId ? 'var(--surface-muted)' : 'transparent', cursor: 'pointer', textAlign: 'left' }}>
                 <span style={{ width: 10, height: 10, borderRadius: '50%', background: CAT_COLOR[g.type] || 'var(--brand-500)', flexShrink: 0 }} />
                 <span style={{ flex: 1, fontSize: `calc(12px * ${fs})`, fontWeight: 500, color: 'var(--text-strong)' }}>{g.name}</span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(12px * ${fs})`, fontWeight: 700, color: 'var(--text-muted)' }}>{g.points.length}</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(12px * ${fs})`, fontWeight: 700, color: 'var(--text-muted)' }}>{signedPointCount(g.points)}</span>
                 {g.id === activeCountGroupId && <Check size={12} style={{ color: 'var(--brand-600)', flexShrink: 0 }} />}
               </button>
             ))}
@@ -3543,9 +3573,9 @@ function ConditionsPanel({ countGroups, activeCountGroupId, onSetActiveCountGrou
       dragIdRef.current = null
     },
   })
-  const totalCountItems = addedPoints.length
-  const totalAreaSqft = addedAreas.reduce((s, a) => s + sqft(polyAreaPx(a.poly)), 0)
-  const totalLinearFt = addedLines.reduce((s, l) => s + (l.pts ? linePathLenPx(l.pts, l.arcSegs) / 4 : 0), 0)
+  const totalCountItems = signedPointCount(addedPoints)
+  const totalAreaSqft = addedAreas.reduce((s, a) => s + sqft(polyAreaPx(a.poly)) * itemSign(a), 0)
+  const totalLinearFt = addedLines.reduce((s, l) => s + (l.pts ? linePathLenPx(l.pts, l.arcSegs) / 4 : 0) * itemSign(l), 0)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       {/* Header */}
@@ -3585,7 +3615,7 @@ function ConditionsPanel({ countGroups, activeCountGroupId, onSetActiveCountGrou
                   <span style={{ width: 12, height: 12, borderRadius: g.shape === 'square' ? 2 : g.shape === 'diamond' ? 0 : '50%', background: g.color, flexShrink: 0, rotate: g.shape === 'diamond' ? '45deg' : undefined }} />
                   {g.key && <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(10px * ${fs})`, fontWeight: 700, color: 'var(--text-subtle)', background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 4, padding: '1px 5px', flexShrink: 0, letterSpacing: '0.04em' }}>{g.key}</span>}
                   <span style={{ flex: 1, fontSize: `calc(13px * ${fs})`, fontWeight: 600, color: 'var(--text-strong)' }}>{g.name}</span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(13px * ${fs})`, fontWeight: 700, color: g.color }}>{g.points.length}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(13px * ${fs})`, fontWeight: 700, color: g.color }}>{signedPointCount(g.points)}</span>
                   <button onClick={e => { e.stopPropagation(); onEditGroup('count', g) }}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', padding: 2, display: 'inline-flex' }}>
                     <Pencil size={11} />
@@ -3606,7 +3636,7 @@ function ConditionsPanel({ countGroups, activeCountGroupId, onSetActiveCountGrou
             <div style={{ fontSize: `calc(10px * ${fs})`, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-subtle)', padding: '8px 4px 4px' }}>Linear</div>
             {linearGroups.map(g => {
               const groupLines = addedLines.filter(l => l.groupId === g.id)
-              const groupLnft = groupLines.reduce((s, l) => s + (l.pts ? linePathLenPx(l.pts, l.arcSegs) / 4 : 0), 0)
+              const groupLnft = groupLines.reduce((s, l) => s + (l.pts ? linePathLenPx(l.pts, l.arcSegs) / 4 : 0) * itemSign(l), 0)
               const dh = makeDragHandlers(linearGroups, onReorderLinearGroups)
               return (
                 <div key={g.id} draggable onClick={() => onSetActiveLinearGroup(g.id)}
@@ -3618,7 +3648,7 @@ function ConditionsPanel({ countGroups, activeCountGroupId, onSetActiveCountGrou
                   <span style={{ width: 20, height: 4, borderRadius: 2, background: g.color, flexShrink: 0 }} />
                   {g.key && <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(10px * ${fs})`, fontWeight: 700, color: 'var(--text-subtle)', background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 4, padding: '1px 5px', flexShrink: 0, letterSpacing: '0.04em' }}>{g.key}</span>}
                   <span style={{ flex: 1, fontSize: `calc(13px * ${fs})`, fontWeight: 600, color: 'var(--text-strong)' }}>{g.name}</span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(11px * ${fs})`, fontWeight: 700, color: g.color }}>{groupLnft > 0 ? `${groupLnft.toFixed(0)} ft` : '0'}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(11px * ${fs})`, fontWeight: 700, color: groupLnft < 0 ? '#dc2626' : g.color }}>{groupLnft !== 0 ? `${groupLnft.toFixed(0)} ft` : '0'}</span>
                   <button onClick={e => { e.stopPropagation(); onEditGroup('linear', g) }}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', padding: 2, display: 'inline-flex' }}>
                     <Pencil size={11} />
@@ -3639,7 +3669,7 @@ function ConditionsPanel({ countGroups, activeCountGroupId, onSetActiveCountGrou
             <div style={{ fontSize: `calc(10px * ${fs})`, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-subtle)', padding: '8px 4px 4px' }}>Areas</div>
             {areaGroups.map(g => {
               const groupAreas = addedAreas.filter(a => a.groupId === g.id)
-              const groupSqft = groupAreas.reduce((s, a) => s + sqft(polyAreaPx(a.poly)), 0)
+              const groupSqft = groupAreas.reduce((s, a) => s + sqft(polyAreaPx(a.poly)) * itemSign(a), 0)
               const dh = makeDragHandlers(areaGroups, onReorderAreaGroups)
               return (
                 <div key={g.id} draggable onClick={() => onSetActiveAreaGroup(g.id)}
@@ -3651,7 +3681,7 @@ function ConditionsPanel({ countGroups, activeCountGroupId, onSetActiveCountGrou
                   <span style={{ width: 12, height: 12, borderRadius: 3, background: g.color, flexShrink: 0 }} />
                   {g.key && <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(10px * ${fs})`, fontWeight: 700, color: 'var(--text-subtle)', background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 4, padding: '1px 5px', flexShrink: 0, letterSpacing: '0.04em' }}>{g.key}</span>}
                   <span style={{ flex: 1, fontSize: `calc(13px * ${fs})`, fontWeight: 600, color: 'var(--text-strong)' }}>{g.name}</span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(11px * ${fs})`, fontWeight: 700, color: g.color }}>{groupSqft > 0 ? `${fSq(groupSqft)} ft²` : '0'}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(11px * ${fs})`, fontWeight: 700, color: groupSqft < 0 ? '#dc2626' : g.color }}>{groupSqft !== 0 ? `${groupSqft < 0 ? '-' : ''}${fSq(Math.abs(groupSqft))} ft²` : '0'}</span>
                   <button onClick={e => { e.stopPropagation(); onEditGroup('area', g) }}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', padding: 2, display: 'inline-flex' }}>
                     <Pencil size={11} />
@@ -3673,11 +3703,11 @@ function ConditionsPanel({ countGroups, activeCountGroupId, onSetActiveCountGrou
         )}
 
         {/* Summary totals */}
-        {(totalCountItems > 0 || totalAreaSqft > 0) && (
+        {(totalCountItems !== 0 || totalAreaSqft !== 0) && (
           <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 8, background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)' }}>
-            {totalCountItems > 0 && <div style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)' }}><b style={{ color: 'var(--text-strong)' }}>{totalCountItems}</b> total items</div>}
-            {totalAreaSqft > 0 && <div style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)', marginTop: 3 }}><b style={{ color: 'var(--text-strong)' }}>{fSq(totalAreaSqft)}</b> sq ft total</div>}
-            {depthIn > 0 && totalAreaSqft > 0 && <div style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--brand-600)', marginTop: 3, fontWeight: 700 }}>{((totalAreaSqft * (depthIn/12))/27).toFixed(1)} CY</div>}
+            {totalCountItems !== 0 && <div style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)' }}><b style={{ color: 'var(--text-strong)' }}>{totalCountItems}</b> total items</div>}
+            {totalAreaSqft !== 0 && <div style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)', marginTop: 3 }}><b style={{ color: 'var(--text-strong)' }}>{totalAreaSqft < 0 ? '-' : ''}{fSq(Math.abs(totalAreaSqft))}</b> sq ft total</div>}
+            {depthIn > 0 && totalAreaSqft !== 0 && <div style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--brand-600)', marginTop: 3, fontWeight: 700 }}>{((totalAreaSqft * (depthIn/12))/27).toFixed(1)} CY</div>}
           </div>
         )}
       </div>
