@@ -165,6 +165,19 @@ export default function JobManagement({ projectId, project }) {
     updateProject(projectId, { field: { ...base, ...patch } })
   }
 
+  // Totals — computed unconditionally so the hook count stays stable across the
+  // pre-seed (field null) and post-seed renders. Never early-return before a hook.
+  const totals = useMemo(() => {
+    const f = field || emptyField()
+    const required = f.requirements.reduce((s, r) => s + num(r.requiredQty), 0)
+    const installed = f.transactions.filter(t => t.type === 'Installed').reduce((s, t) => s + num(t.qty), 0)
+    const committed = f.purchaseOrders.reduce((s, p) => s + num(p.amount), 0)
+    const changeTotal = f.changeOrders.reduce((s, c) => s + num(c.amount), 0)
+    const openPunch = f.punchItems.filter(p => p.status !== 'Complete').length
+    const pct = required > 0 ? Math.min(100, Math.round((installed / required) * 100)) : 0
+    return { required, installed, committed, changeTotal, openPunch, pct }
+  }, [field])
+
   if (!field) {
     return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Setting up the job workspace…</div>
   }
@@ -180,16 +193,6 @@ export default function JobManagement({ projectId, project }) {
     field.transactions
       .filter(t => t.areaId === areaId && t.materialId === materialId && t.type === type)
       .reduce((s, t) => s + num(t.qty), 0)
-
-  const totals = useMemo(() => {
-    const required = field.requirements.reduce((s, r) => s + num(r.requiredQty), 0)
-    const installed = field.transactions.filter(t => t.type === 'Installed').reduce((s, t) => s + num(t.qty), 0)
-    const committed = field.purchaseOrders.reduce((s, p) => s + num(p.amount), 0)
-    const changeTotal = field.changeOrders.reduce((s, c) => s + num(c.amount), 0)
-    const openPunch = field.punchItems.filter(p => p.status !== 'Complete').length
-    const pct = required > 0 ? Math.min(100, Math.round((installed / required) * 100)) : 0
-    return { required, installed, committed, changeTotal, openPunch, pct }
-  }, [field])
 
   return (
     <div>
