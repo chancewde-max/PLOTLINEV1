@@ -18,6 +18,11 @@ import s from './ProposalEditor.module.css'
    fully editable via structured inputs / textareas / editable tables.
    ============================================================ */
 
+// Custom drag MIME type for the materials picker — deliberately NOT
+// 'text/plain', which browsers auto-insert into any text input/textarea a
+// chip gets dropped on (e.g. a scope bullet), dumping raw JSON into it.
+const MATERIAL_MIME = 'application/x-plotline-material'
+
 // Canonical proposal line-item (Materials List row) shape.
 const emptyLine = () => ({ item: '', description: '', qty: '', unit: '', unitPrice: '' })
 const emptyBullet = () => ({ text: '' })
@@ -535,7 +540,7 @@ export default function ProposalEditor({ projectId, project, sheets }) {
       )}
 
       {showMaterials && (
-        <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', padding: '12px 16px', boxShadow: 'var(--shadow-sm)' }}>
+        <div style={{ position: 'sticky', top: 'calc(var(--topbar) + 8px)', zIndex: 5, background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', padding: '12px 16px', boxShadow: 'var(--shadow-md)' }}>
           <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-subtle)', marginBottom: 8 }}>
             Drag a material into the Materials List below
           </div>
@@ -545,7 +550,7 @@ export default function ProposalEditor({ projectId, project, sheets }) {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               {pickerItems.map((it, i) => (
                 <div key={i} draggable
-                  onDragStart={(e) => e.dataTransfer.setData('text/plain', JSON.stringify(it))}
+                  onDragStart={(e) => e.dataTransfer.setData(MATERIAL_MIME, JSON.stringify(it))}
                   title="Drag into the Materials List"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border-default)', background: 'var(--surface-sunken)', fontSize: 12, cursor: 'grab' }}>
                   <GripVertical size={12} style={{ color: 'var(--text-subtle)' }} />
@@ -878,7 +883,7 @@ export default function ProposalEditor({ projectId, project, sheets }) {
             <div
               className={s.tableWrap}
               onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => { e.preventDefault(); dropMaterialItem(e.dataTransfer.getData('text/plain')) }}
+              onDrop={(e) => { e.preventDefault(); dropMaterialItem(e.dataTransfer.getData(MATERIAL_MIME)) }}
             >
               <table className={s.docTable}>
                 <thead>
