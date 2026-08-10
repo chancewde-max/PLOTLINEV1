@@ -160,6 +160,36 @@ export function AuthProvider({ children }) {
     app.hydrate?.(snap || emptySnapshot(), false)
   }, [user, app, memberships])
 
+  // Flush the outgoing workspace's edits and load the incoming workspace's
+  // snapshot at the same time. The two calls write/read different DB rows,
+  // so serializing them (as flushCurrent(); applyWorkspace() used to) only
+  // adds latency — each full snapshot round trip can take a second or more,
+  // and doing them back-to-back made every workspace switch feel like it
+  // hung. Running them concurrently roughly halves the wait.
+  const switchToWorkspace = useCallback(async (targetOrgId, membershipsList) => {
+    // Surface loading feedback (pages gate a skeleton on dataLoading) instead
+    // of leaving the previous workspace's stale data on screen for the
+    // duration of the swap.
+    setHydrating(true)
+    try {
+      const [, snap] = await Promise.all([
+        flushCurrent(),
+        targetOrgId ? loadOrgSnapshot(targetOrgId) : (user ? loadUserSnapshot(user.id) : Promise.resolve(null)),
+      ])
+      const membership = targetOrgId
+        ? (membershipsList || memberships).find(m => m.org_id === targetOrgId)
+        : null
+      orgIdRef.current = targetOrgId
+      setOrgId(targetOrgId)
+      setOrgRole(membership?.role ?? null)
+      setOrgName(membership?.name ?? null)
+      if (user) setWorkspacePref(user.id, targetOrgId)
+      app.hydrate?.(snap || emptySnapshot(), false)
+    } finally {
+      setHydrating(false)
+    }
+  }, [user, app, memberships, flushCurrent])
+
   // ---- Track auth session ----
   useEffect(() => {
     if (!supabaseEnabled || !supabase) {
@@ -318,9 +348,8 @@ export function AuthProvider({ children }) {
   const switchWorkspace = useCallback(async (targetOrgId) => {
     if (!supabaseEnabled || !supabase || !user) return
     if (targetOrgId === orgIdRef.current) return
-    await flushCurrent()
-    await applyWorkspace(targetOrgId)
-  }, [user, flushCurrent, applyWorkspace])
+    await switchToWorkspace(targetOrgId)
+  }, [user, switchToWorkspace])
 
   // Create a team and switch to it immediately, starting from an empty
   // shared snapshot — local personal projects are NOT copied in, so nothing
@@ -328,31 +357,51 @@ export function AuthProvider({ children }) {
   const createOrganization = useCallback(async (name) => {
     if (!supabaseEnabled || !supabase || !user) throw new Error('Cloud not configured')
     const newOrgId = await createOrganizationApi(name)
-    await flushCurrent()
-    const flat = await refreshMemberships(user.id)
-    await applyWorkspace(newOrgId, flat)
+    // Flushing/loading the workspace and refreshing the membership list hit
+    // independent tables, so run them together instead of one after another.
+    const [, flat] = await Promise.all([
+      switchToWorkspace(newOrgId),
+      refreshMemberships(user.id),
+    ])
+    const membership = flat.find(m => m.org_id === newOrgId)
+    setOrgRole(membership?.role ?? null)
+    setOrgName(membership?.name ?? null)
     return newOrgId
-  }, [user, flushCurrent, refreshMemberships, applyWorkspace])
+  }, [user, switchToWorkspace, refreshMemberships])
 
   const acceptInvite = useCallback(async (token) => {
     if (!supabaseEnabled || !supabase || !user) throw new Error('Cloud not configured')
     const newOrgId = await acceptInviteApi(token)
-    await flushCurrent()
-    const flat = await refreshMemberships(user.id)
-    await applyWorkspace(newOrgId, flat)
+    const [, flat] = await Promise.all([
+      switchToWorkspace(newOrgId),
+      refreshMemberships(user.id),
+    ])
+    const membership = flat.find(m => m.org_id === newOrgId)
+    setOrgRole(membership?.role ?? null)
+    setOrgName(membership?.name ?? null)
     return newOrgId
-  }, [user, flushCurrent, refreshMemberships, applyWorkspace])
+  }, [user, switchToWorkspace, refreshMemberships])
 
   // Leave the currently-active org and fall back to the personal workspace.
   const leaveOrganization = useCallback(async () => {
     if (!supabaseEnabled || !supabase || !user || !orgIdRef.current) return
     const leftOrgId = orgIdRef.current
     // Save any pending edits to the org before giving up write access to it.
+    // This must finish (and the membership removal after it) before we're
+    // safe to read the org row again, so these two stay sequential.
     await flushCurrent()
     await leaveOrganizationApi(leftOrgId, user.id)
-    await refreshMemberships(user.id)
-    orgIdRef.current = null
-    await applyWorkspace(null)
+    setHydrating(true)
+    try {
+      // Refreshing memberships and loading the personal snapshot are
+      // independent of each other, so run them concurrently.
+      await Promise.all([
+        refreshMemberships(user.id),
+        applyWorkspace(null),
+      ])
+    } finally {
+      setHydrating(false)
+    }
   }, [user, flushCurrent, refreshMemberships, applyWorkspace])
 
   const value = {
