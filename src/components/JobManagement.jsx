@@ -49,33 +49,47 @@ function emptyField() {
   }
 }
 
-// Pull the current MTO rows into { code, description, unit, qty } materials.
+// Pull the current MTO version's priced line items into
+// { code, description, unit, qty } materials. Rows are objects keyed by their
+// source header (as produced by MtoPanel via sheet_to_json), and `columnMap`
+// maps each canonical key -> the source header to read from.
 function materialsFromMto(project) {
   const versions = Array.isArray(project?.mtoVersions) ? project.mtoVersions : []
   const current = versions.find(v => v.isCurrent) || versions[versions.length - 1] || null
   if (!current) return []
-  const headers = current.headers || []
   const rows = current.rows || []
   const cm = current.columnMap || {}
-  const idx = (key) => (cm[key] ? headers.indexOf(cm[key]) : -1)
-  const iItem = idx('item'), iDesc = idx('description'), iQty = idx('qty'), iUnit = idx('unit')
+  const cell = (row, key) => (cm[key] ? row[cm[key]] : undefined)
   const out = []
   for (const r of rows) {
-    const code = iItem >= 0 ? String(r[iItem] ?? '').trim() : ''
-    const description = iDesc >= 0 ? String(r[iDesc] ?? '').trim() : ''
-    const unit = iUnit >= 0 ? String(r[iUnit] ?? '').trim() : ''
-    const qty = iQty >= 0 ? parseFloat(String(r[iQty] ?? '').replace(/[^0-9.\-]/g, '')) || 0 : 0
+    const code = String(cell(r, 'item') ?? '').trim()
+    const description = String(cell(r, 'description') ?? '').trim()
+    const unit = String(cell(r, 'unit') ?? '').trim()
+    const qty = parseFloat(String(cell(r, 'qty') ?? '').replace(/[^0-9.\-]/g, '')) || 0
     if (!code && !description) continue
     out.push({ code, description, unit, qty })
   }
   return out
 }
 
-// The material list that feeds the job: on-sheet takeoff quantities first,
-// falling back to an uploaded/priced MTO spreadsheet if there's no takeoff yet.
+// The material list that feeds the job — the same list the Material List tab
+// shows: on-sheet takeoff quantities merged with any uploaded/priced MTO line
+// items. Items are deduped by label + unit so a condition that appears in both
+// the takeoff and the priced spreadsheet becomes a single material (the takeoff
+// quantity wins, since it's measured from the sheets).
 function materialListItems(project, sheets) {
-  const t = takeoffMaterialItems(project, sheets)
-  return t.length ? t : materialsFromMto(project)
+  const merged = []
+  const seen = new Set()
+  const push = (it) => {
+    const label = (it.code || it.description || '').trim().toLowerCase()
+    const key = `${label}::${it.unit || ''}`
+    if (seen.has(key)) return
+    seen.add(key)
+    merged.push(it)
+  }
+  takeoffMaterialItems(project, sheets).forEach(push)
+  materialsFromMto(project).forEach(push)
+  return merged
 }
 
 // Build the initial field state from takeoff data.
