@@ -127,7 +127,12 @@ export default function SheetPage() {
     () => typeof window !== 'undefined' && window.innerWidth < 900
   )
   const [activeTool, setActiveTool] = useState('region')
-  const [leftPanel, setLeftPanel]   = useState(() => sessionStorage.getItem('sheetLeftPanel') || 'layers')
+  const [leftPanel, setLeftPanel]   = useState(() => {
+    const v = sessionStorage.getItem('sheetLeftPanel')
+    // The old project-totals "layers" tab was removed and the "conditions" tab
+    // renamed to "Layers"; map any stored 'layers' onto conditions.
+    return (!v || v === 'layers') ? 'conditions' : v
+  })
   const [hidden, setHidden]     = useState({})
   // ---- Display settings ----
   const [dotSize, setDotSize]     = useState(0.5)  // count dot radius multiplier (screen px base)
@@ -874,9 +879,13 @@ export default function SheetPage() {
       const hp = 10 / ((zoom / 100) * FIT)
       let found = null
       const suffix = (it) => (it.deduct ? ' (deduct −)' : '')
-      for (let i = addedPoints.length - 1; i >= 0 && !found; i--) {
-        const pt = addedPoints[i]
-        if (dist(rawP, { x: pt.x, y: pt.y }) < hp) found = { x: pt.x, y: pt.y, text: (pt.name || 'Point') + suffix(pt) }
+      // Count markers show their count LAYER (group) name, not the per-marker name.
+      for (let gi = countGroups.length - 1; gi >= 0 && !found; gi--) {
+        const g = countGroups[gi]
+        for (let pi = g.points.length - 1; pi >= 0 && !found; pi--) {
+          const pt = g.points[pi]
+          if (dist(rawP, { x: pt.x, y: pt.y }) < hp) found = { x: pt.x, y: pt.y, text: (g.name || 'Count') + suffix(pt) }
+        }
       }
       for (let i = addedAreas.length - 1; i >= 0 && !found; i--) {
         const a = addedAreas[i]
@@ -1679,9 +1688,8 @@ export default function SheetPage() {
           <div className={s.leftPanelTabs}>
             <Tabs variant="pill" value={leftPanel} onChange={setLeftPanel}
               items={[
-                { value: 'layers', label: 'Layers', count: projectLayers.length },
+                { value: 'conditions', label: 'Layers', count: (countGroups.length + linearGroups.length + areaGroups.length) },
                 { value: 'regions', label: 'Regions', count: projectRegions.length },
-                { value: 'conditions', label: 'Conditions', count: (countGroups.length + linearGroups.length + areaGroups.length) },
                 { value: 'sheets', label: 'Sheets', count: (project.sheetIds || []).length },
               ]}
             />
@@ -3609,7 +3617,7 @@ function ConditionsPanel({ countGroups, activeCountGroupId, onSetActiveCountGrou
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       {/* Header */}
       <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
-        <div style={{ fontSize: `calc(11px * ${fs})`, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-subtle)', marginBottom: 10 }}>Conditions</div>
+        <div style={{ fontSize: `calc(11px * ${fs})`, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-subtle)', marginBottom: 10 }}>Layers</div>
         <div style={{ display: 'flex', gap: 6 }}>
           <button onClick={onNewCount}
             style={{ flex: 1, padding: '6px 8px', borderRadius: 8, border: '1.5px dashed var(--border-default)', background: 'transparent', fontSize: `calc(11px * ${fs})`, fontWeight: 600, color: 'var(--brand-600)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
