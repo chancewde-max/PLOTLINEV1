@@ -5,7 +5,13 @@
    components; reach for raw scale steps only when nothing fits.
    ============================================================ */
 
-:root {
+/* [data-theme="light"] lets a subtree opt back into the light palette even
+   when an ancestor (normally <html>) is set to [data-theme="dark"] — e.g.
+   the public landing page, which always renders light regardless of the
+   signed-in app's theme preference. A property declared directly on an
+   element always wins over an inherited one, so this works even nested
+   inside a dark-themed ancestor. */
+:root, [data-theme="light"] {
   /* ---- Brand: pine / emerald green ---------------------- */
   --brand-50:  #eef7f2;
   --brand-100: #d6ece0;

@@ -72,7 +72,10 @@ export default function LandingPage() {
   }, [])
 
   return (
-    <div className={s.page}>
+    // Always light: the public marketing page shouldn't follow the signed-in
+    // app's dark-mode preference (which is a per-user setting stored for the
+    // app shell, not the public site).
+    <div className={s.page} data-theme="light">
       <a href="#main-content" className="skip-link">Skip to main content</a>
       <div className={s.raysBg} aria-hidden="true">
         <SideRays
