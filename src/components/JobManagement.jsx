@@ -29,7 +29,7 @@ const STATUSES = ['Open', 'In progress', 'Complete']
 
 const MODULES = [
   { id: 'overview',    label: 'Overview',        Icon: LayoutDashboard },
-  { id: 'areas',       label: 'Areas',           Icon: MapPin },
+  { id: 'areas',       label: 'Region',          Icon: MapPin },
   { id: 'materials',   label: 'Materials',       Icon: Package },
   { id: 'deliveries',  label: 'Orders & Deliveries', Icon: Truck },
   { id: 'daily',       label: 'Daily Reports',   Icon: ClipboardList },
@@ -97,9 +97,13 @@ function seedField(project, sheets) {
   const f = emptyField()
   f.seeded = true
 
-  // Areas ← folders (sheet sets); fall back to a single whole-site area.
+  // Areas ← the takeoff's Regions (drawn site boundaries); fall back to sheet
+  // sets, then a single whole-site area, if no regions have been drawn yet.
+  const regions = project.regions || []
   const folders = project.sheetSets || []
-  if (folders.length) {
+  if (regions.length) {
+    f.areas = regions.map((r, i) => ({ id: uid('area'), name: r.name, seq: i + 1, regionId: r.id }))
+  } else if (folders.length) {
     f.areas = folders.map((s, i) => ({ id: uid('area'), name: s.name, seq: i + 1 }))
   } else {
     f.areas = [{ id: uid('area'), name: 'Whole site', seq: 1 }]
@@ -208,6 +212,20 @@ export default function JobManagement({ projectId, project, sheets }) {
     setField({ materials, requirements })
   }
 
+  // Pull any newly-drawn takeoff Regions into the region list, without
+  // disturbing regions the user has already renamed or added materials to.
+  const syncAreasFromRegions = () => {
+    if (!field) return
+    const regions = project.regions || []
+    const areas = [...field.areas]
+    for (const r of regions) {
+      if (!areas.some(a => a.regionId === r.id)) {
+        areas.push({ id: uid('area'), name: r.name, seq: areas.length + 1, regionId: r.id })
+      }
+    }
+    setField({ areas })
+  }
+
   // Totals — computed unconditionally so the hook count stays stable across the
   // pre-seed (field null) and post-seed renders. Never early-return before a hook.
   const totals = useMemo(() => {
@@ -263,7 +281,7 @@ export default function JobManagement({ projectId, project, sheets }) {
       </div>
 
       {view === 'overview'   && <Overview totals={totals} field={field} />}
-      {view === 'areas'      && <Areas field={field} setField={setField} totals={totals} txTotal={txTotal} />}
+      {view === 'areas'      && <Areas field={field} setField={setField} totals={totals} txTotal={txTotal} onSync={syncAreasFromRegions} />}
       {view === 'materials'  && <Materials field={field} setField={setField} areaName={areaName} txTotal={txTotal} onSync={syncFromTakeoff} />}
       {view === 'deliveries' && <Deliveries field={field} setField={setField} areaName={areaName} materialLabel={materialLabel} />}
       {view === 'daily'      && <DailyReports field={field} setField={setField} />}
@@ -411,10 +429,10 @@ function Overview({ totals, field }) {
         <Stat label="Open punch items" value={totals.openPunch} />
         <Stat label="Daily reports" value={field.dailyReports.length} />
       </div>
-      <Card title="Area progress">
-        {field.areas.length === 0 ? <Empty>No areas yet.</Empty> : (
+      <Card title="Region progress">
+        {field.areas.length === 0 ? <Empty>No regions yet.</Empty> : (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr><th style={th}>Area</th><th style={th}>Required</th><th style={th}>Installed</th><th style={th}>Progress</th></tr></thead>
+            <thead><tr><th style={th}>Region</th><th style={th}>Required</th><th style={th}>Installed</th><th style={th}>Progress</th></tr></thead>
             <tbody>
               {field.areas.map(a => {
                 const req = field.requirements.filter(r => r.areaId === a.id).reduce((s, r) => s + num(r.requiredQty), 0)
@@ -437,7 +455,7 @@ function Overview({ totals, field }) {
   )
 }
 
-function Areas({ field, setField, txTotal }) {
+function Areas({ field, setField, txTotal, onSync }) {
   const add = (v) => setField({ areas: [...field.areas, { id: uid('area'), name: v.name.trim(), seq: field.areas.length + 1 }] })
   const del = (id) => setField({
     areas: field.areas.filter(a => a.id !== id),
@@ -445,10 +463,11 @@ function Areas({ field, setField, txTotal }) {
     transactions: field.transactions.filter(t => t.areaId !== id),
   })
   return (
-    <Card title="Site areas">
-      {field.areas.length === 0 ? <Empty>No areas yet — add one below.</Empty> : (
+    <Card title="Regions"
+      right={<Button variant="ghost" size="sm" iconLeft={<Download size={14} style={{ transform: 'rotate(180deg)' }} />} onClick={onSync}>Sync from regions</Button>}>
+      {field.areas.length === 0 ? <Empty>No regions yet — draw one with the Region tool on your sheets, or add one below.</Empty> : (
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead><tr><th style={th}>#</th><th style={th}>Area</th><th style={th}>Required</th><th style={th}>Installed</th><th style={th}></th></tr></thead>
+          <thead><tr><th style={th}>#</th><th style={th}>Region</th><th style={th}>Required</th><th style={th}>Installed</th><th style={th}></th></tr></thead>
           <tbody>
             {field.areas.map((a, i) => {
               const req = field.requirements.filter(r => r.areaId === a.id).reduce((s, r) => s + num(r.requiredQty), 0)
@@ -466,7 +485,7 @@ function Areas({ field, setField, txTotal }) {
           </tbody>
         </table>
       )}
-      <AddRow fields={[{ key: 'name', label: 'Area name', required: true, placeholder: 'Building A, Phase 2…', grow: '1 1 240px' }]} onAdd={add} addLabel="Add area" />
+      <AddRow fields={[{ key: 'name', label: 'Region name', required: true, placeholder: 'Front yard, Back yard…', grow: '1 1 240px' }]} onAdd={add} addLabel="Add region" />
     </Card>
   )
 }

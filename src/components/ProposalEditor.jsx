@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react'
 import {
   Plus, Trash2, RefreshCw, FileText, Save, Upload, Download, Printer,
-  Sparkles, ChevronDown, X, ImagePlus, Building2, Package, GripVertical,
+  Sparkles, ChevronDown, X, ImagePlus, Building2, Package, GripVertical, Quote,
 } from 'lucide-react'
 import { useAppData } from '../data/useAppData.jsx'
 import { takeoffMaterialItems } from '../data/takeoff.js'
@@ -145,6 +145,7 @@ export default function ProposalEditor({ projectId, project, sheets }) {
   const {
     proposalTemplates, addProposalTemplate, updateProposal,
     company, updateCompany,
+    phrases, addPhrase, deletePhrase,
   } = useAppData()
 
   const companiesEqual = (a, b) =>
@@ -161,6 +162,8 @@ export default function ProposalEditor({ projectId, project, sheets }) {
   const [saveTplOpen, setSaveTplOpen] = useState(false)
   const [tplName, setTplName] = useState('')
   const [loadOpen, setLoadOpen] = useState(false)
+  const [phrasesOpen, setPhrasesOpen] = useState(false)
+  const [newPhraseText, setNewPhraseText] = useState('')
   const importRef = useRef(null)
   const logoRef = useRef(null)
   const exhibitRef = useRef(null)
@@ -359,6 +362,11 @@ export default function ProposalEditor({ projectId, project, sheets }) {
     if (!scope) return
     patchScope(scopeId, { [kind]: [...scope[kind], emptyBullet()] })
   }
+  // Insert a saved template phrase as a new "General" clarification line.
+  const insertPhrase = (text) => {
+    patch({ clarificationsGeneral: [...doc.clarificationsGeneral, { text }] })
+    setPhrasesOpen(false)
+  }
   const removeBullet = (scopeId, kind, idx) => {
     const scope = doc.scopeSections.find((sc) => sc.id === scopeId)
     if (!scope) return
@@ -510,6 +518,7 @@ export default function ProposalEditor({ projectId, project, sheets }) {
   }
 
   const tplList = Object.values(proposalTemplates || {})
+  const phraseList = Object.values(phrases || {}).sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''))
 
   // Signatory fallback uses the account company name.
   const signatoryLabel = doc.signature?.companySignatory ||
@@ -529,8 +538,8 @@ export default function ProposalEditor({ projectId, project, sheets }) {
           <Button variant={showMaterials ? 'primary' : 'ghost'} size="sm" iconLeft={<Package size={15} />} onClick={() => setShowMaterials(v => !v)}>
             Materials
           </Button>
-          <Button variant="ghost" size="sm" iconLeft={<RefreshCw size={15} />} onClick={handleRefreshFromMto}>
-            Refresh from MTO
+          <Button variant="ghost" size="sm" iconLeft={<Quote size={15} />} onClick={() => setPhrasesOpen(true)}>
+            Template Phrases
           </Button>
           <Button variant="secondary" size="sm" iconLeft={<Save size={15} />} onClick={() => setSaveTplOpen(true)}>
             Save as template
@@ -1112,6 +1121,39 @@ export default function ProposalEditor({ projectId, project, sheets }) {
                 </div>
                 <ChevronDown size={16} className={s.tplArrow} style={{ transform: 'rotate(-90deg)' }} />
               </button>
+            ))}
+          </div>
+        )}
+      </Dialog>
+
+      {/* Template phrases dialog */}
+      <Dialog open={phrasesOpen} onClose={() => setPhrasesOpen(false)} title="Template Phrases"
+        description="Reusable boilerplate text, shared across every project. Insert one into this proposal's General clarifications, or add new ones as you go." width={460}
+        footer={<Button variant="ghost" onClick={() => setPhrasesOpen(false)}>Close</Button>}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+          <div style={{ flex: 1 }}>
+            <Input placeholder="Write a new phrase…" value={newPhraseText} onChange={(e) => setNewPhraseText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && newPhraseText.trim()) { addPhrase(newPhraseText); setNewPhraseText('') } }} />
+          </div>
+          <Button variant="secondary" iconLeft={<Plus size={15} />}
+            onClick={() => { if (newPhraseText.trim()) { addPhrase(newPhraseText); setNewPhraseText('') } }}>
+            Add
+          </Button>
+        </div>
+        {phraseList.length === 0 ? (
+          <p className={s.tplEmpty}>No phrases yet — add one above.</p>
+        ) : (
+          <div className={s.tplList}>
+            {phraseList.map((p) => (
+              <div key={p.id} className={s.tplCard} style={{ cursor: 'default' }}>
+                <div className={s.tplInfo} style={{ cursor: 'pointer' }} onClick={() => insertPhrase(p.text)}>
+                  <div className={s.tplName}>{p.text}</div>
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => insertPhrase(p.text)}>Insert</Button>
+                <button type="button" className={s.delBtn} onClick={() => deletePhrase(p.id)} title="Delete phrase" aria-label="Delete phrase">
+                  <Trash2 size={14} />
+                </button>
+              </div>
             ))}
           </div>
         )}

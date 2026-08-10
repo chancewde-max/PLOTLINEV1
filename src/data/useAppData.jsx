@@ -58,6 +58,7 @@ function load() {
         projects: migrateProjects(d.projects),
         clients: d.clients && typeof d.clients === 'object' ? d.clients : {},
         mtoTemplates: d.mtoTemplates && typeof d.mtoTemplates === 'object' ? d.mtoTemplates : {},
+        phrases: d.phrases && typeof d.phrases === 'object' ? d.phrases : {},
         pdfAssets: d.pdfAssets && typeof d.pdfAssets === 'object' ? d.pdfAssets : {},
         ocrMemory: d.ocrMemory && typeof d.ocrMemory === 'object' ? d.ocrMemory : emptyOcrMemory(),
         vendors: Array.isArray(d.vendors) ? d.vendors : [],
@@ -77,6 +78,9 @@ export function AppDataProvider({ children }) {
   const [clients, setClients]   = useState(saved?.clients ?? {})
   const [mtoTemplates, setMtoTemplates] = useState(saved?.mtoTemplates ?? {})
   const [proposalTemplates, setProposalTemplates] = useState(saved?.proposalTemplates ?? {})
+  // Account-level "template phrases" — reusable boilerplate text snippets for
+  // proposals, shared/reused across every project (like proposalTemplates).
+  const [phrases, setPhrases] = useState(saved?.phrases ?? {})
   // One entry per SOURCE PDF file uploaded through the sheet wizard (keyed by
   // fileId), not per sheet. A single multi-page plan set split into N sheets
   // used to embed a full duplicate copy of the PDF in every one of those N
@@ -108,7 +112,7 @@ export function AppDataProvider({ children }) {
     setSaveStatus('saving')
     if (lsTimerRef.current) clearTimeout(lsTimerRef.current)
     lsTimerRef.current = setTimeout(() => {
-      const snapshot = { v: VER, projects, sheets, customCats, clients, mtoTemplates, proposalTemplates, company, pdfAssets, ocrMemory, vendors }
+      const snapshot = { v: VER, projects, sheets, customCats, clients, mtoTemplates, proposalTemplates, phrases, company, pdfAssets, ocrMemory, vendors }
       localStorage.setItem('plotline-appdata', JSON.stringify(snapshot))
       // Keep the module cache in sync so remounts reuse fresh data.
       dataCache.loaded = true
@@ -116,7 +120,7 @@ export function AppDataProvider({ children }) {
       setSaveStatus('saved')
     }, 500)
     return () => clearTimeout(lsTimerRef.current)
-  }, [projects, sheets, customCats, clients, mtoTemplates, proposalTemplates, company, pdfAssets, ocrMemory, vendors])
+  }, [projects, sheets, customCats, clients, mtoTemplates, proposalTemplates, phrases, company, pdfAssets, ocrMemory, vendors])
 
   const addProject = (proj) =>
     setProjects(p => ({ ...p, [proj.id]: proj }))
@@ -162,6 +166,17 @@ export function AppDataProvider({ children }) {
 
   const updateProposalTemplate = (tplId, updates) =>
     setProposalTemplates(t => ({ ...t, [tplId]: { ...t[tplId], ...updates } }))
+
+  // --- Template phrases (account-level, reusable boilerplate snippets) ---
+  const addPhrase = (text) => {
+    const clean = (text || '').trim()
+    if (!clean) return null
+    const id = `phr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+    setPhrases(t => ({ ...t, [id]: { id, text: clean, createdAt: new Date().toISOString() } }))
+    return id
+  }
+  const deletePhrase = (id) =>
+    setPhrases(t => { const next = { ...t }; delete next[id]; return next })
 
   // Account-level company profile (logo + identity). Merge so partial updates
   // keep other fields. Persisted to localStorage + cloud snapshot via the
@@ -391,6 +406,9 @@ export function AppDataProvider({ children }) {
     setProposalTemplates(t => merge && t && Object.keys(t).length
       ? { ...t, ...(snapshot.proposalTemplates ?? {}) }
       : (snapshot.proposalTemplates ?? {}))
+    setPhrases(t => merge && t && Object.keys(t).length
+      ? { ...t, ...(snapshot.phrases ?? {}) }
+      : (snapshot.phrases ?? {}))
     setPdfAssets(a => merge && a && Object.keys(a).length
       ? { ...a, ...(snapshot.pdfAssets ?? {}) }
       : (snapshot.pdfAssets ?? {}))
@@ -416,6 +434,7 @@ export function AppDataProvider({ children }) {
     setClients({})
     setMtoTemplates({})
     setProposalTemplates({})
+    setPhrases({})
     setPdfAssets({})
     setOcrMemory(emptyOcrMemory())
     setCompany({ name: '', address: '', phone: '', email: '', logoDataUrl: '' })
@@ -439,6 +458,7 @@ export function AppDataProvider({ children }) {
       addMtoVersion, setCurrentMtoVersion, removeMtoVersion, updateMtoVersion,
       updateProposal,
       addProposalTemplate, updateProposalTemplate,
+      phrases, addPhrase, deletePhrase,
       hydrate, reset,
     }}>
       {children}
