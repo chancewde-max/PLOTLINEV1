@@ -315,8 +315,14 @@ export default function SheetPage() {
   const dragVertIdxRef   = useRef(null)
   const dragAreaIdRef    = useRef(null)
   const dragRegionVertRef = useRef(null) // index of region vertex being dragged
-  const panStartRef      = useRef(null) // for pan tool
-  const panOriginRef     = useRef(null)
+  const panStartRef      = useRef(null) // fixed mousedown point — only for the "was this a real drag" threshold below
+  // Last mouse/touch position seen during an active pan drag. Panning is
+  // computed as an INCREMENTAL delta from this (not "mousedown origin +
+  // total delta") so that a zoom happening mid-drag — its own easing
+  // animation calls setPanOffset on every frame — doesn't get silently
+  // overwritten on the next drag step: each step starts from whatever
+  // panOffset actually is right now, not a stale pre-zoom snapshot.
+  const panLastPosRef    = useRef(null)
   const isPanningRef     = useRef(false)
   const rightDragMovedRef = useRef(false) // did a right-button press turn into an actual pan drag?
   const pinchRef         = useRef(null) // { dist } — last two-finger spacing, for incremental pinch-zoom
@@ -340,7 +346,14 @@ export default function SheetPage() {
 
   // Zoom toward a screen point (clientX/clientY) by `factor`, animating zoom+pan together.
   // Shared by the wheel handler (desktop) and pinch gesture (touch).
-  const applyZoomAtPoint = (factor, clientX, clientY) => {
+  // `instant` skips the easing animation and commits straight to the target —
+  // used for pinch, which is already a continuous, self-paced gesture. Pinch
+  // also pans (via the two fingers' midpoint) on every touchmove, and that
+  // pan is applied immediately (see onTouchMove) — running zoom through the
+  // same multi-frame easing as a discrete wheel click would make it visibly
+  // trail behind the instantly-applied pan, so the two gestures drift apart
+  // instead of tracking the fingers together.
+  const applyZoomAtPoint = (factor, clientX, clientY, instant = false) => {
     const el = canvasRef.current
     if (!el) return
     const oldZ = zoomTargetRef.current
@@ -354,6 +367,14 @@ export default function SheetPage() {
     panTargetRef.current = {
       x: cx - (cx - panTargetRef.current.x) * ratio,
       y: cy - (cy - panTargetRef.current.y) * ratio,
+    }
+    if (instant) {
+      if (zoomRafRef.current) { cancelAnimationFrame(zoomRafRef.current); zoomRafRef.current = null }
+      zoomCurrentRef.current = newZ
+      panCurrentRef.current = panTargetRef.current
+      setZoom(newZ)
+      setPanOffset(panTargetRef.current)
+      return
     }
     // Single RAF loop that animates zoom + pan together
     if (!zoomRafRef.current) {
@@ -780,13 +801,13 @@ export default function SheetPage() {
       isPanningRef.current = true
       rightDragMovedRef.current = false
       panStartRef.current = { x: e.clientX, y: e.clientY }
-      panOriginRef.current = { ...panCurrentRef.current }
+      panLastPosRef.current = { x: e.clientX, y: e.clientY }
       return
     }
     if (activeTool === 'pan') {
       isPanningRef.current = true
       panStartRef.current = { x: e.clientX, y: e.clientY }
-      panOriginRef.current = { ...panCurrentRef.current }
+      panLastPosRef.current = { x: e.clientX, y: e.clientY }
       return
     }
     if (activeTool !== 'select') return
@@ -869,11 +890,14 @@ export default function SheetPage() {
 
   const onMouseMove = (e) => {
     // Pan: right-button drag or pan tool left-button drag
-    if (isPanningRef.current && panStartRef.current) {
-      const dx = e.clientX - panStartRef.current.x
-      const dy = e.clientY - panStartRef.current.y
-      if (e.buttons === 2 && Math.hypot(dx, dy) > 4) rightDragMovedRef.current = true
-      const np = { x: panOriginRef.current.x + dx, y: panOriginRef.current.y + dy }
+    if (isPanningRef.current && panLastPosRef.current) {
+      if (e.buttons === 2 && Math.hypot(e.clientX - panStartRef.current.x, e.clientY - panStartRef.current.y) > 4) rightDragMovedRef.current = true
+      // Incremental delta since the LAST move, applied on top of whatever
+      // panCurrentRef.current is right now — see panLastPosRef comment above.
+      const dx = e.clientX - panLastPosRef.current.x
+      const dy = e.clientY - panLastPosRef.current.y
+      const np = { x: panCurrentRef.current.x + dx, y: panCurrentRef.current.y + dy }
+      panLastPosRef.current = { x: e.clientX, y: e.clientY }
       panTargetRef.current = np; panCurrentRef.current = np
       setPanOffset(np)
       if (activeTool === 'pan' || e.buttons === 2) return
@@ -1035,41 +1059,45 @@ export default function SheetPage() {
       const [t0, t1] = e.touches
       const mid = touchMid(t0, t1)
       pinchRef.current = { dist: touchDist(t0, t1) }
-      panStartRef.current = { x: mid.x, y: mid.y }
-      panOriginRef.current = { ...panCurrentRef.current }
+      panLastPosRef.current = { x: mid.x, y: mid.y }
     } else if (e.touches.length === 1 && activeTool === 'pan') {
       e.preventDefault()
       isPanningRef.current = true
       const t = e.touches[0]
-      panStartRef.current = { x: t.clientX, y: t.clientY }
-      panOriginRef.current = { ...panCurrentRef.current }
+      panLastPosRef.current = { x: t.clientX, y: t.clientY }
     }
   }
 
   const onTouchMove = (e) => {
-    if (e.touches.length === 2 && isPanningRef.current && panStartRef.current) {
+    if (e.touches.length === 2 && isPanningRef.current && panLastPosRef.current) {
       e.preventDefault()
       const [t0, t1] = e.touches
       const mid = touchMid(t0, t1)
-      const dx = mid.x - panStartRef.current.x
-      const dy = mid.y - panStartRef.current.y
-      const np = { x: panOriginRef.current.x + dx, y: panOriginRef.current.y + dy }
+      // Incremental delta since the last touchmove (see panLastPosRef
+      // comment above) — pinch pans AND zooms on every event, so this needs
+      // to stay correct frame-to-frame just like the mouse-drag path.
+      const dx = mid.x - panLastPosRef.current.x
+      const dy = mid.y - panLastPosRef.current.y
+      const np = { x: panCurrentRef.current.x + dx, y: panCurrentRef.current.y + dy }
+      panLastPosRef.current = { x: mid.x, y: mid.y }
       panTargetRef.current = np; panCurrentRef.current = np
       setPanOffset(np)
       const newDist = touchDist(t0, t1)
       if (pinchRef.current) {
         const factor = newDist / pinchRef.current.dist
-        if (isFinite(factor) && factor > 0) applyZoomAtPoint(factor, mid.x, mid.y)
+        // Instant, not eased — see applyZoomAtPoint's `instant` param comment.
+        if (isFinite(factor) && factor > 0) applyZoomAtPoint(factor, mid.x, mid.y, true)
       }
       pinchRef.current = { dist: newDist }
       return
     }
-    if (e.touches.length === 1 && isPanningRef.current && panStartRef.current && activeTool === 'pan') {
+    if (e.touches.length === 1 && isPanningRef.current && panLastPosRef.current && activeTool === 'pan') {
       e.preventDefault()
       const t = e.touches[0]
-      const dx = t.clientX - panStartRef.current.x
-      const dy = t.clientY - panStartRef.current.y
-      const np = { x: panOriginRef.current.x + dx, y: panOriginRef.current.y + dy }
+      const dx = t.clientX - panLastPosRef.current.x
+      const dy = t.clientY - panLastPosRef.current.y
+      const np = { x: panCurrentRef.current.x + dx, y: panCurrentRef.current.y + dy }
+      panLastPosRef.current = { x: t.clientX, y: t.clientY }
       panTargetRef.current = np; panCurrentRef.current = np
       setPanOffset(np)
     }
@@ -1079,7 +1107,7 @@ export default function SheetPage() {
     if (e.touches.length < 2) pinchRef.current = null
     if (e.touches.length === 0) {
       isPanningRef.current = false
-      panStartRef.current = null
+      panLastPosRef.current = null
     }
   }
 
