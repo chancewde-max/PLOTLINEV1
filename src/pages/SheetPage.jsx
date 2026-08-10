@@ -22,6 +22,7 @@ import { SheetPageSkeleton } from '../components/Skeleton.jsx'
 import PdfCanvas from '../components/PdfCanvas.jsx'
 import SheetPrintView from '../components/SheetPrintView.jsx'
 import { resolveSheetPdfUrl, sheetHasPdf } from '../components/pdfCache.js'
+import { computeOverlayDiff } from '../components/pdfDiff.js'
 import { CATS, CAT_COLOR, SHEET_W, SHEET_H, categoryTotals } from '../data/sampleData.js'
 import { inside, polyAreaPx, perimPx, centroid, clipPx2, dist, buildAreaPath, buildLinePath, linePathLenPx, circularArcSeg } from '../workspace/geometry.js'
 import s from './SheetPage.module.css'
@@ -274,6 +275,12 @@ export default function SheetPage() {
   const [overlayOffset, setOverlayOffset]   = useState({ x: 0, y: 0 })
   const [overlayScale, setOverlayScale]     = useState(1)
   const [overlayDlg, setOverlayDlg]         = useState(false)
+  // 'transparency' ghosts the raw page (drag to align, like laying one sheet
+  // over a light table); 'diff' highlights what changed between the two
+  // pages instead — additions in red, deletions in blue, PlanSwift-style.
+  const [overlayMode, setOverlayMode]       = useState('transparency')
+  const [diffCanvas, setDiffCanvas]         = useState(null)
+  const [diffLoading, setDiffLoading]       = useState(false)
   const overlayDragRef = useRef(null)
 
   // ---- Undo stack ----
@@ -467,6 +474,28 @@ export default function SheetPage() {
     }
   }, [])
 
+  // Recompute the page-diff overlay (debounced — dragging/scaling updates
+  // overlayOffset/overlayScale continuously, and re-rendering + pixel-diffing
+  // two full PDF pages on every mousemove would make the drag feel frozen).
+  useEffect(() => {
+    const overlaySh = overlaySheetId ? sheets[overlaySheetId] : null
+    if (overlayMode !== 'diff' || !sheet || !overlaySh || !sheetHasPdf(sheet) || !sheetHasPdf(overlaySh)) {
+      setDiffCanvas(null); setDiffLoading(false)
+      return
+    }
+    let cancelled = false
+    setDiffLoading(true)
+    const timer = setTimeout(() => {
+      computeOverlayDiff({
+        baseUrl: resolveSheetPdfUrl(sheet, pdfAssets), basePage: sheet.pdfPage || 1,
+        overlayUrl: resolveSheetPdfUrl(overlaySh, pdfAssets), overlayPage: overlaySh.pdfPage || 1,
+        offset: overlayOffset, scale: overlayScale, sheetW: SHEET_W, sheetH: SHEET_H,
+      }).then(canvas => { if (!cancelled) { setDiffCanvas(canvas); setDiffLoading(false) } })
+        .catch(() => { if (!cancelled) setDiffLoading(false) })
+    }, 400)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [overlayMode, overlaySheetId, overlayOffset.x, overlayOffset.y, overlayScale, sheet, sheets, pdfAssets])
+
   // Persist active left panel tab across sheet navigations (component remounts with key=sheetId)
   useEffect(() => { sessionStorage.setItem('sheetLeftPanel', leftPanel) }, [leftPanel])
 
@@ -632,19 +661,6 @@ export default function SheetPage() {
 
   // Page overlay — the sheet currently ghosted over this one for comparison.
   const overlaySheet = overlaySheetId ? sheets[overlaySheetId] : null
-  // Overlay sheets carry the same two-store split as the active sheet (see
-  // allAreas/allPoints/allLines above): legacy top-level areas/lines/points
-  // plus the savedAreas/savedLines/savedCountGroups the app actually writes
-  // to. Reading only the legacy fields — as this used to — meant the vector
-  // overlay silently never showed anything for a normally-drawn sheet. Prefer
-  // the saved* store when it has content rather than unioning both — seed/demo
-  // sheets populate both from the same source items, so a plain union would
-  // render every shape twice (visibly darker fills from the doubled opacity).
-  const overlayAreas  = overlaySheet ? (overlaySheet.savedAreas?.length ? overlaySheet.savedAreas : (overlaySheet.areas || [])) : []
-  const overlayLines  = overlaySheet ? (overlaySheet.savedLines?.length ? overlaySheet.savedLines : (overlaySheet.lines || [])) : []
-  const overlayPoints = overlaySheet
-    ? (overlaySheet.savedCountGroups?.length ? overlaySheet.savedCountGroups.flatMap(g => g.points || []) : (overlaySheet.points || []))
-    : []
 
   const toSheet = (e) => {
     const svg = svgRef.current
@@ -1966,9 +1982,9 @@ export default function SheetPage() {
               )}
 
               {/* Page overlay — the actual PDF page of another sheet ghosted
-                  on top for a PlanSwift-style revision compare, not just its
-                  measured vector markup (which the <g> below still shows). */}
-              {overlaySheet && sheetHasPdf(overlaySheet) && (
+                  on top for a PlanSwift-style revision compare (like a light
+                  table), not the measured vector markup on it. */}
+              {overlaySheet && sheetHasPdf(overlaySheet) && overlayMode === 'transparency' && (
                 <div style={{
                   position: 'absolute', inset: 0, transformOrigin: '0 0',
                   transform: `translate(${overlayOffset.x}px, ${overlayOffset.y}px) scale(${overlayScale})`,
@@ -1977,6 +1993,15 @@ export default function SheetPage() {
                   <PdfCanvas url={resolveSheetPdfUrl(overlaySheet, pdfAssets)} width={SHEET_W} height={SHEET_H}
                     pageNumber={overlaySheet.pdfPage || 1} />
                 </div>
+              )}
+
+              {/* Diff mode — a pre-computed red/blue highlight canvas (see
+                  computeOverlayDiff) instead of the plain ghosted page. It
+                  already carries the offset/scale baked in, so no transform
+                  here — just re-rendered whenever the alignment settles. */}
+              {overlaySheet && overlayMode === 'diff' && diffCanvas && (
+                <img src={diffCanvas.toDataURL()} alt="" width={SHEET_W} height={SHEET_H}
+                  style={{ position: 'absolute', inset: 0, width: SHEET_W, height: SHEET_H, pointerEvents: 'none' }} />
               )}
 
               <svg ref={svgRef} className={s.svg} width={SHEET_W} height={SHEET_H}
@@ -1996,29 +2021,18 @@ export default function SheetPage() {
                   )}
                 </defs>
 
-                {/* Page overlay — vector markup from the ghosted sheet, plus a
-                    full-sheet transparent hit target so it can be grabbed and
-                    dragged into alignment even when it has no markup drawn on
-                    it yet (e.g. comparing against a freshly imported revision). */}
+                {/* Page overlay drag handle — a full-sheet transparent hit
+                    target (not the ghosted sheet's measured markup; this is
+                    a page-vs-page compare, PlanSwift-style) so it can be
+                    grabbed and dragged into alignment anywhere on the sheet,
+                    in either overlay mode. */}
                 {overlaySheet && (
-                  <g transform={`translate(${overlayOffset.x},${overlayOffset.y}) scale(${overlayScale})`}
-                    opacity={overlayOpacity} style={{ cursor: 'move' }}
+                  <g transform={overlayMode === 'transparency' ? `translate(${overlayOffset.x},${overlayOffset.y}) scale(${overlayScale})` : undefined}
+                    style={{ cursor: 'move' }}
                     onMouseDown={e => { e.stopPropagation(); overlayDragRef.current = { startX: e.clientX, startY: e.clientY, origX: overlayOffset.x, origY: overlayOffset.y } }}
                     onClick={e => e.stopPropagation()}
                     onDoubleClick={e => e.stopPropagation()}>
                     <rect x="0" y="0" width={SHEET_W} height={SHEET_H} fill="transparent" />
-                    {overlayAreas.map(a => (
-                      <polygon key={a.id} points={a.poly.map(p => `${p.x},${p.y}`).join(' ')}
-                        fill={CAT_COLOR[a.type]} fillOpacity="0.2" stroke={CAT_COLOR[a.type]} strokeWidth="0.75" />
-                    ))}
-                    {overlayLines.map(l => (
-                      <polyline key={l.id} points={l.pts.map(p => `${p.x},${p.y}`).join(' ')}
-                        fill="none" stroke={CAT_COLOR[l.type]} strokeWidth="1.5" strokeLinecap="round" />
-                    ))}
-                    {overlayPoints.map(p => (
-                      <circle key={p.id} cx={p.x} cy={p.y} r="3"
-                        fill="white" stroke={CAT_COLOR[p.type]} strokeWidth="1" />
-                    ))}
                   </g>
                 )}
 
@@ -2684,9 +2698,9 @@ export default function SheetPage() {
 
       {/* Page Overlay Dialog */}
       <Dialog open={overlayDlg} onClose={() => setOverlayDlg(false)} title="Page overlay"
-        description="Overlay another sheet transparently for comparison." width={420}
+        description="Ghost another sheet's page over this one, like a light table, for a revision compare." width={420}
         footer={<>
-          <Button variant="ghost" onClick={() => { setOverlaySheetId(null); setOverlayDlg(false) }}>Clear overlay</Button>
+          <Button variant="ghost" onClick={() => { setOverlaySheetId(null); setOverlayMode('transparency'); setDiffCanvas(null); setOverlayDlg(false) }}>Clear overlay</Button>
           <Button variant="primary" onClick={() => setOverlayDlg(false)}>Done</Button>
         </>}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -2711,12 +2725,44 @@ export default function SheetPage() {
               )}
             </div>
           </div>
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>Opacity: {Math.round(overlayOpacity * 100)}%</div>
-            <input type="range" min="0.1" max="1" step="0.05" value={overlayOpacity}
-              onChange={e => setOverlayOpacity(parseFloat(e.target.value))}
-              style={{ width: '100%', accentColor: 'var(--brand-600)' }} />
-          </div>
+
+          {(() => {
+            const bothHavePdf = sheetHasPdf(sheet) && sheetHasPdf(overlaySheet)
+            return (
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>Compare mode</div>
+                <div style={{ display: 'flex', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+                  <button onClick={() => setOverlayMode('transparency')}
+                    style={{ flex: 1, padding: '7px 10px', fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer', background: overlayMode === 'transparency' ? 'var(--brand-600)' : 'var(--surface-card)', color: overlayMode === 'transparency' ? '#fff' : 'var(--text-body)' }}>
+                    Transparency
+                  </button>
+                  <button onClick={() => bothHavePdf && setOverlayMode('diff')} disabled={!bothHavePdf}
+                    style={{ flex: 1, padding: '7px 10px', fontSize: 12, fontWeight: 600, border: 'none', borderLeft: '1px solid var(--border-default)', cursor: bothHavePdf ? 'pointer' : 'default', opacity: bothHavePdf ? 1 : 0.5, background: overlayMode === 'diff' ? 'var(--brand-600)' : 'var(--surface-card)', color: overlayMode === 'diff' ? '#fff' : 'var(--text-body)' }}>
+                    Highlight differences
+                  </button>
+                </div>
+                {!bothHavePdf && overlaySheetId && (
+                  <div style={{ fontSize: 11, color: 'var(--text-subtle)', marginTop: 6 }}>Both sheets need a PDF page to diff.</div>
+                )}
+                {overlayMode === 'diff' && bothHavePdf && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><span style={{ width: 9, height: 9, borderRadius: 2, background: 'rgb(220,38,38)', flexShrink: 0 }} />Added</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><span style={{ width: 9, height: 9, borderRadius: 2, background: 'rgb(37,99,235)', flexShrink: 0 }} />Removed</span>
+                    {diffLoading && <span style={{ marginLeft: 'auto' }}>Comparing…</span>}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+
+          {overlayMode === 'transparency' && (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>Opacity: {Math.round(overlayOpacity * 100)}%</div>
+              <input type="range" min="0.1" max="1" step="0.05" value={overlayOpacity}
+                onChange={e => setOverlayOpacity(parseFloat(e.target.value))}
+                style={{ width: '100%', accentColor: 'var(--brand-600)' }} />
+            </div>
+          )}
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>Scale: {Math.round(overlayScale * 100)}%</div>
             <input type="range" min="0.5" max="2" step="0.05" value={overlayScale}
