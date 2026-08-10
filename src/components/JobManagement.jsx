@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react'
 import {
-  LayoutDashboard, MapPin, Package, Truck, ShoppingCart, ClipboardList,
+  LayoutDashboard, MapPin, Package, Truck, ClipboardList,
   CalendarDays, ListChecks, Users, ClipboardCheck, Plus, Trash2,
   Download, ChevronRight, ChevronDown, RotateCw,
 } from 'lucide-react'
@@ -32,7 +32,6 @@ const MODULES = [
   { id: 'areas',       label: 'Areas',           Icon: MapPin },
   { id: 'materials',   label: 'Materials',       Icon: Package },
   { id: 'deliveries',  label: 'Orders & Deliveries', Icon: Truck },
-  { id: 'procurement', label: 'Procurement',     Icon: ShoppingCart },
   { id: 'daily',       label: 'Daily Reports',   Icon: ClipboardList },
   { id: 'schedule',    label: 'Schedule',        Icon: CalendarDays },
   { id: 'punch',       label: 'Punch List',      Icon: ListChecks },
@@ -150,8 +149,8 @@ function exportFieldCsv(project, field, vendors = []) {
     field.purchaseOrders.map(p => [p.poNumber, vendorName(p.vendorId), p.description, num(p.amount), p.status, p.requiredDate]))
   section('Change orders', ['CO #', 'Description', 'Amount', 'Status'],
     field.changeOrders.map(c => [c.coNumber, c.description, num(c.amount), c.status]))
-  section('Daily reports', ['Date', 'Weather', 'Crew', 'Work completed', 'Issues'],
-    field.dailyReports.map(d => [d.date, d.weather, d.manpower, d.workCompleted, d.issues]))
+  section('Daily reports', ['Date/time', 'Weather', 'Crew', 'Work completed', 'Issues'],
+    field.dailyReports.map(d => [new Date(d.date).toLocaleString(), d.weather, d.manpower, d.workCompleted, d.issues]))
   section('Schedule', ['Task', 'Area', 'Start', 'End', 'Status'],
     field.scheduleTasks.map(t => [t.name, areaName(t.areaId), t.start, t.end, t.status]))
   section('Punch list', ['Item', 'Area', 'Priority', 'Status', 'Due'],
@@ -171,7 +170,7 @@ function exportFieldCsv(project, field, vendors = []) {
 }
 
 export default function JobManagement({ projectId, project, sheets }) {
-  const { updateProject, vendors, addVendor, deleteVendor } = useAppData()
+  const { updateProject, vendors } = useAppData()
   const [view, setView] = useState('overview')
 
   const field = project.field && project.field.seeded ? project.field : null
@@ -267,7 +266,6 @@ export default function JobManagement({ projectId, project, sheets }) {
       {view === 'areas'      && <Areas field={field} setField={setField} totals={totals} txTotal={txTotal} />}
       {view === 'materials'  && <Materials field={field} setField={setField} areaName={areaName} txTotal={txTotal} onSync={syncFromTakeoff} />}
       {view === 'deliveries' && <Deliveries field={field} setField={setField} areaName={areaName} materialLabel={materialLabel} />}
-      {view === 'procurement'&& <Procurement field={field} setField={setField} vendors={vendors} addVendor={addVendor} deleteVendor={deleteVendor} />}
       {view === 'daily'      && <DailyReports field={field} setField={setField} />}
       {view === 'schedule'   && <Schedule field={field} setField={setField} areaName={areaName} />}
       {view === 'punch'      && <Punch field={field} setField={setField} areaName={areaName} />}
@@ -672,107 +670,14 @@ function Deliveries({ field, setField, areaName, materialLabel }) {
   )
 }
 
-function Procurement({ field, setField, vendors, addVendor, deleteVendor }) {
-  // Vendors are account-level and shared across every project.
-  const vendorOpts = vendors.map(v => ({ value: v.id, label: v.name }))
-  const vendorName = (id) => vendors.find(v => v.id === id)?.name || '—'
-  const addPO = (v) => setField({ purchaseOrders: [...field.purchaseOrders, { id: uid('po'), vendorId: v.vendorId, poNumber: v.poNumber.trim(), description: v.description.trim(), amount: num(v.amount), status: v.status, requiredDate: v.requiredDate }] })
-  const delPO = (id) => setField({ purchaseOrders: field.purchaseOrders.filter(p => p.id !== id) })
-  const addCO = (v) => setField({ changeOrders: [...field.changeOrders, { id: uid('co'), coNumber: v.coNumber.trim(), description: v.description.trim(), amount: num(v.amount), status: v.status }] })
-  const delCO = (id) => setField({ changeOrders: field.changeOrders.filter(c => c.id !== id) })
-  const poTotal = field.purchaseOrders.reduce((s, p) => s + num(p.amount), 0)
-  const coTotal = field.changeOrders.reduce((s, c) => s + num(c.amount), 0)
-  return (
-    <>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 16, marginBottom: 20 }}>
-        <Stat label="Vendors" value={vendors.length} />
-        <Stat label="PO total" value={fmtMoney(poTotal)} accent />
-        <Stat label="Change orders" value={fmtMoney(coTotal)} />
-      </div>
-
-      <Card title="Vendors" right={<span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Shared across all projects</span>}>
-        {vendors.length === 0 ? <Empty>No vendors yet.</Empty> : (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '12px 16px' }}>
-            {vendors.map(v => (
-              <span key={v.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, background: 'var(--surface-sunken)', fontSize: 13, fontWeight: 600 }}>
-                {v.name}
-                <button onClick={() => deleteVendor(v.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', display: 'inline-flex' }}><Trash2 size={12} /></button>
-              </span>
-            ))}
-          </div>
-        )}
-        <AddRow fields={[{ key: 'name', label: 'Vendor name', required: true, grow: '1 1 240px' }]} onAdd={(v) => addVendor(v.name)} addLabel="Add vendor" />
-      </Card>
-
-      <Card title="Purchase orders">
-        {field.purchaseOrders.length === 0 ? <Empty>No purchase orders.</Empty> : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr><th style={th}>PO #</th><th style={th}>Vendor</th><th style={th}>Description</th><th style={th}>Amount</th><th style={th}>Status</th><th style={th}>Required</th><th style={th}></th></tr></thead>
-            <tbody>
-              {field.purchaseOrders.map(p => (
-                <tr key={p.id}>
-                  <td style={{ ...td, fontFamily: 'var(--font-mono)' }}>{p.poNumber || '—'}</td>
-                  <td style={td}>{vendorName(p.vendorId)}</td>
-                  <td style={td}>{p.description || '—'}</td>
-                  <td style={{ ...td, fontFamily: 'var(--font-mono)' }}>{fmtMoney(p.amount)}</td>
-                  <td style={td}>{p.status}</td>
-                  <td style={td}>{p.requiredDate || '—'}</td>
-                  <td style={{ ...td, textAlign: 'right' }}><DelBtn onClick={() => delPO(p.id)} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-        <AddRow
-          fields={[
-            { key: 'poNumber', label: 'PO #', grow: '1 1 100px' },
-            { key: 'vendorId', label: 'Vendor', search: true, options: vendorOpts, onCreate: (name) => addVendor(name), placeholder: 'Search or add…', grow: '1 1 160px' },
-            { key: 'description', label: 'Description', required: true, grow: '2 1 200px' },
-            { key: 'amount', label: 'Amount', type: 'number', grow: '1 1 110px' },
-            { key: 'status', label: 'Status', options: ['Draft', 'Issued', 'Received'], default: 'Draft', grow: '1 1 110px' },
-            { key: 'requiredDate', label: 'Required', type: 'date', grow: '1 1 140px' },
-          ]}
-          onAdd={addPO} addLabel="Add PO" />
-      </Card>
-
-      <Card title="Change orders">
-        {field.changeOrders.length === 0 ? <Empty>No change orders.</Empty> : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr><th style={th}>CO #</th><th style={th}>Description</th><th style={th}>Amount</th><th style={th}>Status</th><th style={th}></th></tr></thead>
-            <tbody>
-              {field.changeOrders.map(c => (
-                <tr key={c.id}>
-                  <td style={{ ...td, fontFamily: 'var(--font-mono)' }}>{c.coNumber || '—'}</td>
-                  <td style={td}>{c.description || '—'}</td>
-                  <td style={{ ...td, fontFamily: 'var(--font-mono)' }}>{fmtMoney(c.amount)}</td>
-                  <td style={td}>{c.status}</td>
-                  <td style={{ ...td, textAlign: 'right' }}><DelBtn onClick={() => delCO(c.id)} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-        <AddRow
-          fields={[
-            { key: 'coNumber', label: 'CO #', grow: '1 1 100px' },
-            { key: 'description', label: 'Description', required: true, grow: '2 1 220px' },
-            { key: 'amount', label: 'Amount', type: 'number', grow: '1 1 110px' },
-            { key: 'status', label: 'Status', options: ['Pending', 'Approved', 'Rejected'], default: 'Pending', grow: '1 1 120px' },
-          ]}
-          onAdd={addCO} addLabel="Add CO" />
-      </Card>
-    </>
-  )
-}
-
 function DailyReports({ field, setField }) {
-  const add = (v) => setField({ dailyReports: [{ id: uid('dr'), date: v.date || new Date().toISOString().slice(0, 10), weather: v.weather.trim(), manpower: v.manpower, workCompleted: v.workCompleted.trim(), issues: v.issues.trim() }, ...field.dailyReports] })
+  const add = (v) => setField({ dailyReports: [{ id: uid('dr'), date: new Date().toISOString(), weather: v.weather.trim(), manpower: v.manpower, workCompleted: v.workCompleted.trim(), issues: v.issues.trim() }, ...field.dailyReports] })
   const del = (id) => setField({ dailyReports: field.dailyReports.filter(d => d.id !== id) })
+  const fmtWhen = (iso) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
   return (
     <Card title="Daily reports">
       <AddRow
         fields={[
-          { key: 'date', label: 'Date', type: 'date', grow: '1 1 140px' },
           { key: 'weather', label: 'Weather', placeholder: 'Sunny, 72°', grow: '1 1 130px' },
           { key: 'manpower', label: 'Crew', type: 'number', grow: '0 1 90px', minWidth: 80 },
           { key: 'workCompleted', label: 'Work completed', required: true, grow: '2 1 220px' },
@@ -784,7 +689,7 @@ function DailyReports({ field, setField }) {
           {field.dailyReports.map(d => (
             <div key={d.id} style={{ border: '1px solid var(--border-subtle)', borderRadius: 10, padding: '12px 14px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-                <span style={{ fontWeight: 700, color: 'var(--text-strong)' }}>{d.date}</span>
+                <span style={{ fontWeight: 700, color: 'var(--text-strong)' }}>{fmtWhen(d.date)}</span>
                 {d.weather && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>· {d.weather}</span>}
                 {d.manpower && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>· {d.manpower} crew</span>}
                 <span style={{ flex: 1 }} />
