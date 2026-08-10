@@ -220,6 +220,7 @@ export default function SheetPage() {
   // ---- Edit group popup ----
   const [editGroupDlg, setEditGroupDlg] = useState(null)  // { kind, group } | null
   const [eName, setEName] = useState('')
+  const [eKey, setEKey] = useState('')
   const [eColor, setEColor] = useState('')
   const [eShape, setEShape] = useState('circle')
   const [eDepth, setEDepth] = useState('')
@@ -228,6 +229,7 @@ export default function SheetPage() {
 
   const openEditGroup = (kind, group) => {
     setEName(group.name)
+    setEKey(group.key || '')
     setEColor(group.color)
     setEShape(group.shape || 'circle')
     setEDepth(group.depth || '')
@@ -239,15 +241,16 @@ export default function SheetPage() {
   const saveEditGroup = () => {
     if (!editGroupDlg) return
     const { kind, group } = editGroupDlg
+    const key = eKey.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4)
     if (kind === 'count') {
       setCountGroups(prev => prev.map(g => g.id === group.id
-        ? { ...g, name: eName, color: eColor, shape: eShape, points: g.points.map(p => ({ ...p, color: eColor })) }
+        ? { ...g, name: eName, key, color: eColor, shape: eShape, points: g.points.map(p => ({ ...p, color: eColor })) }
         : g))
     } else if (kind === 'linear') {
-      setLinearGroups(prev => prev.map(g => g.id === group.id ? { ...g, name: eName, color: eColor } : g))
+      setLinearGroups(prev => prev.map(g => g.id === group.id ? { ...g, name: eName, key, color: eColor } : g))
       setAddedLines(prev => prev.map(l => l.groupId === group.id ? { ...l, color: eColor, name: eName } : l))
     } else if (kind === 'area') {
-      setAreaGroups(prev => prev.map(g => g.id === group.id ? { ...g, name: eName, color: eColor, depth: eDepth, topsoil: eTopsoil, topsoilCustom: eTopsoilCustom } : g))
+      setAreaGroups(prev => prev.map(g => g.id === group.id ? { ...g, name: eName, key, color: eColor, depth: eDepth, topsoil: eTopsoil, topsoilCustom: eTopsoilCustom } : g))
       setAddedAreas(prev => prev.map(a => a.groupId === group.id ? { ...a, color: eColor, name: eName } : a))
     }
     setEditGroupDlg(null)
@@ -2634,10 +2637,20 @@ export default function SheetPage() {
           <div style={{ background: 'var(--surface-card)', borderRadius: 12, padding: 28, width: 380, boxShadow: '0 8px 40px rgba(0,0,0,0.22)' }}
             onClick={e => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 18px', fontSize: 17, fontWeight: 700, color: 'var(--text-strong)' }}>Edit — {editGroupDlg.group.name}</h3>
-            <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>Name</div>
-              <input value={eName} onChange={e => setEName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') saveEditGroup() }}
-                style={{ width: '100%', padding: '8px 12px', border: '1.5px solid var(--border-default)', borderRadius: 8, fontSize: 14, fontWeight: 600, color: 'var(--text-strong)', background: 'var(--surface-card)', boxSizing: 'border-box' }} />
+            <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+              <div style={{ width: 90, flexShrink: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>Key</div>
+                <input value={eKey}
+                  onChange={e => setEKey(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4))}
+                  onKeyDown={e => { if (e.key === 'Enter') saveEditGroup() }}
+                  placeholder="TR" maxLength={4}
+                  style={{ width: '100%', padding: '8px 10px', border: '1.5px solid var(--border-default)', borderRadius: 8, fontSize: 14, fontWeight: 700, textAlign: 'center', letterSpacing: '0.05em', color: 'var(--text-strong)', background: 'var(--surface-card)', boxSizing: 'border-box', fontFamily: 'var(--font-mono)' }} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>Name</div>
+                <input value={eName} onChange={e => setEName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') saveEditGroup() }}
+                  style={{ width: '100%', padding: '8px 12px', border: '1.5px solid var(--border-default)', borderRadius: 8, fontSize: 14, fontWeight: 600, color: 'var(--text-strong)', background: 'var(--surface-card)', boxSizing: 'border-box' }} />
+              </div>
             </div>
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>Color</div>

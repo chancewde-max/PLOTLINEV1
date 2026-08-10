@@ -297,15 +297,44 @@ export default function ProposalEditor({ projectId, project, sheets }) {
     return merged
   }, [currentMto, project, sheets])
 
+  // Pure helper: given the current lineItems, fold in a dropped material
+  // (filling the first blank row, or appending). No state access, so callers
+  // can combine it with other doc changes into a single patch() — chaining
+  // separate patch() calls in one handler would have each read the same
+  // stale `doc` closure and the later call would silently clobber the
+  // earlier one's change.
+  const withMaterialLine = (lineItems, data) => {
+    const newLine = { item: data.item || '', description: data.description || '', qty: data.qty || '', unit: data.unit || '', unitPrice: data.unitPrice || '' }
+    const emptyIdx = lineItems.findIndex((li) => !li.item && !li.description && !li.qty && !li.unitPrice)
+    return emptyIdx >= 0
+      ? lineItems.map((li, i) => (i === emptyIdx ? newLine : li))
+      : [...lineItems, newLine]
+  }
+
   const dropMaterialItem = (raw) => {
     let data
     try { data = JSON.parse(raw) } catch { return }
-    const newLine = { item: data.item || '', description: data.description || '', qty: data.qty || '', unit: data.unit || '', unitPrice: data.unitPrice || '' }
-    const emptyIdx = doc.lineItems.findIndex((li) => !li.item && !li.description && !li.qty && !li.unitPrice)
-    const lineItems = emptyIdx >= 0
-      ? doc.lineItems.map((li, i) => (i === emptyIdx ? newLine : li))
-      : [...doc.lineItems, newLine]
-    patch({ lineItems })
+    patch({ lineItems: withMaterialLine(doc.lineItems, data) })
+  }
+
+  // Dropping a material chip onto a scope bullet reads it into the bullet as
+  // text (instead of dumping raw JSON) and also adds it to the Materials
+  // List, so the bullet and the priced line item stay in sync.
+  const materialBulletText = (data) => {
+    const label = data.item || data.description || 'Material'
+    const qty = Number(data.qty)
+    return Number.isFinite(qty) && qty > 0
+      ? `Additional (${qty}) ${data.unit || ''} of ${label}`.replace(/\s+/g, ' ').trim()
+      : label
+  }
+  const dropMaterialOnBullet = (scopeId, kind, idx, raw) => {
+    let data
+    try { data = JSON.parse(raw) } catch { return }
+    if (!data.item && !data.description) return
+    const scopeSections = doc.scopeSections.map((sc) => sc.id === scopeId
+      ? { ...sc, [kind]: sc[kind].map((b, i) => (i === idx ? { text: materialBulletText(data) } : b)) }
+      : sc)
+    patch({ scopeSections, lineItems: withMaterialLine(doc.lineItems, data) })
   }
 
   // ----- Scope sections -----
@@ -752,6 +781,8 @@ export default function ProposalEditor({ projectId, project, sheets }) {
                         value={b.text}
                         placeholder="Inclusion line (may end with a $ amount, e.g. ($1,234.00))"
                         onChange={(e) => setBullet(sc.id, 'inclusions', i, e.target.value)}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => { e.preventDefault(); dropMaterialOnBullet(sc.id, 'inclusions', i, e.dataTransfer.getData(MATERIAL_MIME)) }}
                       />
                       <button
                         type="button"
@@ -784,6 +815,8 @@ export default function ProposalEditor({ projectId, project, sheets }) {
                         value={b.text}
                         placeholder="Exclusion line"
                         onChange={(e) => setBullet(sc.id, 'exclusions', i, e.target.value)}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => { e.preventDefault(); dropMaterialOnBullet(sc.id, 'exclusions', i, e.dataTransfer.getData(MATERIAL_MIME)) }}
                       />
                       <button
                         type="button"
