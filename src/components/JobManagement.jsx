@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect } from 'react'
 import {
   LayoutDashboard, MapPin, Package, Truck, ShoppingCart, ClipboardList,
   CalendarDays, ListChecks, Users, ClipboardCheck, Plus, Trash2,
-  Download, ChevronRight, ChevronDown,
+  Download, ChevronRight, ChevronDown, RotateCw,
 } from 'lucide-react'
 import { Button } from './ui/Button.jsx'
 import { Input } from './ui/Input.jsx'
@@ -23,6 +23,7 @@ import { takeoffMaterialItems } from '../data/takeoff.js'
 const uid = (p = 'f') => `${p}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 
 const TX_TYPES = ['Ordered', 'Delivered', 'Installed']
+const nextTxType = (type) => TX_TYPES[Math.min(TX_TYPES.indexOf(type) + 1, TX_TYPES.length - 1)]
 const PUNCH_PRIORITIES = ['Low', 'Medium', 'High']
 const STATUSES = ['Open', 'In progress', 'Complete']
 
@@ -384,6 +385,14 @@ function DelBtn({ onClick }) {
   )
 }
 
+function IconBtn({ onClick, title, icon: Icon }) {
+  return (
+    <button onClick={onClick} title={title} aria-label={title} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', padding: 2, display: 'inline-flex', marginRight: 4 }}>
+      <Icon size={14} />
+    </button>
+  )
+}
+
 function ProgressBar({ pct }) {
   return (
     <div style={{ background: 'var(--surface-sunken)', borderRadius: 999, height: 8, overflow: 'hidden', minWidth: 80 }}>
@@ -559,28 +568,84 @@ function Materials({ field, setField, areaName, txTotal, onSync }) {
   )
 }
 
+// Add form for the deliveries log. One order/log action can carry several
+// material lines (shared area/type/date/notes) — each line becomes its own
+// transaction so the rest of the app (totals, CSV export) is unchanged.
+function OrderForm({ areaOpts, matOpts, onAdd, prefill }) {
+  const blankItem = () => ({ key: uid('item'), materialId: matOpts[0]?.value || '', qty: '' })
+  const [areaId, setAreaId] = useState(prefill?.areaId ?? areaOpts[0]?.value ?? '')
+  const [type, setType] = useState(prefill?.type ?? 'Ordered')
+  const [date, setDate] = useState('')
+  const [notes, setNotes] = useState('')
+  const [items, setItems] = useState(() => prefill
+    ? [{ key: uid('item'), materialId: prefill.materialId, qty: prefill.qty }]
+    : [blankItem()])
+
+  const setItem = (key, patch) => setItems(list => list.map(it => it.key === key ? { ...it, ...patch } : it))
+  const addItem = () => setItems(list => [...list, blankItem()])
+  const delItem = (key) => setItems(list => list.length > 1 ? list.filter(it => it.key !== key) : list)
+
+  const submit = () => {
+    if (!areaId) return
+    const valid = items.filter(it => it.materialId && num(it.qty) > 0)
+    if (!valid.length) return
+    onAdd({ areaId, type, date, notes, items: valid })
+    setAreaId(areaOpts[0]?.value ?? '')
+    setType('Ordered')
+    setDate('')
+    setNotes('')
+    setItems([blankItem()])
+  }
+
+  return (
+    <div style={{ padding: '12px 16px', background: 'var(--surface-sunken)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <div style={{ flex: '1 1 140px' }}><Select label="Area" size="sm" value={areaId} onChange={e => setAreaId(e.target.value)} options={areaOpts} /></div>
+        <div style={{ flex: '1 1 120px' }}><Select label="Type" size="sm" value={type} onChange={e => setType(e.target.value)} options={TX_TYPES} /></div>
+        <div style={{ flex: '1 1 140px' }}><Input label="Date" size="sm" type="date" value={date} onChange={e => setDate(e.target.value)} /></div>
+        <div style={{ flex: '2 1 160px' }}><Input label="Notes" size="sm" placeholder="optional — applies to whole order" value={notes} onChange={e => setNotes(e.target.value)} /></div>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {items.map(it => (
+          <div key={it.key} style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+            <div style={{ flex: '2 1 220px' }}><Select label="Material" size="sm" value={it.materialId} onChange={e => setItem(it.key, { materialId: e.target.value })} options={matOpts} /></div>
+            <div style={{ flex: '0 1 90px', minWidth: 80 }}><Input label="Qty" size="sm" type="number" value={it.qty} onChange={e => setItem(it.key, { qty: e.target.value })} /></div>
+            <DelBtn onClick={() => delItem(it.key)} />
+          </div>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <Button variant="ghost" size="sm" iconLeft={<Plus size={14} />} onClick={addItem}>Add another item</Button>
+        <span style={{ flex: 1 }} />
+        <Button variant="primary" size="sm" iconLeft={<Plus size={14} />} onClick={submit}>Log</Button>
+      </div>
+    </div>
+  )
+}
+
 function Deliveries({ field, setField, areaName, materialLabel }) {
   const areaOpts = field.areas.map(a => ({ value: a.id, label: a.name }))
   const matOpts = field.materials.map(m => ({ value: m.id, label: m.code || m.description || 'Material' }))
+  const [prefill, setPrefill] = useState(null)
   const add = (v) => {
-    if (!v.areaId || !v.materialId) return
-    setField({ transactions: [{ id: uid('tx'), areaId: v.areaId, materialId: v.materialId, type: v.type, qty: num(v.qty), date: v.date || new Date().toISOString().slice(0, 10), notes: v.notes.trim() }, ...field.transactions] })
+    const date = v.date || new Date().toISOString().slice(0, 10)
+    const notes = v.notes.trim()
+    const newTx = v.items.map(it => ({ id: uid('tx'), areaId: v.areaId, materialId: it.materialId, type: v.type, qty: num(it.qty), date, notes }))
+    setField({ transactions: [...newTx, ...field.transactions] })
+    setPrefill(null)
   }
   const del = (id) => setField({ transactions: field.transactions.filter(t => t.id !== id) })
+  // Re-log an existing entry against the same area/material/qty, advanced to its
+  // next stage (Ordered -> Delivered -> Installed) — e.g. one click to log the
+  // delivery once an order comes in, without retyping area/material/qty.
+  const repeat = (t) => setPrefill({ areaId: t.areaId, materialId: t.materialId, type: nextTxType(t.type), qty: t.qty })
   const canAdd = field.areas.length > 0 && field.materials.length > 0
   return (
     <Card title="Orders & deliveries log">
       {!canAdd ? <Empty>Add at least one area and one material first.</Empty> : (
-        <AddRow
-          fields={[
-            { key: 'areaId', label: 'Area', options: areaOpts, default: areaOpts[0]?.value, grow: '1 1 140px' },
-            { key: 'materialId', label: 'Material', options: matOpts, default: matOpts[0]?.value, grow: '1 1 160px' },
-            { key: 'type', label: 'Type', options: TX_TYPES, default: 'Ordered', grow: '1 1 120px' },
-            { key: 'qty', label: 'Qty', type: 'number', grow: '0 1 90px', minWidth: 80 },
-            { key: 'date', label: 'Date', type: 'date', grow: '1 1 140px' },
-            { key: 'notes', label: 'Notes', placeholder: 'optional', grow: '2 1 160px' },
-          ]}
-          onAdd={add} addLabel="Log" />
+        <OrderForm
+          key={prefill ? `${prefill.areaId}-${prefill.materialId}-${prefill.type}-${prefill.qty}` : 'default'}
+          areaOpts={areaOpts} matOpts={matOpts} onAdd={add} prefill={prefill} />
       )}
       {field.transactions.length === 0 ? <Empty>No transactions logged yet.</Empty> : (
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -594,7 +659,10 @@ function Deliveries({ field, setField, areaName, materialLabel }) {
                 <td style={td}>{materialLabel(t.materialId)}</td>
                 <td style={{ ...td, fontFamily: 'var(--font-mono)' }}>{num(t.qty).toLocaleString()}</td>
                 <td style={td}>{t.notes || '—'}</td>
-                <td style={{ ...td, textAlign: 'right' }}><DelBtn onClick={() => del(t.id)} /></td>
+                <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <IconBtn icon={RotateCw} title={`Log as ${nextTxType(t.type)}…`} onClick={() => repeat(t)} />
+                  <DelBtn onClick={() => del(t.id)} />
+                </td>
               </tr>
             ))}
           </tbody>
