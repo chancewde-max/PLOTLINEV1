@@ -60,6 +60,7 @@ function load() {
         mtoTemplates: d.mtoTemplates && typeof d.mtoTemplates === 'object' ? d.mtoTemplates : {},
         pdfAssets: d.pdfAssets && typeof d.pdfAssets === 'object' ? d.pdfAssets : {},
         ocrMemory: d.ocrMemory && typeof d.ocrMemory === 'object' ? d.ocrMemory : emptyOcrMemory(),
+        vendors: Array.isArray(d.vendors) ? d.vendors : [],
       }
     }
   } catch {}
@@ -85,6 +86,8 @@ export function AppDataProvider({ children }) {
   // instead. Legacy sheets (pre-dating this) still carry their own `pdfUrl`
   // directly and keep working unchanged.
   const [pdfAssets, setPdfAssets] = useState(saved?.pdfAssets ?? {})
+  // Account-level vendor directory, shared across every project (job management).
+  const [vendors, setVendors] = useState(saved?.vendors ?? [])
   // "Correction memory" for the sheet-upload wizard's OCR guesses — see
   // src/data/ocrLearning.js for what this actually does (pattern learning,
   // not ML).
@@ -105,7 +108,7 @@ export function AppDataProvider({ children }) {
     setSaveStatus('saving')
     if (lsTimerRef.current) clearTimeout(lsTimerRef.current)
     lsTimerRef.current = setTimeout(() => {
-      const snapshot = { v: VER, projects, sheets, customCats, clients, mtoTemplates, proposalTemplates, company, pdfAssets, ocrMemory }
+      const snapshot = { v: VER, projects, sheets, customCats, clients, mtoTemplates, proposalTemplates, company, pdfAssets, ocrMemory, vendors }
       localStorage.setItem('plotline-appdata', JSON.stringify(snapshot))
       // Keep the module cache in sync so remounts reuse fresh data.
       dataCache.loaded = true
@@ -113,13 +116,27 @@ export function AppDataProvider({ children }) {
       setSaveStatus('saved')
     }, 500)
     return () => clearTimeout(lsTimerRef.current)
-  }, [projects, sheets, customCats, clients, mtoTemplates, proposalTemplates, company, pdfAssets, ocrMemory])
+  }, [projects, sheets, customCats, clients, mtoTemplates, proposalTemplates, company, pdfAssets, ocrMemory, vendors])
 
   const addProject = (proj) =>
     setProjects(p => ({ ...p, [proj.id]: proj }))
 
   const updateProject = (projectId, updates) =>
     setProjects(p => ({ ...p, [projectId]: { ...p[projectId], ...updates } }))
+
+  // Account-level vendors (shared across projects). Adds a vendor if a
+  // case-insensitive match doesn't already exist; returns the vendor id either
+  // way so callers can reference it.
+  const addVendor = (name) => {
+    const clean = (name || '').trim()
+    if (!clean) return null
+    const existing = vendors.find(v => v.name.toLowerCase() === clean.toLowerCase())
+    if (existing) return existing.id
+    const id = `ven-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+    setVendors(list => [...list, { id, name: clean }])
+    return id
+  }
+  const deleteVendor = (id) => setVendors(list => list.filter(v => v.id !== id))
 
   // Persist a project's editable client proposal (the "Pricebook" editor).
   const updateProposal = (projectId, proposal) =>
@@ -383,6 +400,12 @@ export function AppDataProvider({ children }) {
     setCompany(prev => merge && prev && prev.name
       ? { ...prev, ...(snapshot.company ?? {}) }
       : (snapshot.company ?? prev))
+    setVendors(prev => {
+      const incoming = snapshot.vendors ?? []
+      if (!(merge && prev.length)) return incoming
+      const seen = new Set(prev.map(v => v.name.toLowerCase()))
+      return [...prev, ...incoming.filter(v => !seen.has((v.name || '').toLowerCase()))]
+    })
   }
 
   // Reset to empty defaults (used on sign-out).
@@ -396,6 +419,7 @@ export function AppDataProvider({ children }) {
     setPdfAssets({})
     setOcrMemory(emptyOcrMemory())
     setCompany({ name: '', address: '', phone: '', email: '', logoDataUrl: '' })
+    setVendors([])
   }
 
   return (
@@ -404,6 +428,7 @@ export function AppDataProvider({ children }) {
       pdfAssets, addPdfAssets,
       ocrMemory, recordOcrSample, recordOcrCorrection,
       company, updateCompany,
+      vendors, addVendor, deleteVendor,
       saveStatus,
       addProject, updateProject,
       addSheet, addSheets, updateSheet,

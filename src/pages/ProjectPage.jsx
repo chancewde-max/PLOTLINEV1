@@ -308,7 +308,7 @@ export default function ProjectPage() {
                 className={`${s.subTab} ${pricebookView === 'mto' ? s.subTabActive : ''}`}
                 onClick={() => setPricebookView('mto')}
               >
-                MTO
+                Material List
               </button>
             </div>
             {pricebookView === 'proposal' && (
@@ -321,7 +321,7 @@ export default function ProjectPage() {
         )}
 
         {activeTab === 'job' && project.contracted && (
-          <JobManagement projectId={projectId} project={project} />
+          <JobManagement projectId={projectId} project={project} sheets={sheets} />
         )}
 
         {activeTab === 'sheets' && <>

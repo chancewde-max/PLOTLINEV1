@@ -5,10 +5,47 @@ import {
   Plus, Sparkles, Check, Tag, ChevronRight,
 } from 'lucide-react'
 import { useAppData } from '../data/useAppData.jsx'
+import { takeoffMaterialItems } from '../data/takeoff.js'
 import { Button } from './ui/Button.jsx'
 import { Input } from './ui/Input.jsx'
 import { Dialog } from './ui/Dialog.jsx'
 import s from './MtoPanel.module.css'
+
+// Read-only list of quantities aggregated from the on-sheet takeoff (counts,
+// areas, linear runs) across the project. This is what feeds the job's
+// materials.
+function TakeoffSection({ items }) {
+  if (!items.length) return null
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '4px 0 8px' }}>
+        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-subtle)' }}>From takeoff</div>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>· counts, areas & linear measured on your sheets</span>
+      </div>
+      <div style={{ border: '1px solid var(--border-subtle)', borderRadius: 10, overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              {['Code', 'Item', 'Qty', 'Unit'].map(h => (
+                <th key={h} style={{ textAlign: h === 'Qty' ? 'right' : 'left', padding: '8px 12px', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-subtle)', borderBottom: '1px solid var(--border-subtle)' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {items.map(it => (
+              <tr key={it.key}>
+                <td style={{ padding: '8px 12px', fontSize: 13, fontFamily: 'var(--font-mono)', color: 'var(--text-subtle)', borderBottom: '1px solid var(--border-subtle)' }}>{it.code || '—'}</td>
+                <td style={{ padding: '8px 12px', fontSize: 13, color: 'var(--text-strong)', fontWeight: 500, borderBottom: '1px solid var(--border-subtle)' }}>{it.description}</td>
+                <td style={{ padding: '8px 12px', fontSize: 13, fontFamily: 'var(--font-mono)', fontWeight: 700, textAlign: 'right', borderBottom: '1px solid var(--border-subtle)' }}>{it.qty.toLocaleString()}</td>
+                <td style={{ padding: '8px 12px', fontSize: 13, color: 'var(--text-muted)', borderBottom: '1px solid var(--border-subtle)' }}>{it.unit}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Canonical MTO fields the rest of the app understands. A version's `columnMap`
@@ -163,9 +200,12 @@ function fmt(n) {
 // ---------------------------------------------------------------------------
 export default function MtoPanel({ projectId, project }) {
   const {
+    sheets,
     mtoTemplates, addMtoTemplate, updateMtoTemplate,
     addMtoVersion, setCurrentMtoVersion, removeMtoVersion, updateMtoVersion,
   } = useAppData()
+
+  const takeoffItems = useMemo(() => takeoffMaterialItems(project, sheets), [project, sheets])
 
   const versions = useMemo(() => Array.isArray(project?.mtoVersions) ? project.mtoVersions : [], [project])
   const current = versions.find(v => v.isCurrent) || versions[versions.length - 1] || null
@@ -397,14 +437,17 @@ export default function MtoPanel({ projectId, project }) {
   if (versions.length === 0) {
     return (
       <div className={s.root}>
+        <TakeoffSection items={takeoffItems} />
         <div className={s.empty}>
           <div className={s.emptyIcon}><FileSpreadsheet size={26} /></div>
-          <div className={s.emptyTitle}>No MTO yet</div>
+          <div className={s.emptyTitle}>{takeoffItems.length ? 'Add priced line items' : 'No material list yet'}</div>
           <div className={s.emptyHint}>
-            Upload a material take-off spreadsheet, or start from a saved template.
+            {takeoffItems.length
+              ? 'Your takeoff quantities are shown above. Upload a priced spreadsheet or start from a template to add unit pricing.'
+              : 'Upload a material list spreadsheet, or start from a saved template.'}
           </div>
           <Button variant="primary" iconLeft={<Plus size={16} />} size="md" onClick={() => setNewModal(true)}>
-            New MTO
+            New material list
           </Button>
         </div>
         <NewMtoModal
@@ -598,10 +641,12 @@ export default function MtoPanel({ projectId, project }) {
         )}
       </div>
 
+      <TakeoffSection items={takeoffItems} />
+
       {/* Mapped view */}
       {view === 'mapped' && (
         <div>
-          <div className={s.sectionLabel}>Mapped take-off</div>
+          <div className={s.sectionLabel}>Priced line items</div>
           <div className={s.tableWrap}>
             <table className={s.table}>
               <thead>
@@ -672,7 +717,7 @@ function ConfidenceBadge({ level }) {
 // ---------------------------------------------------------------------------
 function NewMtoModal({ open, onClose, templates, onBlank, onTemplate }) {
   return (
-    <Dialog open={open} onClose={onClose} title="New MTO" description="Start blank or seed from a saved template." width={520}>
+    <Dialog open={open} onClose={onClose} title="New material list" description="Start blank or seed from a saved template." width={520}>
       <div className={s.modalSection}>
         <div className={s.modalSectionLabel}>Start blank</div>
         <button className={s.blankCard} onClick={onBlank}>

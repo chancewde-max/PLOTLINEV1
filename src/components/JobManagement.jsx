@@ -8,6 +8,7 @@ import { Button } from './ui/Button.jsx'
 import { Input } from './ui/Input.jsx'
 import { Select } from './ui/Select.jsx'
 import { useAppData } from '../data/useAppData.jsx'
+import { takeoffMaterialItems } from '../data/takeoff.js'
 
 // ---------------------------------------------------------------------------
 // Field / Job-management workspace for a CONTRACTED project.
@@ -70,8 +71,15 @@ function materialsFromMto(project) {
   return out
 }
 
+// The material list that feeds the job: on-sheet takeoff quantities first,
+// falling back to an uploaded/priced MTO spreadsheet if there's no takeoff yet.
+function materialListItems(project, sheets) {
+  const t = takeoffMaterialItems(project, sheets)
+  return t.length ? t : materialsFromMto(project)
+}
+
 // Build the initial field state from takeoff data.
-function seedField(project) {
+function seedField(project, sheets) {
   const f = emptyField()
   f.seeded = true
 
@@ -84,9 +92,9 @@ function seedField(project) {
   }
   const primaryAreaId = f.areas[0]?.id || null
 
-  // Materials ← current MTO rows. Each material's full required qty lands on
-  // the primary area; the user can split/reassign later.
-  const mats = materialsFromMto(project)
+  // Materials ← Material List (takeoff). Each material's full required qty lands
+  // on the primary area; the user can split/reassign later.
+  const mats = materialListItems(project, sheets)
   f.materials = mats.map(m => ({ id: uid('mat'), code: m.code, description: m.description, unit: m.unit }))
   f.requirements = mats.map((m, i) => ({
     id: uid('req'), areaId: primaryAreaId, materialId: f.materials[i].id, requiredQty: m.qty,
@@ -98,9 +106,10 @@ const fmtMoney = (n) => `$${(Number(n) || 0).toLocaleString(undefined, { maximum
 const num = (v) => { const n = parseFloat(v); return isFinite(n) ? n : 0 }
 
 // Build a multi-section CSV of the whole field workspace and download it.
-function exportFieldCsv(project, field) {
+function exportFieldCsv(project, field, vendors = []) {
   const areaName = (id) => field.areas.find(a => a.id === id)?.name || ''
   const matLabel = (id) => { const m = field.materials.find(x => x.id === id); return m ? (m.code || m.description || '') : '' }
+  const vendorName = (id) => vendors.find(v => v.id === id)?.name || ''
   const tot = (materialId, type) => field.transactions.filter(t => t.materialId === materialId && t.type === type).reduce((s, t) => s + num(t.qty), 0)
   const rows = []
   const section = (title, header, data) => {
@@ -121,9 +130,9 @@ function exportFieldCsv(project, field) {
     field.requirements.map(r => [matLabel(r.materialId), areaName(r.areaId), num(r.requiredQty)]))
   section('Transactions', ['Date', 'Type', 'Area', 'Material', 'Qty', 'Notes'],
     field.transactions.map(t => [t.date, t.type, areaName(t.areaId), matLabel(t.materialId), num(t.qty), t.notes]))
-  section('Vendors', ['Name'], field.vendors.map(v => [v.name]))
+  section('Vendors', ['Name'], vendors.map(v => [v.name]))
   section('Purchase orders', ['PO #', 'Vendor', 'Description', 'Amount', 'Status', 'Required'],
-    field.purchaseOrders.map(p => [p.poNumber, (field.vendors.find(v => v.id === p.vendorId)?.name || ''), p.description, num(p.amount), p.status, p.requiredDate]))
+    field.purchaseOrders.map(p => [p.poNumber, vendorName(p.vendorId), p.description, num(p.amount), p.status, p.requiredDate]))
   section('Change orders', ['CO #', 'Description', 'Amount', 'Status'],
     field.changeOrders.map(c => [c.coNumber, c.description, num(c.amount), c.status]))
   section('Daily reports', ['Date', 'Weather', 'Crew', 'Work completed', 'Issues'],
@@ -146,8 +155,8 @@ function exportFieldCsv(project, field) {
   a.click(); URL.revokeObjectURL(url)
 }
 
-export default function JobManagement({ projectId, project }) {
-  const { updateProject } = useAppData()
+export default function JobManagement({ projectId, project, sheets }) {
+  const { updateProject, vendors, addVendor, deleteVendor } = useAppData()
   const [view, setView] = useState('overview')
 
   const field = project.field && project.field.seeded ? project.field : null
@@ -155,14 +164,34 @@ export default function JobManagement({ projectId, project }) {
   // Seed on first open (once), persisting the initial state.
   useEffect(() => {
     if (!project.field || !project.field.seeded) {
-      updateProject(projectId, { field: seedField(project) })
+      updateProject(projectId, { field: seedField(project, sheets) })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])
 
   const setField = (patch) => {
-    const base = project.field && project.field.seeded ? project.field : seedField(project)
+    const base = project.field && project.field.seeded ? project.field : seedField(project, sheets)
     updateProject(projectId, { field: { ...base, ...patch } })
+  }
+
+  // Pull any newly-drawn takeoff conditions into the material list without
+  // disturbing quantities the user has already logged or split.
+  const syncFromTakeoff = () => {
+    if (!field) return
+    const items = materialListItems(project, sheets)
+    const primary = field.areas[0]?.id || null
+    const materials = [...field.materials]
+    const requirements = [...field.requirements]
+    for (const it of items) {
+      const label = (it.code || it.description || '').toLowerCase()
+      const exists = materials.find(m => ((m.code || m.description || '').toLowerCase() === label) && m.unit === it.unit)
+      if (!exists) {
+        const m = { id: uid('mat'), code: it.code, description: it.description, unit: it.unit }
+        materials.push(m)
+        if (primary) requirements.push({ id: uid('req'), areaId: primary, materialId: m.id, requiredQty: it.qty })
+      }
+    }
+    setField({ materials, requirements })
   }
 
   // Totals — computed unconditionally so the hook count stays stable across the
@@ -216,14 +245,14 @@ export default function JobManagement({ projectId, project }) {
             )
           })}
         </div>
-        <Button variant="secondary" size="sm" iconLeft={<Download size={14} />} onClick={() => exportFieldCsv(project, field)}>Export CSV</Button>
+        <Button variant="secondary" size="sm" iconLeft={<Download size={14} />} onClick={() => exportFieldCsv(project, field, vendors)}>Export CSV</Button>
       </div>
 
       {view === 'overview'   && <Overview totals={totals} field={field} />}
       {view === 'areas'      && <Areas field={field} setField={setField} totals={totals} txTotal={txTotal} />}
-      {view === 'materials'  && <Materials field={field} setField={setField} areaName={areaName} txTotal={txTotal} />}
+      {view === 'materials'  && <Materials field={field} setField={setField} areaName={areaName} txTotal={txTotal} onSync={syncFromTakeoff} />}
       {view === 'deliveries' && <Deliveries field={field} setField={setField} areaName={areaName} materialLabel={materialLabel} />}
-      {view === 'procurement'&& <Procurement field={field} setField={setField} />}
+      {view === 'procurement'&& <Procurement field={field} setField={setField} vendors={vendors} addVendor={addVendor} deleteVendor={deleteVendor} />}
       {view === 'daily'      && <DailyReports field={field} setField={setField} />}
       {view === 'schedule'   && <Schedule field={field} setField={setField} areaName={areaName} />}
       {view === 'punch'      && <Punch field={field} setField={setField} areaName={areaName} />}
@@ -279,12 +308,56 @@ function AddRow({ fields, onAdd, addLabel = 'Add' }) {
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end', padding: '12px 16px', background: 'var(--surface-sunken)' }}>
       {fields.map(f => (
         <div key={f.key} style={{ flex: f.grow || '1 1 120px', minWidth: f.minWidth || 100 }}>
-          {f.options
-            ? <Select label={f.label} size="sm" value={vals[f.key]} onChange={e => set(f.key, e.target.value)} options={f.options} />
-            : <Input label={f.label} size="sm" type={f.type || 'text'} placeholder={f.placeholder} value={vals[f.key]} onChange={e => set(f.key, e.target.value)} />}
+          {f.search
+            ? <SearchableSelect label={f.label} value={vals[f.key]} options={f.options} onChange={v => set(f.key, v)} onCreate={f.onCreate} placeholder={f.placeholder} />
+            : f.options
+              ? <Select label={f.label} size="sm" value={vals[f.key]} onChange={e => set(f.key, e.target.value)} options={f.options} />
+              : <Input label={f.label} size="sm" type={f.type || 'text'} placeholder={f.placeholder} value={vals[f.key]} onChange={e => set(f.key, e.target.value)} />}
         </div>
       ))}
       <Button variant="primary" size="sm" iconLeft={<Plus size={14} />} onClick={submit}>{addLabel}</Button>
+    </div>
+  )
+}
+
+// A type-to-filter dropdown. `options` are { value, label }. Typing a value not
+// in the list and blurring/Entering calls onCreate(text) so new entries (e.g.
+// vendors) can be added inline.
+function SearchableSelect({ label, value, options, onChange, onCreate, placeholder }) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
+  const selected = options.find(o => o.value === value)
+  const shown = q.trim() ? options.filter(o => o.label.toLowerCase().includes(q.trim().toLowerCase())) : options
+  const exactExists = options.some(o => o.label.toLowerCase() === q.trim().toLowerCase())
+  return (
+    <div style={{ position: 'relative' }}>
+      {label && <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 4 }}>{label}</label>}
+      <input
+        value={open ? q : (selected?.label || '')}
+        placeholder={placeholder || 'Search…'}
+        onFocus={() => { setOpen(true); setQ('') }}
+        onChange={e => setQ(e.target.value)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onKeyDown={e => { if (e.key === 'Enter' && q.trim() && !exactExists && onCreate) { const id = onCreate(q.trim()); if (id) onChange(id); setOpen(false) } }}
+        style={{ width: '100%', boxSizing: 'border-box', fontSize: 13, padding: '7px 10px', borderRadius: 8, border: '1px solid var(--border-default)', background: 'var(--surface-card)', color: 'var(--text-strong)' }}
+      />
+      {open && (
+        <div style={{ position: 'absolute', zIndex: 30, top: '100%', left: 0, right: 0, marginTop: 4, maxHeight: 200, overflowY: 'auto', background: 'var(--surface-card)', border: '1px solid var(--border-default)', borderRadius: 8, boxShadow: 'var(--shadow-md)' }}>
+          {shown.map(o => (
+            <button key={o.value} onMouseDown={() => { onChange(o.value); setOpen(false) }}
+              style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px', fontSize: 13, background: o.value === value ? 'var(--surface-sunken)' : 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-strong)' }}>
+              {o.label}
+            </button>
+          ))}
+          {q.trim() && !exactExists && onCreate && (
+            <button onMouseDown={() => { const id = onCreate(q.trim()); if (id) onChange(id); setOpen(false) }}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left', padding: '8px 10px', fontSize: 13, background: 'transparent', border: 'none', borderTop: shown.length ? '1px solid var(--border-subtle)' : 'none', cursor: 'pointer', color: 'var(--brand-600)', fontWeight: 600 }}>
+              <Plus size={13} /> Add “{q.trim()}”
+            </button>
+          )}
+          {!shown.length && !q.trim() && <div style={{ padding: '8px 10px', fontSize: 12, color: 'var(--text-muted)' }}>No vendors yet — type to add.</div>}
+        </div>
+      )}
     </div>
   )
 }
@@ -377,7 +450,7 @@ function Areas({ field, setField, txTotal }) {
   )
 }
 
-function Materials({ field, setField, areaName, txTotal }) {
+function Materials({ field, setField, areaName, txTotal, onSync }) {
   const [expanded, setExpanded] = useState(() => new Set())
   const toggleExpand = (id) => setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   const addMaterial = (v) => setField({ materials: [...field.materials, { id: uid('mat'), code: v.code.trim(), description: v.description.trim(), unit: v.unit.trim() }] })
@@ -400,8 +473,10 @@ function Materials({ field, setField, areaName, txTotal }) {
   const reqFor = (materialId, areaId) => field.requirements.find(r => r.materialId === materialId && r.areaId === areaId)?.requiredQty ?? ''
   const colSpan = 9
   return (
-    <Card title="Materials — required vs installed" >
-      {field.materials.length === 0 ? <Empty>No materials. They seed from your MTO, or add one below.</Empty> : (
+    <Card title="Materials — required vs installed"
+      right={<Button variant="ghost" size="sm" iconLeft={<Download size={14} style={{ transform: 'rotate(180deg)' }} />} onClick={onSync}>Sync from takeoff</Button>}>
+
+      {field.materials.length === 0 ? <Empty>No materials yet. They seed from your Material List (takeoff) — use “Sync from takeoff”, or add one below.</Empty> : (
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr>
             <th style={{ ...th, width: 28 }}></th><th style={th}>Code</th><th style={th}>Description</th><th style={th}>Unit</th>
@@ -515,10 +590,10 @@ function Deliveries({ field, setField, areaName, materialLabel }) {
   )
 }
 
-function Procurement({ field, setField }) {
-  const addVendor = (v) => setField({ vendors: [...field.vendors, { id: uid('ven'), name: v.name.trim() }] })
-  const vendorOpts = field.vendors.map(v => ({ value: v.id, label: v.name }))
-  const vendorName = (id) => field.vendors.find(v => v.id === id)?.name || '—'
+function Procurement({ field, setField, vendors, addVendor, deleteVendor }) {
+  // Vendors are account-level and shared across every project.
+  const vendorOpts = vendors.map(v => ({ value: v.id, label: v.name }))
+  const vendorName = (id) => vendors.find(v => v.id === id)?.name || '—'
   const addPO = (v) => setField({ purchaseOrders: [...field.purchaseOrders, { id: uid('po'), vendorId: v.vendorId, poNumber: v.poNumber.trim(), description: v.description.trim(), amount: num(v.amount), status: v.status, requiredDate: v.requiredDate }] })
   const delPO = (id) => setField({ purchaseOrders: field.purchaseOrders.filter(p => p.id !== id) })
   const addCO = (v) => setField({ changeOrders: [...field.changeOrders, { id: uid('co'), coNumber: v.coNumber.trim(), description: v.description.trim(), amount: num(v.amount), status: v.status }] })
@@ -528,23 +603,23 @@ function Procurement({ field, setField }) {
   return (
     <>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 16, marginBottom: 20 }}>
-        <Stat label="Vendors" value={field.vendors.length} />
+        <Stat label="Vendors" value={vendors.length} />
         <Stat label="PO total" value={fmtMoney(poTotal)} accent />
         <Stat label="Change orders" value={fmtMoney(coTotal)} />
       </div>
 
-      <Card title="Vendors">
-        {field.vendors.length === 0 ? <Empty>No vendors yet.</Empty> : (
+      <Card title="Vendors" right={<span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Shared across all projects</span>}>
+        {vendors.length === 0 ? <Empty>No vendors yet.</Empty> : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '12px 16px' }}>
-            {field.vendors.map(v => (
+            {vendors.map(v => (
               <span key={v.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, background: 'var(--surface-sunken)', fontSize: 13, fontWeight: 600 }}>
                 {v.name}
-                <button onClick={() => setField({ vendors: field.vendors.filter(x => x.id !== v.id) })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', display: 'inline-flex' }}><Trash2 size={12} /></button>
+                <button onClick={() => deleteVendor(v.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', display: 'inline-flex' }}><Trash2 size={12} /></button>
               </span>
             ))}
           </div>
         )}
-        <AddRow fields={[{ key: 'name', label: 'Vendor name', required: true, grow: '1 1 240px' }]} onAdd={addVendor} addLabel="Add vendor" />
+        <AddRow fields={[{ key: 'name', label: 'Vendor name', required: true, grow: '1 1 240px' }]} onAdd={(v) => addVendor(v.name)} addLabel="Add vendor" />
       </Card>
 
       <Card title="Purchase orders">
@@ -569,7 +644,7 @@ function Procurement({ field, setField }) {
         <AddRow
           fields={[
             { key: 'poNumber', label: 'PO #', grow: '1 1 100px' },
-            { key: 'vendorId', label: 'Vendor', options: vendorOpts.length ? vendorOpts : [{ value: '', label: '— add a vendor —' }], default: vendorOpts[0]?.value, grow: '1 1 140px' },
+            { key: 'vendorId', label: 'Vendor', search: true, options: vendorOpts, onCreate: (name) => addVendor(name), placeholder: 'Search or add…', grow: '1 1 160px' },
             { key: 'description', label: 'Description', required: true, grow: '2 1 200px' },
             { key: 'amount', label: 'Amount', type: 'number', grow: '1 1 110px' },
             { key: 'status', label: 'Status', options: ['Draft', 'Issued', 'Received'], default: 'Draft', grow: '1 1 110px' },

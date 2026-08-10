@@ -147,8 +147,8 @@ export default function SheetPage() {
   const legendDragRef = useRef(null)  // { id, mode: 'move'|'resize', startX, startY, origX, origY, origW, origH }
 
   // ---- Scale ----
-  const [pxPerFt, setPxPerFt]   = useState(DEFAULT_PXFT)
-  const [calib, setCalib]       = useState(null)
+  const [pxPerFt, setPxPerFt]   = useState(() => sheets[sheetId]?.pxPerFt || DEFAULT_PXFT)
+  const [calib, setCalib]       = useState(() => sheets[sheetId]?.calib || null)
   const [scalePts, setScalePts]     = useState([])
   const [scaleDlg, setScaleDlg]     = useState(null)
   const [scaleVal, setScaleVal]     = useState('40')
@@ -438,10 +438,12 @@ export default function SheetPage() {
         savedAreaGroups: areaGroups,
         savedAreas: addedAreas,
         savedLines: addedLines,
+        pxPerFt,
+        calib,
       })
     }, 400)
     return () => clearTimeout(saveTimerRef.current)
-  }, [sheetId, countGroups, linearGroups, areaGroups, addedAreas, addedLines])
+  }, [sheetId, countGroups, linearGroups, areaGroups, addedAreas, addedLines, pxPerFt, calib])
 
   // Save active region poly to sheet whenever regionClosed changes (skip null to avoid Escape wiping saved regions)
   useEffect(() => {
