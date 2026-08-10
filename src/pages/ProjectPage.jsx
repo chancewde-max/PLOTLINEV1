@@ -312,10 +312,10 @@ export default function ProjectPage() {
               </button>
             </div>
             {pricebookView === 'proposal' && (
-              <ProposalEditor projectId={projectId} project={project} />
+              <ProposalEditor projectId={projectId} project={project} sheets={sheets} />
             )}
             {pricebookView === 'mto' && (
-              <MtoPanel projectId={projectId} project={project} />
+              <MtoPanel project={project} />
             )}
           </div>
         )}

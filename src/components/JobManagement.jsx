@@ -625,19 +625,44 @@ function Deliveries({ field, setField, areaName, materialLabel }) {
   const areaOpts = field.areas.map(a => ({ value: a.id, label: a.name }))
   const matOpts = field.materials.map(m => ({ value: m.id, label: m.code || m.description || 'Material' }))
   const [prefill, setPrefill] = useState(null)
+  const [expandedOrders, setExpandedOrders] = useState(() => new Set())
   const add = (v) => {
     const date = v.date || new Date().toISOString().slice(0, 10)
     const notes = v.notes.trim()
-    const newTx = v.items.map(it => ({ id: uid('tx'), areaId: v.areaId, materialId: it.materialId, type: v.type, qty: num(it.qty), date, notes }))
+    // Multi-item orders share an orderId so the log can show them as one
+    // collapsed entry instead of a wall of identical-looking rows.
+    const orderId = v.items.length > 1 ? uid('order') : null
+    const newTx = v.items.map(it => ({ id: uid('tx'), orderId, areaId: v.areaId, materialId: it.materialId, type: v.type, qty: num(it.qty), date, notes }))
     setField({ transactions: [...newTx, ...field.transactions] })
     setPrefill(null)
   }
   const del = (id) => setField({ transactions: field.transactions.filter(t => t.id !== id) })
+  const delOrder = (orderId) => setField({ transactions: field.transactions.filter(t => t.orderId !== orderId) })
   // Re-log an existing entry against the same area/material/qty, advanced to its
   // next stage (Ordered -> Delivered -> Installed) — e.g. one click to log the
   // delivery once an order comes in, without retyping area/material/qty.
   const repeat = (t) => setPrefill({ areaId: t.areaId, materialId: t.materialId, type: nextTxType(t.type), qty: t.qty })
+  const toggleOrder = (orderId) => setExpandedOrders(prev => { const n = new Set(prev); n.has(orderId) ? n.delete(orderId) : n.add(orderId); return n })
   const canAdd = field.areas.length > 0 && field.materials.length > 0
+
+  // Collapse the flat transaction list into single rows for un-grouped
+  // transactions and one row per order for grouped (multi-item) ones.
+  const rows = []
+  const seenOrders = new Set()
+  for (const t of field.transactions) {
+    if (t.orderId) {
+      if (seenOrders.has(t.orderId)) continue
+      seenOrders.add(t.orderId)
+      rows.push({ kind: 'order', orderId: t.orderId, date: t.date, type: t.type, areaId: t.areaId, notes: t.notes, items: field.transactions.filter(x => x.orderId === t.orderId) })
+    } else {
+      rows.push({ kind: 'single', tx: t })
+    }
+  }
+  const preview = (items) => {
+    const labels = items.map(it => materialLabel(it.materialId))
+    return labels.length > 3 ? `${labels.slice(0, 3).join(', ')} +${labels.length - 3} more` : labels.join(', ')
+  }
+
   return (
     <Card title="Orders & deliveries log">
       {!canAdd ? <Empty>Add at least one area and one material first.</Empty> : (
@@ -649,19 +674,54 @@ function Deliveries({ field, setField, areaName, materialLabel }) {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr><th style={th}>Date</th><th style={th}>Type</th><th style={th}>Area</th><th style={th}>Material</th><th style={th}>Qty</th><th style={th}>Notes</th><th style={th}></th></tr></thead>
           <tbody>
-            {field.transactions.map(t => (
-              <tr key={t.id}>
-                <td style={td}>{t.date}</td>
-                <td style={td}><span style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: 'var(--surface-sunken)', color: 'var(--text-body)' }}>{t.type}</span></td>
-                <td style={td}>{areaName(t.areaId)}</td>
-                <td style={td}>{materialLabel(t.materialId)}</td>
-                <td style={{ ...td, fontFamily: 'var(--font-mono)' }}>{num(t.qty).toLocaleString()}</td>
-                <td style={td}>{t.notes || '—'}</td>
+            {rows.map(r => r.kind === 'single' ? (
+              <tr key={r.tx.id}>
+                <td style={td}>{r.tx.date}</td>
+                <td style={td}><span style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: 'var(--surface-sunken)', color: 'var(--text-body)' }}>{r.tx.type}</span></td>
+                <td style={td}>{areaName(r.tx.areaId)}</td>
+                <td style={td}>{materialLabel(r.tx.materialId)}</td>
+                <td style={{ ...td, fontFamily: 'var(--font-mono)' }}>{num(r.tx.qty).toLocaleString()}</td>
+                <td style={td}>{r.tx.notes || '—'}</td>
                 <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
-                  <IconBtn icon={RotateCw} title={`Log as ${nextTxType(t.type)}…`} onClick={() => repeat(t)} />
-                  <DelBtn onClick={() => del(t.id)} />
+                  <IconBtn icon={RotateCw} title={`Log as ${nextTxType(r.tx.type)}…`} onClick={() => repeat(r.tx)} />
+                  <DelBtn onClick={() => del(r.tx.id)} />
                 </td>
               </tr>
+            ) : (
+              <React.Fragment key={r.orderId}>
+                <tr>
+                  <td style={td}>{r.date}</td>
+                  <td style={td}><span style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: 'var(--surface-sunken)', color: 'var(--text-body)' }}>{r.type}</span></td>
+                  <td style={td}>{areaName(r.areaId)}</td>
+                  <td style={td}>
+                    <button onClick={() => toggleOrder(r.orderId)}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'var(--text-strong)', fontSize: 13, fontWeight: 600 }}>
+                      {expandedOrders.has(r.orderId) ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                      {r.items.length} items
+                    </button>
+                    {!expandedOrders.has(r.orderId) && (
+                      <div style={{ fontSize: 12, color: 'var(--text-subtle)', marginTop: 2 }}>{preview(r.items)}</div>
+                    )}
+                  </td>
+                  <td style={{ ...td, fontFamily: 'var(--font-mono)' }}>{r.items.reduce((s, it) => s + num(it.qty), 0).toLocaleString()}</td>
+                  <td style={td}>{r.notes || '—'}</td>
+                  <td style={{ ...td, textAlign: 'right' }}><DelBtn onClick={() => delOrder(r.orderId)} /></td>
+                </tr>
+                {expandedOrders.has(r.orderId) && r.items.map(it => (
+                  <tr key={it.id} style={{ background: 'var(--surface-sunken)' }}>
+                    <td style={td}></td>
+                    <td style={td}></td>
+                    <td style={td}></td>
+                    <td style={{ ...td, paddingLeft: 30 }}>{materialLabel(it.materialId)}</td>
+                    <td style={{ ...td, fontFamily: 'var(--font-mono)' }}>{num(it.qty).toLocaleString()}</td>
+                    <td style={td}></td>
+                    <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <IconBtn icon={RotateCw} title={`Log as ${nextTxType(it.type)}…`} onClick={() => repeat(it)} />
+                      <DelBtn onClick={() => del(it.id)} />
+                    </td>
+                  </tr>
+                ))}
+              </React.Fragment>
             ))}
           </tbody>
         </table>

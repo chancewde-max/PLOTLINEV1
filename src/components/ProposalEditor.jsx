@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react'
 import {
   Plus, Trash2, RefreshCw, FileText, Save, Upload, Download, Printer,
-  Sparkles, ChevronDown, X, ImagePlus, Building2,
+  Sparkles, ChevronDown, X, ImagePlus, Building2, Package, GripVertical,
 } from 'lucide-react'
 import { useAppData } from '../data/useAppData.jsx'
+import { takeoffMaterialItems } from '../data/takeoff.js'
 import { Button } from './ui/Button.jsx'
 import { Input } from './ui/Input.jsx'
 import { Dialog } from './ui/Dialog.jsx'
@@ -135,7 +136,7 @@ function lineItemsFromMto(version) {
   return rows.length ? rows : null
 }
 
-export default function ProposalEditor({ projectId, project }) {
+export default function ProposalEditor({ projectId, project, sheets }) {
   const {
     proposalTemplates, addProposalTemplate, updateProposal,
     company, updateCompany,
@@ -256,6 +257,39 @@ export default function ProposalEditor({ projectId, project }) {
       'Refresh the Materials List from the current MTO? This replaces the table with the MTO data.'
     )
     if (confirmed) pullFromMto(true)
+  }
+
+  // --- Drag-and-drop materials picker ---
+  // Lists everything the project knows about (priced MTO rows + measured
+  // takeoff quantities) so a single item can be dragged onto the Materials
+  // List table instead of only bulk-overwriting it via Refresh from MTO.
+  const [showMaterials, setShowMaterials] = useState(false)
+  const pickerItems = useMemo(() => {
+    const merged = []
+    const seen = new Set()
+    const push = (it) => {
+      const label = (it.item || it.description || '').trim().toLowerCase()
+      const key = `${label}::${it.unit || ''}`
+      if (!label || seen.has(key)) return
+      seen.add(key)
+      merged.push(it)
+    }
+    ;(lineItemsFromMto(currentMto) || []).forEach(push)
+    takeoffMaterialItems(project, sheets).forEach((t) =>
+      push({ item: t.code, description: t.description, qty: t.qty === 0 ? '' : String(t.qty), unit: t.unit, unitPrice: '' })
+    )
+    return merged
+  }, [currentMto, project, sheets])
+
+  const dropMaterialItem = (raw) => {
+    let data
+    try { data = JSON.parse(raw) } catch { return }
+    const newLine = { item: data.item || '', description: data.description || '', qty: data.qty || '', unit: data.unit || '', unitPrice: data.unitPrice || '' }
+    const emptyIdx = doc.lineItems.findIndex((li) => !li.item && !li.description && !li.qty && !li.unitPrice)
+    const lineItems = emptyIdx >= 0
+      ? doc.lineItems.map((li, i) => (i === emptyIdx ? newLine : li))
+      : [...doc.lineItems, newLine]
+    patch({ lineItems })
   }
 
   // ----- Scope sections -----
@@ -447,6 +481,9 @@ export default function ProposalEditor({ projectId, project }) {
           {dirty && <span className={s.savedPill}>Saved</span>}
         </div>
         <div className={s.toolActions}>
+          <Button variant={showMaterials ? 'primary' : 'ghost'} size="sm" iconLeft={<Package size={15} />} onClick={() => setShowMaterials(v => !v)}>
+            Materials
+          </Button>
           <Button variant="ghost" size="sm" iconLeft={<RefreshCw size={15} />} onClick={handleRefreshFromMto}>
             Refresh from MTO
           </Button>
@@ -483,6 +520,30 @@ export default function ProposalEditor({ projectId, project }) {
       {logoErr && (
         <div className={s.errorBar}>
           <X size={14} /> {logoErr}
+        </div>
+      )}
+
+      {showMaterials && (
+        <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', padding: '12px 16px', boxShadow: 'var(--shadow-sm)' }}>
+          <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-subtle)', marginBottom: 8 }}>
+            Drag a material into the Materials List below
+          </div>
+          {pickerItems.length === 0 ? (
+            <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>No materials yet — measure a takeoff condition or upload a material list to see items here.</div>
+          ) : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {pickerItems.map((it, i) => (
+                <div key={i} draggable
+                  onDragStart={(e) => e.dataTransfer.setData('text/plain', JSON.stringify(it))}
+                  title="Drag into the Materials List"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border-default)', background: 'var(--surface-sunken)', fontSize: 12, cursor: 'grab' }}>
+                  <GripVertical size={12} style={{ color: 'var(--text-subtle)' }} />
+                  <span style={{ fontWeight: 600, color: 'var(--text-strong)' }}>{it.item || it.description || 'Material'}</span>
+                  {it.qty !== '' && <span style={{ color: 'var(--text-muted)' }}>· {it.qty}{it.unit ? ` ${it.unit}` : ''}</span>}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -803,7 +864,11 @@ export default function ProposalEditor({ projectId, project }) {
                 Refresh from MTO
               </Button>
             </div>
-            <div className={s.tableWrap}>
+            <div
+              className={s.tableWrap}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => { e.preventDefault(); dropMaterialItem(e.dataTransfer.getData('text/plain')) }}
+            >
               <table className={s.docTable}>
                 <thead>
                   <tr>
