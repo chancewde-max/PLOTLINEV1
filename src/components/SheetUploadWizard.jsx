@@ -372,6 +372,21 @@ function DropZone({ onFiles }) {
   )
 }
 
+// Cache of rendered full-page canvases, keyed by fileId+pageIndex, so
+// navigating back and forth between pages already visited in the area
+// picker (Prev/Next) is instant instead of re-running a full pdf.js render
+// every time — on a real CAD-exported sheet with heavy vector content that
+// render is expensive enough to make "moving around" between pages feel
+// slow. Capped so a large plan set can't grow this unbounded.
+const PAGE_CANVAS_CACHE_MAX = 24
+const pageCanvasCache = new Map()
+function cachePageCanvas(key, canvas) {
+  pageCanvasCache.set(key, canvas)
+  if (pageCanvasCache.size > PAGE_CANVAS_CACHE_MAX) {
+    pageCanvasCache.delete(pageCanvasCache.keys().next().value)
+  }
+}
+
 // ---- Full-page area picker --------------------------------------------------
 // Shows the actual PDF at full resolution; user draws a rect; can navigate pages.
 // On "Save and apply" the rect is applied to all selected pages (passed as `pages`).
@@ -400,6 +415,29 @@ function FullPageAreaPicker({ pages, startIndex = 0, field, onSave, onCancel }) 
   scaleRef.current = scale
   panRef.current = pan
 
+  // rAF handle for coalescing pan/zoom state commits (see onWheel/onMouseMove
+  // below) — raw mousemove/wheel events can fire far faster than the screen
+  // repaints, so committing React state on every single one queued up a
+  // backlog of re-renders that made panning/zooming around a sheet feel
+  // sluggish. The transform itself is still applied on every event (directly
+  // to the DOM node, no re-render), just the state sync is capped to once
+  // per frame.
+  const transformRafRef = useRef(null)
+  const applyTransform = () => {
+    if (canvasWrapRef.current) {
+      canvasWrapRef.current.style.transform = `translate(${panRef.current.x}px,${panRef.current.y}px) scale(${scaleRef.current})`
+    }
+  }
+  const scheduleTransformCommit = () => {
+    if (transformRafRef.current != null) return
+    transformRafRef.current = requestAnimationFrame(() => {
+      transformRafRef.current = null
+      setScale(scaleRef.current)
+      setPan(panRef.current)
+    })
+  }
+  useEffect(() => () => { if (transformRafRef.current != null) cancelAnimationFrame(transformRafRef.current) }, [])
+
   const page = pages[idx]
 
   // Space key for pan mode
@@ -411,16 +449,25 @@ function FullPageAreaPicker({ pages, startIndex = 0, field, onSave, onCancel }) 
     return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up) }
   }, [])
 
-  // Render the current page at full res
+  // Render the current page at full res (or reuse an already-rendered one)
   useEffect(() => {
     if (!page) return
-    setLoading(true); setCanvas(null); setRect(null); setPreview(null); setExtracted(null)
+    setRect(null); setPreview(null); setExtracted(null)
     setScale(1); setPan({ x: 0, y: 0 })
+    const cacheKey = `${page.fileId}:${page.pageIndex}`
+    const cached = pageCanvasCache.get(cacheKey)
+    if (cached) {
+      canvasCssSizeRef.current = { w: parseFloat(cached.style.width) || cached.width, h: parseFloat(cached.style.height) || cached.height }
+      setCanvas(cached); setLoading(false)
+      return
+    }
+    setLoading(true); setCanvas(null)
     const bytes = pdfCache.get(page.fileId)
     if (!bytes) { setLoading(false); return }
     let cancelled = false
     renderPageFull(page.fileId, bytes, page.pageIndex).then(c => {
       if (!cancelled) {
+        cachePageCanvas(cacheKey, c)
         canvasCssSizeRef.current = { w: parseFloat(c.style.width) || c.width, h: parseFloat(c.style.height) || c.height }
         setCanvas(c); setLoading(false)
       }
@@ -448,11 +495,10 @@ function FullPageAreaPicker({ pages, startIndex = 0, field, onSave, onCancel }) 
     const zoomFactor = delta > 0 ? 1.08 : 1 / 1.08
     const newScale = Math.max(0.25, Math.min(8, scaleRef.current * zoomFactor))
     const ratio = newScale / scaleRef.current
-    setPan(p => ({
-      x: mouseX - ratio * (mouseX - p.x),
-      y: mouseY - ratio * (mouseY - p.y),
-    }))
-    setScale(newScale)
+    panRef.current = { x: mouseX - ratio * (mouseX - panRef.current.x), y: mouseY - ratio * (mouseY - panRef.current.y) }
+    scaleRef.current = newScale
+    applyTransform()
+    scheduleTransformCommit()
   }, [])
 
   useEffect(() => {
@@ -493,7 +539,9 @@ function FullPageAreaPicker({ pages, startIndex = 0, field, onSave, onCancel }) 
 
   const onMouseMove = useCallback(e => {
     if (panning) {
-      setPan({ x: panning.panX + e.clientX - panning.startX, y: panning.panY + e.clientY - panning.startY })
+      panRef.current = { x: panning.panX + e.clientX - panning.startX, y: panning.panY + e.clientY - panning.startY }
+      applyTransform()
+      scheduleTransformCommit()
       return
     }
     if (!dragging) return
@@ -620,7 +668,7 @@ function CropPreview({ page, rect }) {
 function SheetRow({ page, field, checked, onCheck, onUpdate, onRemove, rowH, onPickArea }) {
   const thumbH = rowH
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '36px minmax(120px,1.2fr) minmax(80px,1fr) 1fr 32px', gap: 0, alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', background: checked ? 'var(--brand-50)' : 'transparent', transition: 'background 0.1s' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '36px minmax(120px,1.2fr) minmax(80px,1fr) 1fr 32px', gap: 0, alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', background: checked ? 'color-mix(in srgb, var(--brand-600) 10%, var(--surface-card))' : 'transparent', transition: 'background 0.1s' }}>
       {/* Checkbox */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: thumbH + 20 }}>
         <input type="checkbox" checked={checked} onChange={e => onCheck(e.target.checked)}
@@ -632,8 +680,8 @@ function SheetRow({ page, field, checked, onCheck, onUpdate, onRemove, rowH, onP
           <img src={page.thumb} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top', display: 'block' }} />
         </div>
         <div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-strong)', wordBreak: 'break-word', lineHeight: 1.3 }}>{page.fileName}</div>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Page {page.pageIndex}{page.totalPages > 1 ? ` of ${page.totalPages}` : ''}</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-strong)', wordBreak: 'break-word', lineHeight: 1.35 }}>{page.fileName}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Page {page.pageIndex}{page.totalPages > 1 ? ` of ${page.totalPages}` : ''}</div>
         </div>
       </div>
       {/* Area crop preview — rendered from PDF at full resolution */}
@@ -643,10 +691,11 @@ function SheetRow({ page, field, checked, onCheck, onUpdate, onRemove, rowH, onP
       {/* Editable field */}
       <div style={{ padding: '0 8px' }}>
         <input
+          className="plw-field-input"
           value={field === 'sheetNum' ? page.sheetNum : page.title}
           onChange={e => onUpdate(page.id, field === 'sheetNum' ? 'sheetNum' : 'title', e.target.value)}
           placeholder={field === 'sheetNum' ? 'e.g. L0.00' : 'Sheet title…'}
-          style={{ width: '100%', padding: '6px 10px', fontSize: 13, fontFamily: field === 'sheetNum' ? 'var(--font-mono)' : undefined, border: '1px solid var(--border-default)', borderRadius: 6, background: 'var(--surface-card)', color: 'var(--text-strong)', outline: 'none', boxSizing: 'border-box' }}
+          style={{ width: '100%', padding: '7px 10px', fontSize: 14, fontWeight: field === 'sheetNum' ? 600 : 500, fontFamily: field === 'sheetNum' ? 'var(--font-mono)' : undefined, border: '1px solid var(--border-default)', borderRadius: 6, background: 'var(--surface-card)', color: 'var(--text-strong)', outline: 'none', boxSizing: 'border-box' }}
         />
       </div>
       {/* Remove */}
@@ -655,6 +704,44 @@ function SheetRow({ page, field, checked, onCheck, onUpdate, onRemove, rowH, onP
           <X size={14} />
         </button>
       </div>
+    </div>
+  )
+}
+
+// ---- Files step summary ------------------------------------------------------
+// Shown once files have been processed, so the wizard stays on "Files" until
+// the estimator explicitly clicks Next rather than jumping straight to
+// "Sheet numbers" the moment processing finishes.
+function FilesSummary({ pages, onAddMore, onRemoveFile }) {
+  const inputRef = useRef(null)
+  const groups = []
+  const indexByName = new Map()
+  for (const p of pages) {
+    if (!indexByName.has(p.fileName)) { indexByName.set(p.fileName, groups.length); groups.push({ fileName: p.fileName, count: 0, thumb: p.thumb }) }
+    groups[indexByName.get(p.fileName)].count++
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '4px 0' }}>
+      {groups.map(g => (
+        <div key={g.fileName} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', border: '1px solid var(--border-subtle)', borderRadius: 8, background: 'var(--surface-sunken)' }}>
+          <div style={{ width: 40, height: 52, flexShrink: 0, borderRadius: 4, overflow: 'hidden', background: '#f5f5f3', border: '1px solid var(--border-subtle)' }}>
+            <img src={g.thumb} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top', display: 'block' }} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-strong)', wordBreak: 'break-word' }}>{g.fileName}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{g.count} page{g.count !== 1 ? 's' : ''}</div>
+          </div>
+          <button onClick={() => onRemoveFile(g.fileName)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', padding: 4, borderRadius: 4, display: 'flex', flexShrink: 0 }}>
+            <X size={16} />
+          </button>
+        </div>
+      ))}
+      <button onClick={() => inputRef.current?.click()}
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '10px', border: '1px dashed var(--border-strong)', borderRadius: 8, background: 'transparent', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'var(--text-muted)' }}>
+        <Upload size={14} /> Add more files
+      </button>
+      <input ref={inputRef} type="file" accept=".pdf" multiple style={{ display: 'none' }}
+        onChange={e => { const files = Array.from(e.target.files).filter(f => f.type === 'application/pdf'); if (files.length) onAddMore(files); e.target.value = '' }} />
     </div>
   )
 }
@@ -698,30 +785,37 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
   const reset = () => { setStep(0); setPages([]); setProcessing(false); setPickerField(null); setSelected(new Set()); setVersionSetName('') }
   const handleClose = () => { reset(); onClose() }
 
+  // Adds files to the current set without leaving the Files step — the
+  // wizard only advances to Sheet numbers when the estimator clicks Next,
+  // so they get a chance to review/remove files first.
   const handleFiles = async (files) => {
     setProcessing(true)
-    const allPages = []
+    const newPages = []
     for (let i = 0; i < files.length; i++) {
       const fileName = files[i].name
       setProcessingMsg(`Reading ${fileName}…`)
       const pgs = await processPdfFile(files[i], (done, total) => {
         setProcessingMsg(`${fileName} — page ${done} of ${total}…`)
       })
-      allPages.push(...pgs)
+      newPages.push(...pgs)
     }
-    // Pre-fill the version-set name with the uploaded PDF's base name.
-    // If multiple files were dropped, use the first one as the default suggestion.
-    if (allPages.length > 0) {
+    // Pre-fill the version-set name with the first uploaded PDF's base name,
+    // but only if nothing's been typed there yet.
+    if (newPages.length > 0 && !versionSetName) {
       setVersionSetName(files[0].name.replace(/\.pdf$/i, ''))
     }
-    setPages(allPages)
-    setSelected(new Set(allPages.map(p => p.id)))
+    setPages(ps => [...ps, ...newPages])
+    setSelected(s => new Set([...s, ...newPages.map(p => p.id)]))
     setProcessing(false)
-    setStep(1)
   }
 
   const updatePage = (id, field, value) => setPages(ps => ps.map(p => p.id === id ? { ...p, [field]: value } : p))
   const removePage = (id) => { setPages(ps => ps.filter(p => p.id !== id)); setSelected(s => { const n = new Set(s); n.delete(id); return n }) }
+  const removeFile = (fileName) => {
+    const removedIds = pages.filter(p => p.fileName === fileName).map(p => p.id)
+    setPages(ps => ps.filter(p => p.fileName !== fileName))
+    setSelected(s => { const n = new Set(s); removedIds.forEach(id => n.delete(id)); return n })
+  }
 
   const allChecked = pages.length > 0 && pages.every(p => selected.has(p.id))
   const toggleAll = () => setSelected(allChecked ? new Set() : new Set(pages.map(p => p.id)))
@@ -872,6 +966,8 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
                     </div>
                   ))}
                 </div>
+              ) : pages.length > 0 ? (
+                <FilesSummary pages={pages} onAddMore={handleFiles} onRemoveFile={removeFile} />
               ) : <DropZone onFiles={handleFiles} />
             )}
 
@@ -898,9 +994,9 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
                 {/* Column headers */}
                 <div style={{ display: 'grid', gridTemplateColumns: '36px minmax(120px,1.2fr) minmax(80px,1fr) 1fr 32px', gap: 0, padding: '6px 0 4px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
                   <div />
-                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', paddingLeft: 0 }}>File / Thumbnail</div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Area preview</div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{step === 1 ? 'Sheet number' : 'Title'}</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-body)', textTransform: 'uppercase', letterSpacing: '0.06em', paddingLeft: 0 }}>File / Thumbnail</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-body)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Area preview</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-body)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{step === 1 ? 'Sheet number' : 'Title'}</div>
                   <div />
                 </div>
 
@@ -962,7 +1058,13 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
               <Button variant="ghost" onClick={step === 0 ? handleClose : () => setStep(s => s - 1)}>
                 {step === 0 ? 'Cancel' : 'Back'}
               </Button>
-              {step === 0 && !processing && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Select files to continue</span>}
+              {step === 0 && !processing && (
+                pages.length > 0 ? (
+                  <Button variant="primary" iconRight={<ChevronRight size={15} />} onClick={() => setStep(1)}>
+                    Next to sheet numbers
+                  </Button>
+                ) : <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Select files to continue</span>
+              )}
               {step === 1 && (
                 <Button variant="primary" iconRight={<ChevronRight size={15} />} onClick={() => setStep(2)} disabled={pages.length === 0}>
                   Next to titles
@@ -983,7 +1085,10 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
         </div>
       </div>
 
-      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg) } }
+        .plw-field-input::placeholder { color: var(--text-subtle); opacity: 1; }
+      `}</style>
     </>
   )
 }
