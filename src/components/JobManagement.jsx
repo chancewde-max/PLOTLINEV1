@@ -2,6 +2,7 @@ import React, { useMemo, useState, useEffect } from 'react'
 import {
   LayoutDashboard, MapPin, Package, Truck, ShoppingCart, ClipboardList,
   CalendarDays, ListChecks, Users, ClipboardCheck, Plus, Trash2,
+  Download, ChevronRight, ChevronDown,
 } from 'lucide-react'
 import { Button } from './ui/Button.jsx'
 import { Input } from './ui/Input.jsx'
@@ -96,6 +97,55 @@ function seedField(project) {
 const fmtMoney = (n) => `$${(Number(n) || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
 const num = (v) => { const n = parseFloat(v); return isFinite(n) ? n : 0 }
 
+// Build a multi-section CSV of the whole field workspace and download it.
+function exportFieldCsv(project, field) {
+  const areaName = (id) => field.areas.find(a => a.id === id)?.name || ''
+  const matLabel = (id) => { const m = field.materials.find(x => x.id === id); return m ? (m.code || m.description || '') : '' }
+  const tot = (materialId, type) => field.transactions.filter(t => t.materialId === materialId && t.type === type).reduce((s, t) => s + num(t.qty), 0)
+  const rows = []
+  const section = (title, header, data) => {
+    rows.push([title]); rows.push(header)
+    if (data.length) data.forEach(r => rows.push(r)); else rows.push(['(none)'])
+    rows.push([])
+  }
+  rows.push(['Job Management Export', project.name, new Date().toLocaleDateString()]); rows.push([])
+
+  section('Areas', ['#', 'Area'], field.areas.map((a, i) => [i + 1, a.name]))
+  section('Materials', ['Code', 'Description', 'Unit', 'Required', 'Ordered', 'Delivered', 'Installed', 'Remaining'],
+    field.materials.map(m => {
+      const required = field.requirements.filter(r => r.materialId === m.id).reduce((s, r) => s + num(r.requiredQty), 0)
+      const installed = tot(m.id, 'Installed')
+      return [m.code, m.description, m.unit, required, tot(m.id, 'Ordered'), tot(m.id, 'Delivered'), installed, required - installed]
+    }))
+  section('Material requirements by area', ['Material', 'Area', 'Required'],
+    field.requirements.map(r => [matLabel(r.materialId), areaName(r.areaId), num(r.requiredQty)]))
+  section('Transactions', ['Date', 'Type', 'Area', 'Material', 'Qty', 'Notes'],
+    field.transactions.map(t => [t.date, t.type, areaName(t.areaId), matLabel(t.materialId), num(t.qty), t.notes]))
+  section('Vendors', ['Name'], field.vendors.map(v => [v.name]))
+  section('Purchase orders', ['PO #', 'Vendor', 'Description', 'Amount', 'Status', 'Required'],
+    field.purchaseOrders.map(p => [p.poNumber, (field.vendors.find(v => v.id === p.vendorId)?.name || ''), p.description, num(p.amount), p.status, p.requiredDate]))
+  section('Change orders', ['CO #', 'Description', 'Amount', 'Status'],
+    field.changeOrders.map(c => [c.coNumber, c.description, num(c.amount), c.status]))
+  section('Daily reports', ['Date', 'Weather', 'Crew', 'Work completed', 'Issues'],
+    field.dailyReports.map(d => [d.date, d.weather, d.manpower, d.workCompleted, d.issues]))
+  section('Schedule', ['Task', 'Area', 'Start', 'End', 'Status'],
+    field.scheduleTasks.map(t => [t.name, areaName(t.areaId), t.start, t.end, t.status]))
+  section('Punch list', ['Item', 'Area', 'Priority', 'Status', 'Due'],
+    field.punchItems.map(p => [p.title, areaName(p.areaId), p.priority, p.status, p.dueDate]))
+  section('Crew', ['Name', 'Role', 'Phone', 'Status'], field.crew.map(c => [c.name, c.role, c.phone, c.status]))
+  section('Equipment log', ['Date', 'Equipment', 'Operator', 'Hours', 'Condition'],
+    field.equipmentLogs.map(e => [e.date, e.name, e.operator, num(e.hours), e.condition]))
+  section('Inspections', ['Date', 'Type', 'Area', 'Inspector', 'Result'],
+    field.inspections.map(i => [i.date, i.type, areaName(i.areaId), i.inspector, i.result]))
+
+  const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n')
+  const blob = new Blob([csv], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = `Job-${project.name}.csv`.replace(/\s+/g, '_')
+  a.click(); URL.revokeObjectURL(url)
+}
+
 export default function JobManagement({ projectId, project }) {
   const { updateProject } = useAppData()
   const [view, setView] = useState('overview')
@@ -144,23 +194,26 @@ export default function JobManagement({ projectId, project }) {
   return (
     <div>
       {/* Sub-nav */}
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 20 }}>
-        {MODULES.map(m => {
-          const on = view === m.id
-          const Icon = m.Icon
-          return (
-            <button key={m.id} onClick={() => setView(m.id)}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px',
-                borderRadius: 999, fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                border: `1.5px solid ${on ? 'var(--brand-600)' : 'var(--border-default)'}`,
-                background: on ? 'var(--brand-600)' : 'transparent',
-                color: on ? '#fff' : 'var(--text-body)',
-              }}>
-              <Icon size={14} /> {m.label}
-            </button>
-          )
-        })}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 20 }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', flex: 1 }}>
+          {MODULES.map(m => {
+            const on = view === m.id
+            const Icon = m.Icon
+            return (
+              <button key={m.id} onClick={() => setView(m.id)}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px',
+                  borderRadius: 999, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                  border: `1.5px solid ${on ? 'var(--brand-600)' : 'var(--border-default)'}`,
+                  background: on ? 'var(--brand-600)' : 'transparent',
+                  color: on ? '#fff' : 'var(--text-body)',
+                }}>
+                <Icon size={14} /> {m.label}
+              </button>
+            )
+          })}
+        </div>
+        <Button variant="secondary" size="sm" iconLeft={<Download size={14} />} onClick={() => exportFieldCsv(project, field)}>Export CSV</Button>
       </div>
 
       {view === 'overview'   && <Overview totals={totals} field={field} />}
@@ -322,18 +375,33 @@ function Areas({ field, setField, txTotal }) {
 }
 
 function Materials({ field, setField, areaName, txTotal }) {
+  const [expanded, setExpanded] = useState(() => new Set())
+  const toggleExpand = (id) => setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   const addMaterial = (v) => setField({ materials: [...field.materials, { id: uid('mat'), code: v.code.trim(), description: v.description.trim(), unit: v.unit.trim() }] })
   const delMaterial = (id) => setField({
     materials: field.materials.filter(m => m.id !== id),
     requirements: field.requirements.filter(r => r.materialId !== id),
     transactions: field.transactions.filter(t => t.materialId !== id),
   })
+  // Set the required quantity for a (material, area) pair — create, update, or
+  // drop the requirement row.
+  const setReq = (materialId, areaId, val) => {
+    const q = num(val)
+    const others = field.requirements.filter(r => !(r.materialId === materialId && r.areaId === areaId))
+    const existing = field.requirements.find(r => r.materialId === materialId && r.areaId === areaId)
+    const next = q > 0
+      ? [...others, { id: existing?.id || uid('req'), areaId, materialId, requiredQty: q }]
+      : others
+    setField({ requirements: next })
+  }
+  const reqFor = (materialId, areaId) => field.requirements.find(r => r.materialId === materialId && r.areaId === areaId)?.requiredQty ?? ''
+  const colSpan = 9
   return (
     <Card title="Materials — required vs installed" >
       {field.materials.length === 0 ? <Empty>No materials. They seed from your MTO, or add one below.</Empty> : (
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr>
-            <th style={th}>Code</th><th style={th}>Description</th><th style={th}>Unit</th>
+            <th style={{ ...th, width: 28 }}></th><th style={th}>Code</th><th style={th}>Description</th><th style={th}>Unit</th>
             <th style={th}>Required</th><th style={th}>Ordered</th><th style={th}>Delivered</th><th style={th}>Installed</th><th style={th}>Remaining</th><th style={th}></th>
           </tr></thead>
           <tbody>
@@ -341,18 +409,48 @@ function Materials({ field, setField, areaName, txTotal }) {
               const required = field.requirements.filter(r => r.materialId === m.id).reduce((s, r) => s + num(r.requiredQty), 0)
               const tot = (type) => field.transactions.filter(t => t.materialId === m.id && t.type === type).reduce((s, t) => s + num(t.qty), 0)
               const installed = tot('Installed')
+              const isOpen = expanded.has(m.id)
               return (
-                <tr key={m.id}>
-                  <td style={{ ...td, fontFamily: 'var(--font-mono)' }}>{m.code || '—'}</td>
-                  <td style={td}>{m.description || '—'}</td>
-                  <td style={td}>{m.unit || '—'}</td>
-                  <td style={td}>{required.toLocaleString()}</td>
-                  <td style={td}>{tot('Ordered').toLocaleString()}</td>
-                  <td style={td}>{tot('Delivered').toLocaleString()}</td>
-                  <td style={td}>{installed.toLocaleString()}</td>
-                  <td style={{ ...td, fontWeight: 700, color: (required - installed) > 0 ? 'var(--text-strong)' : 'var(--brand-600)' }}>{(required - installed).toLocaleString()}</td>
-                  <td style={{ ...td, textAlign: 'right' }}><DelBtn onClick={() => delMaterial(m.id)} /></td>
-                </tr>
+                <React.Fragment key={m.id}>
+                  <tr>
+                    <td style={{ ...td, textAlign: 'center' }}>
+                      <button onClick={() => toggleExpand(m.id)} title="Split required qty by area"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', display: 'inline-flex', padding: 0 }}>
+                        {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                      </button>
+                    </td>
+                    <td style={{ ...td, fontFamily: 'var(--font-mono)' }}>{m.code || '—'}</td>
+                    <td style={td}>{m.description || '—'}</td>
+                    <td style={td}>{m.unit || '—'}</td>
+                    <td style={td}>{required.toLocaleString()}</td>
+                    <td style={td}>{tot('Ordered').toLocaleString()}</td>
+                    <td style={td}>{tot('Delivered').toLocaleString()}</td>
+                    <td style={td}>{installed.toLocaleString()}</td>
+                    <td style={{ ...td, fontWeight: 700, color: (required - installed) > 0 ? 'var(--text-strong)' : 'var(--brand-600)' }}>{(required - installed).toLocaleString()}</td>
+                    <td style={{ ...td, textAlign: 'right' }}><DelBtn onClick={() => delMaterial(m.id)} /></td>
+                  </tr>
+                  {isOpen && (
+                    <tr>
+                      <td style={{ padding: 0, background: 'var(--surface-sunken)' }} colSpan={colSpan + 1}>
+                        <div style={{ padding: '10px 16px' }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-subtle)', marginBottom: 8 }}>Required quantity by area</div>
+                          {field.areas.length === 0 ? <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Add areas first.</div> : (
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10 }}>
+                              {field.areas.map(a => (
+                                <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <span style={{ flex: 1, fontSize: 13, color: 'var(--text-body)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.name}</span>
+                                  <input type="number" value={reqFor(m.id, a.id)} placeholder="0"
+                                    onChange={e => setReq(m.id, a.id, e.target.value)}
+                                    style={{ width: 80, fontFamily: 'var(--font-mono)', fontSize: 13, padding: '5px 8px', borderRadius: 6, border: '1px solid var(--border-default)', background: 'var(--surface-card)', color: 'var(--text-strong)' }} />
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
               )
             })}
           </tbody>
