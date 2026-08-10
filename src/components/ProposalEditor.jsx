@@ -278,6 +278,17 @@ export default function ProposalEditor({ projectId, project, sheets }) {
     takeoffMaterialItems(project, sheets).forEach((t) =>
       push({ item: t.code, description: t.description, qty: t.qty === 0 ? '' : String(t.qty), unit: t.unit, unitPrice: '' })
     )
+    // Materials added by hand (or split into areas) on the Job Management
+    // workspace — a separate source from the takeoff/MTO for contracted jobs.
+    const field = project?.field
+    if (field?.materials?.length) {
+      field.materials.forEach((m) => {
+        const required = (field.requirements || [])
+          .filter((r) => r.materialId === m.id)
+          .reduce((sum, r) => sum + (Number(r.requiredQty) || 0), 0)
+        push({ item: m.code, description: m.description, qty: required ? String(required) : '', unit: m.unit, unitPrice: '' })
+      })
+    }
     return merged
   }, [currentMto, project, sheets])
 
