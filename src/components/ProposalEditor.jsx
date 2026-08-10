@@ -18,10 +18,11 @@ import s from './ProposalEditor.module.css'
    fully editable via structured inputs / textareas / editable tables.
    ============================================================ */
 
-// Custom drag MIME type for the materials picker — deliberately NOT
-// 'text/plain', which browsers auto-insert into any text input/textarea a
-// chip gets dropped on (e.g. a scope bullet), dumping raw JSON into it.
+// Custom drag MIME types for the materials/phrases pickers — deliberately
+// NOT 'text/plain', which browsers auto-insert into any text input/textarea
+// a chip gets dropped on (e.g. a scope bullet), dumping raw data into it.
 const MATERIAL_MIME = 'application/x-plotline-material'
+const PHRASE_MIME = 'application/x-plotline-phrase'
 
 // Canonical proposal line-item (Materials List row) shape.
 const emptyLine = () => ({ item: '', description: '', qty: '', unit: '', unitPrice: '' })
@@ -162,7 +163,6 @@ export default function ProposalEditor({ projectId, project, sheets }) {
   const [saveTplOpen, setSaveTplOpen] = useState(false)
   const [tplName, setTplName] = useState('')
   const [loadOpen, setLoadOpen] = useState(false)
-  const [phrasesOpen, setPhrasesOpen] = useState(false)
   const [newPhraseText, setNewPhraseText] = useState('')
   const importRef = useRef(null)
   const logoRef = useRef(null)
@@ -267,11 +267,14 @@ export default function ProposalEditor({ projectId, project, sheets }) {
     if (confirmed) pullFromMto(true)
   }
 
-  // --- Drag-and-drop materials picker ---
+  // --- Drag-and-drop pickers (Materials / Template Phrases) ---
+  // Only one panel shown at a time — both are sticky near the top, and
+  // showing both together would overlap since they'd share the same
+  // sticky offset.
+  const [activePanel, setActivePanel] = useState(null) // 'materials' | 'phrases' | null
   // Lists everything the project knows about (priced MTO rows + measured
   // takeoff quantities) so a single item can be dragged onto the Materials
   // List table instead of only bulk-overwriting it via Refresh from MTO.
-  const [showMaterials, setShowMaterials] = useState(false)
   const pickerItems = useMemo(() => {
     const merged = []
     const seen = new Set()
@@ -330,14 +333,37 @@ export default function ProposalEditor({ projectId, project, sheets }) {
       ? `Additional (${qty}) ${data.unit || ''} of ${label}`.replace(/\s+/g, ' ').trim()
       : label
   }
-  const dropMaterialOnBullet = (scopeId, kind, idx, raw) => {
-    let data
-    try { data = JSON.parse(raw) } catch { return }
-    if (!data.item && !data.description) return
+  // Shared by every bullet drop target (scope Inclusions/Exclusions, General
+  // clarifications): a dropped chip is either a material (JSON payload) or a
+  // template phrase (plain text) depending on which MIME type is present.
+  const bulletTextForDrop = (dataTransfer) => {
+    const matRaw = dataTransfer.getData(MATERIAL_MIME)
+    if (matRaw) {
+      let data
+      try { data = JSON.parse(matRaw) } catch { return null }
+      if (!data.item && !data.description) return null
+      return { text: materialBulletText(data), lineItemData: data }
+    }
+    const phraseText = dataTransfer.getData(PHRASE_MIME)
+    return phraseText ? { text: phraseText, lineItemData: null } : null
+  }
+  const dropOnScopeBullet = (scopeId, kind, idx, dataTransfer) => {
+    const dropped = bulletTextForDrop(dataTransfer)
+    if (!dropped) return
     const scopeSections = doc.scopeSections.map((sc) => sc.id === scopeId
-      ? { ...sc, [kind]: sc[kind].map((b, i) => (i === idx ? { text: materialBulletText(data) } : b)) }
+      ? { ...sc, [kind]: sc[kind].map((b, i) => (i === idx ? { text: dropped.text } : b)) }
       : sc)
-    patch({ scopeSections, lineItems: withMaterialLine(doc.lineItems, data) })
+    patch(dropped.lineItemData
+      ? { scopeSections, lineItems: withMaterialLine(doc.lineItems, dropped.lineItemData) }
+      : { scopeSections })
+  }
+  const dropOnGeneralBullet = (idx, dataTransfer) => {
+    const dropped = bulletTextForDrop(dataTransfer)
+    if (!dropped) return
+    const clarificationsGeneral = doc.clarificationsGeneral.map((b, i) => (i === idx ? { text: dropped.text } : b))
+    patch(dropped.lineItemData
+      ? { clarificationsGeneral, lineItems: withMaterialLine(doc.lineItems, dropped.lineItemData) }
+      : { clarificationsGeneral })
   }
 
   // ----- Scope sections -----
@@ -361,11 +387,6 @@ export default function ProposalEditor({ projectId, project, sheets }) {
     const scope = doc.scopeSections.find((sc) => sc.id === scopeId)
     if (!scope) return
     patchScope(scopeId, { [kind]: [...scope[kind], emptyBullet()] })
-  }
-  // Insert a saved template phrase as a new "General" clarification line.
-  const insertPhrase = (text) => {
-    patch({ clarificationsGeneral: [...doc.clarificationsGeneral, { text }] })
-    setPhrasesOpen(false)
   }
   const removeBullet = (scopeId, kind, idx) => {
     const scope = doc.scopeSections.find((sc) => sc.id === scopeId)
@@ -535,10 +556,12 @@ export default function ProposalEditor({ projectId, project, sheets }) {
           {dirty && <span className={s.savedPill}>Saved</span>}
         </div>
         <div className={s.toolActions}>
-          <Button variant={showMaterials ? 'primary' : 'ghost'} size="sm" iconLeft={<Package size={15} />} onClick={() => setShowMaterials(v => !v)}>
+          <Button variant={activePanel === 'materials' ? 'primary' : 'ghost'} size="sm" iconLeft={<Package size={15} />}
+            onClick={() => setActivePanel(p => p === 'materials' ? null : 'materials')}>
             Materials
           </Button>
-          <Button variant="ghost" size="sm" iconLeft={<Quote size={15} />} onClick={() => setPhrasesOpen(true)}>
+          <Button variant={activePanel === 'phrases' ? 'primary' : 'ghost'} size="sm" iconLeft={<Quote size={15} />}
+            onClick={() => setActivePanel(p => p === 'phrases' ? null : 'phrases')}>
             Template Phrases
           </Button>
           <Button variant="secondary" size="sm" iconLeft={<Save size={15} />} onClick={() => setSaveTplOpen(true)}>
@@ -577,7 +600,7 @@ export default function ProposalEditor({ projectId, project, sheets }) {
         </div>
       )}
 
-      {showMaterials && (
+      {activePanel === 'materials' && (
         <div style={{ position: 'sticky', top: 'calc(var(--topbar) + 8px)', zIndex: 5, background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', padding: '12px 16px', boxShadow: 'var(--shadow-md)' }}>
           <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-subtle)', marginBottom: 8 }}>
             Drag a material into the Materials List below
@@ -594,6 +617,43 @@ export default function ProposalEditor({ projectId, project, sheets }) {
                   <GripVertical size={12} style={{ color: 'var(--text-subtle)' }} />
                   <span style={{ fontWeight: 600, color: 'var(--text-strong)' }}>{it.item || it.description || 'Material'}</span>
                   {it.qty !== '' && <span style={{ color: 'var(--text-muted)' }}>· {it.qty}{it.unit ? ` ${it.unit}` : ''}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {activePanel === 'phrases' && (
+        <div style={{ position: 'sticky', top: 'calc(var(--topbar) + 8px)', zIndex: 5, background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', padding: '12px 16px', boxShadow: 'var(--shadow-md)' }}>
+          <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-subtle)', marginBottom: 8 }}>
+            Drag a phrase into a bullet line below
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+            <div style={{ flex: 1 }}>
+              <Input size="sm" placeholder="Write a new phrase…" value={newPhraseText} onChange={(e) => setNewPhraseText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && newPhraseText.trim()) { addPhrase(newPhraseText); setNewPhraseText('') } }} />
+            </div>
+            <Button variant="secondary" size="sm" iconLeft={<Plus size={14} />}
+              onClick={() => { if (newPhraseText.trim()) { addPhrase(newPhraseText); setNewPhraseText('') } }}>
+              Add
+            </Button>
+          </div>
+          {phraseList.length === 0 ? (
+            <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>No phrases yet — add one above.</div>
+          ) : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {phraseList.map((p) => (
+                <div key={p.id} draggable
+                  onDragStart={(e) => e.dataTransfer.setData(PHRASE_MIME, p.text)}
+                  title="Drag into a bullet line"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border-default)', background: 'var(--surface-sunken)', fontSize: 12, cursor: 'grab', maxWidth: 280 }}>
+                  <GripVertical size={12} style={{ color: 'var(--text-subtle)', flexShrink: 0 }} />
+                  <span style={{ color: 'var(--text-strong)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.text}</span>
+                  <button onClick={(e) => { e.stopPropagation(); deletePhrase(p.id) }} title="Delete phrase" aria-label="Delete phrase"
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', display: 'inline-flex', padding: 0, flexShrink: 0 }}>
+                    <Trash2 size={12} />
+                  </button>
                 </div>
               ))}
             </div>
@@ -791,7 +851,7 @@ export default function ProposalEditor({ projectId, project, sheets }) {
                         placeholder="Inclusion line (may end with a $ amount, e.g. ($1,234.00))"
                         onChange={(e) => setBullet(sc.id, 'inclusions', i, e.target.value)}
                         onDragOver={(e) => e.preventDefault()}
-                        onDrop={(e) => { e.preventDefault(); dropMaterialOnBullet(sc.id, 'inclusions', i, e.dataTransfer.getData(MATERIAL_MIME)) }}
+                        onDrop={(e) => { e.preventDefault(); dropOnScopeBullet(sc.id, 'inclusions', i, e.dataTransfer) }}
                       />
                       <button
                         type="button"
@@ -825,7 +885,7 @@ export default function ProposalEditor({ projectId, project, sheets }) {
                         placeholder="Exclusion line"
                         onChange={(e) => setBullet(sc.id, 'exclusions', i, e.target.value)}
                         onDragOver={(e) => e.preventDefault()}
-                        onDrop={(e) => { e.preventDefault(); dropMaterialOnBullet(sc.id, 'exclusions', i, e.dataTransfer.getData(MATERIAL_MIME)) }}
+                        onDrop={(e) => { e.preventDefault(); dropOnScopeBullet(sc.id, 'exclusions', i, e.dataTransfer) }}
                       />
                       <button
                         type="button"
@@ -997,6 +1057,8 @@ export default function ProposalEditor({ projectId, project, sheets }) {
                     const clarificationsGeneral = doc.clarificationsGeneral.map((x, j) => (j === i ? { text: e.target.value } : x))
                     patch({ clarificationsGeneral })
                   }}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => { e.preventDefault(); dropOnGeneralBullet(i, e.dataTransfer) }}
                 />
                 <button
                   type="button"
@@ -1121,39 +1183,6 @@ export default function ProposalEditor({ projectId, project, sheets }) {
                 </div>
                 <ChevronDown size={16} className={s.tplArrow} style={{ transform: 'rotate(-90deg)' }} />
               </button>
-            ))}
-          </div>
-        )}
-      </Dialog>
-
-      {/* Template phrases dialog */}
-      <Dialog open={phrasesOpen} onClose={() => setPhrasesOpen(false)} title="Template Phrases"
-        description="Reusable boilerplate text, shared across every project. Insert one into this proposal's General clarifications, or add new ones as you go." width={460}
-        footer={<Button variant="ghost" onClick={() => setPhrasesOpen(false)}>Close</Button>}>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-          <div style={{ flex: 1 }}>
-            <Input placeholder="Write a new phrase…" value={newPhraseText} onChange={(e) => setNewPhraseText(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && newPhraseText.trim()) { addPhrase(newPhraseText); setNewPhraseText('') } }} />
-          </div>
-          <Button variant="secondary" iconLeft={<Plus size={15} />}
-            onClick={() => { if (newPhraseText.trim()) { addPhrase(newPhraseText); setNewPhraseText('') } }}>
-            Add
-          </Button>
-        </div>
-        {phraseList.length === 0 ? (
-          <p className={s.tplEmpty}>No phrases yet — add one above.</p>
-        ) : (
-          <div className={s.tplList}>
-            {phraseList.map((p) => (
-              <div key={p.id} className={s.tplCard} style={{ cursor: 'default' }}>
-                <div className={s.tplInfo} style={{ cursor: 'pointer' }} onClick={() => insertPhrase(p.text)}>
-                  <div className={s.tplName}>{p.text}</div>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => insertPhrase(p.text)}>Insert</Button>
-                <button type="button" className={s.delBtn} onClick={() => deletePhrase(p.id)} title="Delete phrase" aria-label="Delete phrase">
-                  <Trash2 size={14} />
-                </button>
-              </div>
             ))}
           </div>
         )}

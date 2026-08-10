@@ -642,7 +642,10 @@ function OrderForm({ areaOpts, matOpts, onAdd, prefill }) {
 
 function Deliveries({ field, setField, areaName, materialLabel }) {
   const areaOpts = field.areas.map(a => ({ value: a.id, label: a.name }))
-  const matOpts = field.materials.map(m => ({ value: m.id, label: m.code || m.description || 'Material' }))
+  const matOpts = field.materials.map(m => ({
+    value: m.id,
+    label: m.code && m.description ? `${m.code} - ${m.description}` : (m.code || m.description || 'Material'),
+  }))
   const [prefill, setPrefill] = useState(null)
   const [expandedOrders, setExpandedOrders] = useState(() => new Set())
   const add = (v) => {
