@@ -17,6 +17,7 @@ import { useAuth } from '../auth/AuthProvider.jsx'
 import BidProposal from './BidProposal.jsx'
 import MtoPanel from '../components/MtoPanel.jsx'
 import ProposalEditor from '../components/ProposalEditor.jsx'
+import JobManagement from '../components/JobManagement.jsx'
 import { useAppData } from '../data/useAppData.jsx'
 import { STATUS_LABEL, STATUS_VARIANT, CATS, CAT_COLOR, SHEET_W, SHEET_H } from '../data/sampleData.js'
 import s from './ProjectPage.module.css'
@@ -242,6 +243,7 @@ export default function ProjectPage() {
               { value: 'dashboard', label: 'Dashboard' },
               { value: 'sheets', label: `Sheets (${sheetList.length})` },
               { value: 'pricebook', label: 'Pricebook' },
+              ...(project.contracted ? [{ value: 'job', label: 'Job' }] : []),
             ]} />
         </div>
 
@@ -316,6 +318,10 @@ export default function ProjectPage() {
               <MtoPanel projectId={projectId} project={project} />
             )}
           </div>
+        )}
+
+        {activeTab === 'job' && project.contracted && (
+          <JobManagement projectId={projectId} project={project} />
         )}
 
         {activeTab === 'sheets' && <>
