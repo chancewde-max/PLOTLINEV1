@@ -1,7 +1,8 @@
 // Aggregate a project's on-sheet takeoff (counts, areas, linear runs) into a
-// flat material list. Quantities roll up across every sheet in the project and
-// are grouped by condition name so the same condition drawn on multiple sheets
-// combines into one line item.
+// flat material list. Quantities roll up across every sheet passed in (all
+// sheets in the project by default, or a narrower set — see `sheetIds`
+// below) and are grouped by condition name so the same condition drawn on
+// multiple sheets combines into one line item.
 //
 // Units: counts -> EA, areas -> SF, linear -> LF. Deduction items subtract.
 import { polyAreaPx, linePathLenPx } from '../workspace/geometry.js'
@@ -9,7 +10,10 @@ import { polyAreaPx, linePathLenPx } from '../workspace/geometry.js'
 const DEFAULT_PXFT = 4
 const sign = (it) => (it && it.deduct ? -1 : 1)
 
-export function takeoffMaterialItems(project, sheets) {
+// `sheetIds`, if given, restricts the aggregation to just those sheets
+// (e.g. one plan/version set) instead of every sheet in the project — so
+// quantities from different revision sets don't get summed together.
+export function takeoffMaterialItems(project, sheets, sheetIds) {
   if (!project) return []
   const byKey = {} // `${name}::${unit}` -> item
 
@@ -20,7 +24,7 @@ export function takeoffMaterialItems(project, sheets) {
     if (!byKey[key].code && code) byKey[key].code = code
   }
 
-  for (const sid of project.sheetIds || []) {
+  for (const sid of sheetIds || project.sheetIds || []) {
     const sh = sheets?.[sid]
     if (!sh) continue
     const pxft = sh.pxPerFt || DEFAULT_PXFT

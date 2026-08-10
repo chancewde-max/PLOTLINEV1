@@ -14,16 +14,30 @@ function today() {
   }
 }
 
-// Flatten every measured item on a sheet into { type, kind } records.
+// Flatten every measured item on a sheet into { type, kind } records. Sheets
+// carry two overlapping stores for areas/lines: `areas`/`lines` (legacy/seed
+// data) and `savedAreas`/`savedLines` (what SheetPage actually writes to on
+// every edit). A sheet with real user-drawn geometry only has the latter —
+// but seed/demo sheets populate BOTH from the same source items (see
+// sampleData.js buildSheetSeed), so unioning them would double-count demo
+// data. Prefer savedAreas/savedLines when present; only fall back to the
+// legacy fields for a sheet that predates the saved* model entirely.
 function itemsOnSheet(sheet) {
   const out = []
-  ;(sheet.areas || []).forEach((a) => out.push({ type: a.type || 'sod', kind: 'area' }))
-  ;(sheet.lines || []).forEach((l) => out.push({ type: l.type || 'lime-wall', kind: 'linear' }))
-  ;(sheet.points || []).forEach((p) => out.push({ type: p.type || 'irrigation', kind: 'point' }))
-  // Count-groups (the seeded SheetPage model) — include their points too.
-  ;(sheet.savedCountGroups || []).forEach((g) => {
-    ;(g.points || []).forEach(() => out.push({ type: g.type || g.id?.replace('cg-', '') || 'irrigation', kind: 'point' }))
-  })
+  const areas = sheet.savedAreas?.length ? sheet.savedAreas : (sheet.areas || [])
+  const lines = sheet.savedLines?.length ? sheet.savedLines : (sheet.lines || [])
+  areas.forEach((a) => out.push({ type: a.type || 'sod', kind: 'area' }))
+  lines.forEach((l) => out.push({ type: l.type || 'lime-wall', kind: 'linear' }))
+  // Points: savedCountGroups is the authoritative store; legacy sheet.points
+  // duplicates the same items (see buildSheetSeed) so it's only used as a
+  // fallback for a sheet with no count groups at all.
+  if (sheet.savedCountGroups?.length) {
+    sheet.savedCountGroups.forEach((g) => {
+      ;(g.points || []).forEach((p) => out.push({ type: p.type || g.type || g.id?.replace('cg-', '') || 'irrigation', kind: 'point' }))
+    })
+  } else {
+    ;(sheet.points || []).forEach((p) => out.push({ type: p.type || 'irrigation', kind: 'point' }))
+  }
   return out
 }
 
@@ -50,6 +64,31 @@ function materialsByCat(sheetList) {
     qty: byType[cat.id] || 0,
     color: CAT_COLOR[cat.id],
   })).filter((c) => c.qty > 0 || true) // keep all categories for a complete takeoff
+}
+
+// Per-set materials mini-table — keeps quantities from different plan/version
+// sets visually separated instead of only ever showing one combined total.
+function MaterialsMiniTable({ sheets }) {
+  const mats = materialsByCat(sheets).filter((m) => m.qty > 0)
+  if (mats.length === 0) return null
+  return (
+    <table className={s.table} style={{ marginTop: 8 }}>
+      <thead>
+        <tr>
+          <th>Category</th>
+          <th className={s.num}>Quantity</th>
+        </tr>
+      </thead>
+      <tbody>
+        {mats.map((m) => (
+          <tr key={m.id}>
+            <td><span className={s.swatch} style={{ background: m.color }} />{m.name}</td>
+            <td className={s.num}>{m.qty}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
 }
 
 export default function BidProposal({
@@ -258,6 +297,7 @@ export default function BidProposal({
                       })}
                     </tbody>
                   </table>
+                  <MaterialsMiniTable sheets={grp.sheets} />
                 </div>
               ))}
               {unassignedSheets.length > 0 && (
@@ -288,6 +328,7 @@ export default function BidProposal({
                       })}
                     </tbody>
                   </table>
+                  <MaterialsMiniTable sheets={unassignedSheets} />
                 </div>
               )}
             </section>

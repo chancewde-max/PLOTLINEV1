@@ -148,7 +148,12 @@ export default function SheetPage() {
 
   // ---- Right-click context menu + on-canvas legends ----
   const [ctxMenu, setCtxMenu]   = useState(null) // { x, y } in viewport coords, or null
-  const [legends, setLegends]   = useState([])   // [{ id, x, y, w, h }] — viewport-relative floating legend boxes
+  // Legend boxes are positioned/sized in PLAN-SPACE (same coordinate system as
+  // SHEET_W/SHEET_H, the svg viewBox) and rendered inside the pan/zoom-transformed
+  // .sheet layer — so they pan and scale together with the drawing, like a title
+  // block printed on the sheet, instead of floating fixed on screen.
+  const [legends, setLegends]   = useState([])   // [{ id, x, y, w, h, title, hiddenCats }]
+  const [editingLegendId, setEditingLegendId] = useState(null)
   const legendDragRef = useRef(null)  // { id, mode: 'move'|'resize', startX, startY, origX, origY, origW, origH }
 
   // ---- Scale ----
@@ -409,13 +414,19 @@ export default function SheetPage() {
     }
   }, [ctxMenu])
 
-  // Drag-to-move / drag-to-resize for on-canvas legend boxes.
+  // Drag-to-move / drag-to-resize for on-canvas legend boxes. Mouse deltas
+  // arrive in screen px; convert to plan-space px (same units as l.x/l.y)
+  // using the svg's current on-screen size so dragging tracks the cursor
+  // correctly at any zoom level.
   useEffect(() => {
     const onMove = (e) => {
       const drag = legendDragRef.current
       if (!drag) return
-      const dx = e.clientX - drag.startX
-      const dy = e.clientY - drag.startY
+      const rect = svgRef.current?.getBoundingClientRect()
+      const scaleX = rect ? SHEET_W / rect.width : 1
+      const scaleY = rect ? SHEET_H / rect.height : 1
+      const dx = (e.clientX - drag.startX) * scaleX
+      const dy = (e.clientY - drag.startY) * scaleY
       setLegends((prev) => prev.map((l) => {
         if (l.id !== drag.id) return l
         if (drag.mode === 'move') return { ...l, x: drag.origX + dx, y: drag.origY + dy }
@@ -423,6 +434,31 @@ export default function SheetPage() {
       }))
     }
     const onUp = () => { legendDragRef.current = null }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [])
+
+  // Drag-to-reposition the page overlay — same window-level pattern as the
+  // legend drag above (so the drag survives the cursor leaving the overlay's
+  // own bounds, e.g. when it's scaled down) with the same screen-px →
+  // plan-space-px conversion.
+  useEffect(() => {
+    const onMove = (e) => {
+      const drag = overlayDragRef.current
+      if (!drag) return
+      const rect = svgRef.current?.getBoundingClientRect()
+      const scaleX = rect ? SHEET_W / rect.width : 1
+      const scaleY = rect ? SHEET_H / rect.height : 1
+      setOverlayOffset({
+        x: drag.origX + (e.clientX - drag.startX) * scaleX,
+        y: drag.origY + (e.clientY - drag.startY) * scaleY,
+      })
+    }
+    const onUp = () => { overlayDragRef.current = null }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
     return () => {
@@ -594,6 +630,22 @@ export default function SheetPage() {
   const allPoints = [...(sheet.points || []), ...addedPoints]
   const allLines  = [...(sheet.lines  || []), ...addedLines]
 
+  // Page overlay — the sheet currently ghosted over this one for comparison.
+  const overlaySheet = overlaySheetId ? sheets[overlaySheetId] : null
+  // Overlay sheets carry the same two-store split as the active sheet (see
+  // allAreas/allPoints/allLines above): legacy top-level areas/lines/points
+  // plus the savedAreas/savedLines/savedCountGroups the app actually writes
+  // to. Reading only the legacy fields — as this used to — meant the vector
+  // overlay silently never showed anything for a normally-drawn sheet. Prefer
+  // the saved* store when it has content rather than unioning both — seed/demo
+  // sheets populate both from the same source items, so a plain union would
+  // render every shape twice (visibly darker fills from the doubled opacity).
+  const overlayAreas  = overlaySheet ? (overlaySheet.savedAreas?.length ? overlaySheet.savedAreas : (overlaySheet.areas || [])) : []
+  const overlayLines  = overlaySheet ? (overlaySheet.savedLines?.length ? overlaySheet.savedLines : (overlaySheet.lines || [])) : []
+  const overlayPoints = overlaySheet
+    ? (overlaySheet.savedCountGroups?.length ? overlaySheet.savedCountGroups.flatMap(g => g.points || []) : (overlaySheet.points || []))
+    : []
+
   const toSheet = (e) => {
     const svg = svgRef.current
     if (!svg) return { x: 0, y: 0 }
@@ -694,10 +746,13 @@ export default function SheetPage() {
   }
 
   const placeLegendAt = (clientX, clientY) => {
-    const rect = canvasRef.current?.getBoundingClientRect()
-    const x = rect ? clientX - rect.left : clientX
-    const y = rect ? clientY - rect.top : clientY
-    setLegends((prev) => [...prev, { id: `legend-${Date.now()}`, x, y, w: 220, h: 180 }])
+    // svg.getBoundingClientRect() accounts for the ancestor pan/zoom CSS
+    // transform, so this lands the legend at the plan-space point under the
+    // cursor regardless of current zoom — same conversion toSheet() uses.
+    const rect = svgRef.current?.getBoundingClientRect()
+    const x = rect ? (clientX - rect.left) * (SHEET_W / rect.width) : clientX
+    const y = rect ? (clientY - rect.top) * (SHEET_H / rect.height) : clientY
+    setLegends((prev) => [...prev, { id: `legend-${Date.now()}`, x, y, w: 220, h: 180, title: 'Legend', hiddenCats: [] }])
   }
 
   // Only suppresses the native OS menu — our own menu is decided in
@@ -1260,10 +1315,22 @@ export default function SheetPage() {
   // Per-category counts for "Place Legend" — everything currently on the sheet.
   const legendTotals = categoryTotals(allAreas, allLines, allPoints, sqft, lnft)
 
-  // Project-wide totals aggregated across all sheets, with per-sheet breakdown for hover
+  // Totals aggregated across the sheets in THIS plan/version set (with
+  // per-sheet breakdown for hover) — scoped to project.sheetSets so an
+  // identically-named condition on an unrelated revision set doesn't
+  // silently add into this sheet's counts. Projects with no sets defined
+  // fall back to every sheet in the project (old, pre-sets behavior);
+  // sheets not assigned to any set are compared only against each other.
   const projectLayers = (() => {
+    const sheetSets = project.sheetSets || []
+    const currentSet = sheetSets.find(set => (set.sheetIds || []).includes(sheetId))
+    const scopedSheetIds = sheetSets.length === 0
+      ? (project.sheetIds || [])
+      : currentSet
+        ? (currentSet.sheetIds || [])
+        : (project.sheetIds || []).filter(sid => !sheetSets.some(set => (set.sheetIds || []).includes(sid)))
     const byName = {}
-    ;(project.sheetIds || []).forEach(sid => {
+    ;scopedSheetIds.forEach(sid => {
       const sh = sheets[sid]
       if (!sh) return
       ;(sh.savedCountGroups || []).forEach(g => {
@@ -1897,6 +1964,21 @@ export default function SheetPage() {
                   }}
                 />
               )}
+
+              {/* Page overlay — the actual PDF page of another sheet ghosted
+                  on top for a PlanSwift-style revision compare, not just its
+                  measured vector markup (which the <g> below still shows). */}
+              {overlaySheet && sheetHasPdf(overlaySheet) && (
+                <div style={{
+                  position: 'absolute', inset: 0, transformOrigin: '0 0',
+                  transform: `translate(${overlayOffset.x}px, ${overlayOffset.y}px) scale(${overlayScale})`,
+                  opacity: overlayOpacity, pointerEvents: 'none',
+                }}>
+                  <PdfCanvas url={resolveSheetPdfUrl(overlaySheet, pdfAssets)} width={SHEET_W} height={SHEET_H}
+                    pageNumber={overlaySheet.pdfPage || 1} />
+                </div>
+              )}
+
               <svg ref={svgRef} className={s.svg} width={SHEET_W} height={SHEET_H}
                 viewBox={`0 0 ${SHEET_W} ${SHEET_H}`}
                 style={{ cursor: canvasCursor }}
@@ -1914,31 +1996,31 @@ export default function SheetPage() {
                   )}
                 </defs>
 
-                {/* Page overlay */}
-                {overlaySheetId && (() => {
-                  const ovSheet = sheets[overlaySheetId]
-                  if (!ovSheet) return null
-                  return (
-                    <g transform={`translate(${overlayOffset.x},${overlayOffset.y}) scale(${overlayScale})`}
-                      opacity={overlayOpacity} style={{ cursor: 'move' }}
-                      onMouseDown={e => { e.stopPropagation(); overlayDragRef.current = { startX: e.clientX - overlayOffset.x, startY: e.clientY - overlayOffset.y } }}
-                      onMouseMove={e => { if (overlayDragRef.current) setOverlayOffset({ x: e.clientX - overlayDragRef.current.startX, y: e.clientY - overlayDragRef.current.startY }) }}
-                      onMouseUp={() => { overlayDragRef.current = null }}>
-                      {(ovSheet.areas || []).map(a => (
-                        <polygon key={a.id} points={a.poly.map(p => `${p.x},${p.y}`).join(' ')}
-                          fill={CAT_COLOR[a.type]} fillOpacity="0.2" stroke={CAT_COLOR[a.type]} strokeWidth="0.75" />
-                      ))}
-                      {(ovSheet.lines || []).map(l => (
-                        <polyline key={l.id} points={l.pts.map(p => `${p.x},${p.y}`).join(' ')}
-                          fill="none" stroke={CAT_COLOR[l.type]} strokeWidth="1.5" strokeLinecap="round" />
-                      ))}
-                      {(ovSheet.points || []).map(p => (
-                        <circle key={p.id} cx={p.x} cy={p.y} r="3"
-                          fill="white" stroke={CAT_COLOR[p.type]} strokeWidth="1" />
-                      ))}
-                    </g>
-                  )
-                })()}
+                {/* Page overlay — vector markup from the ghosted sheet, plus a
+                    full-sheet transparent hit target so it can be grabbed and
+                    dragged into alignment even when it has no markup drawn on
+                    it yet (e.g. comparing against a freshly imported revision). */}
+                {overlaySheet && (
+                  <g transform={`translate(${overlayOffset.x},${overlayOffset.y}) scale(${overlayScale})`}
+                    opacity={overlayOpacity} style={{ cursor: 'move' }}
+                    onMouseDown={e => { e.stopPropagation(); overlayDragRef.current = { startX: e.clientX, startY: e.clientY, origX: overlayOffset.x, origY: overlayOffset.y } }}
+                    onClick={e => e.stopPropagation()}
+                    onDoubleClick={e => e.stopPropagation()}>
+                    <rect x="0" y="0" width={SHEET_W} height={SHEET_H} fill="transparent" />
+                    {overlayAreas.map(a => (
+                      <polygon key={a.id} points={a.poly.map(p => `${p.x},${p.y}`).join(' ')}
+                        fill={CAT_COLOR[a.type]} fillOpacity="0.2" stroke={CAT_COLOR[a.type]} strokeWidth="0.75" />
+                    ))}
+                    {overlayLines.map(l => (
+                      <polyline key={l.id} points={l.pts.map(p => `${p.x},${p.y}`).join(' ')}
+                        fill="none" stroke={CAT_COLOR[l.type]} strokeWidth="1.5" strokeLinecap="round" />
+                    ))}
+                    {overlayPoints.map(p => (
+                      <circle key={p.id} cx={p.x} cy={p.y} r="3"
+                        fill="white" stroke={CAT_COLOR[p.type]} strokeWidth="1" />
+                    ))}
+                  </g>
+                )}
 
                 {/* Ghost polygons for non-active folders */}
                 {activeTool === 'region' && folders.filter(f => f.id !== safeFolderId && f.poly).map(f => (
@@ -2296,6 +2378,77 @@ export default function SheetPage() {
                 )
               })}
 
+              {/* On-plan legends — rendered inside the pan/zoom-transformed
+                  .sheet layer (plan-space x/y/w/h) so they stay attached to
+                  the drawing and scale with it, like a title block printed
+                  on the sheet, instead of a screen-fixed HUD element. */}
+              {legends.map((l) => {
+                const visibleTotals = legendTotals.filter(t => !(l.hiddenCats || []).includes(t.id))
+                const editing = editingLegendId === l.id
+                return (
+                  <div key={l.id} className={s.legendBox} style={{ left: l.x, top: l.y, width: l.w, height: l.h }}>
+                    <div className={s.legendHeader}
+                      onMouseDown={(e) => {
+                        e.stopPropagation()
+                        legendDragRef.current = { id: l.id, mode: 'move', startX: e.clientX, startY: e.clientY, origX: l.x, origY: l.y }
+                      }}>
+                      <span className={s.legendTitle}>{l.title || 'Legend'}</span>
+                      <div style={{ display: 'flex', gap: 2 }}>
+                        <button onMouseDown={e => e.stopPropagation()}
+                          onClick={() => setEditingLegendId(editing ? null : l.id)} aria-label="Customize legend">
+                          <Settings2 size={12} />
+                        </button>
+                        <button onMouseDown={e => e.stopPropagation()}
+                          onClick={() => { setLegends(ls => ls.filter(x => x.id !== l.id)); if (editing) setEditingLegendId(null) }}
+                          aria-label="Remove legend">
+                          <XIcon size={12} />
+                        </button>
+                      </div>
+                    </div>
+                    {editing ? (
+                      <div className={s.legendEdit} onMouseDown={e => e.stopPropagation()}>
+                        <input className={s.legendTitleInput} value={l.title || ''} placeholder="Legend title"
+                          onChange={e => setLegends(ls => ls.map(x => x.id === l.id ? { ...x, title: e.target.value } : x))} />
+                        <div className={s.legendEditList}>
+                          {CATS.map(c => (
+                            <label key={c.id} className={s.legendEditRow}>
+                              <input type="checkbox" checked={!(l.hiddenCats || []).includes(c.id)}
+                                onChange={e => setLegends(ls => ls.map(x => {
+                                  if (x.id !== l.id) return x
+                                  const hidden = new Set(x.hiddenCats || [])
+                                  if (e.target.checked) hidden.delete(c.id); else hidden.add(c.id)
+                                  return { ...x, hiddenCats: [...hidden] }
+                                }))} />
+                              <span className={s.legendSwatch} style={{ background: CAT_COLOR[c.id] }} />
+                              {c.name}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className={s.legendBody}>
+                        {visibleTotals.length === 0 && <div className={s.legendEmpty}>Nothing measured yet.</div>}
+                        {visibleTotals.map((t) => (
+                          <div key={t.id} className={s.legendItem}>
+                            <span className={s.legendSwatch} style={{ background: CAT_COLOR[t.id] }} />
+                            <span className={s.legendName}>{t.name}</span>
+                            <span className={s.legendCount}>
+                              {t.count}
+                              {t.sqft > 0 ? ` · ${fSq(t.sqft)} ft²` : ''}
+                              {t.lnft > 0 ? ` · ${fLn(t.lnft)} ft` : ''}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className={s.legendResize}
+                      onMouseDown={(e) => {
+                        e.stopPropagation()
+                        legendDragRef.current = { id: l.id, mode: 'resize', startX: e.clientX, startY: e.clientY, origW: l.w, origH: l.h }
+                      }} />
+                  </div>
+                )
+              })}
 
             </div>
           </div>
@@ -2335,38 +2488,6 @@ export default function SheetPage() {
             <span className={s.zoomPanVal}>{Math.round(zoom)}%</span>
             <button className={s.zoomPanBtn} onClick={() => setZoom(z => Math.min(6400, z + 25))}><Plus size={14} /></button>
           </div>
-
-          {legends.map((l) => (
-            <div key={l.id} className={s.legendBox} style={{ left: l.x, top: l.y, width: l.w, height: l.h }}>
-              <div className={s.legendHeader}
-                onMouseDown={(e) => {
-                  e.stopPropagation()
-                  legendDragRef.current = { id: l.id, mode: 'move', startX: e.clientX, startY: e.clientY, origX: l.x, origY: l.y }
-                }}>
-                <span>Legend</span>
-                <button onClick={() => setLegends(ls => ls.filter(x => x.id !== l.id))} aria-label="Remove legend"><XIcon size={12} /></button>
-              </div>
-              <div className={s.legendBody}>
-                {legendTotals.length === 0 && <div className={s.legendEmpty}>Nothing measured yet.</div>}
-                {legendTotals.map((t) => (
-                  <div key={t.id} className={s.legendItem}>
-                    <span className={s.legendSwatch} style={{ background: CAT_COLOR[t.id] }} />
-                    <span className={s.legendName}>{t.name}</span>
-                    <span className={s.legendCount}>
-                      {t.count}
-                      {t.sqft > 0 ? ` · ${fSq(t.sqft)} ft²` : ''}
-                      {t.lnft > 0 ? ` · ${fLn(t.lnft)} ft` : ''}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              <div className={s.legendResize}
-                onMouseDown={(e) => {
-                  e.stopPropagation()
-                  legendDragRef.current = { id: l.id, mode: 'resize', startX: e.clientX, startY: e.clientY, origW: l.w, origH: l.h }
-                }} />
-            </div>
-          ))}
 
           {ctxMenu && (
             <div className={s.ctxMenu} style={{ left: ctxMenu.x, top: ctxMenu.y }} onMouseDown={(e) => e.stopPropagation()}>
@@ -2576,7 +2697,7 @@ export default function SheetPage() {
                 const sh = sheets[id]
                 if (!sh) return null
                 return (
-                  <button key={id} onClick={() => setOverlaySheetId(id)}
+                  <button key={id} onClick={() => { setOverlaySheetId(id); setOverlayOffset({ x: 0, y: 0 }); setOverlayScale(1) }}
                     style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 'var(--radius-md)', border: `1.5px solid ${overlaySheetId === id ? 'var(--brand-500)' : 'var(--border-subtle)'}`, background: overlaySheetId === id ? 'var(--surface-muted)' : 'transparent', cursor: 'pointer', textAlign: 'left' }}>
                     <Map size={14} style={{ color: 'var(--text-muted)' }} />
                     <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: 'var(--text-strong)' }}>{sh.name}</span>
@@ -2602,8 +2723,14 @@ export default function SheetPage() {
               onChange={e => setOverlayScale(parseFloat(e.target.value))}
               style={{ width: '100%', accentColor: 'var(--brand-600)' }} />
           </div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
             <span>Drag the overlay on the canvas to reposition it.</span>
+            {overlaySheetId && (
+              <button onClick={() => { setOverlayOffset({ x: 0, y: 0 }); setOverlayScale(1) }}
+                style={{ background: 'none', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', padding: '3px 9px', fontSize: 11, fontWeight: 600, color: 'var(--text-body)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                Reset position
+              </button>
+            )}
           </div>
         </div>
       </Dialog>
