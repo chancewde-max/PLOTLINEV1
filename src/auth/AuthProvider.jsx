@@ -157,6 +157,15 @@ export function AuthProvider({ children }) {
     const snap = targetOrgId
       ? await loadOrgSnapshot(targetOrgId)
       : (user ? await loadUserSnapshot(user.id) : null)
+    // undefined = the fetch failed (network/RLS) — not "this workspace is
+    // empty". Leave whatever's currently on screen alone rather than
+    // blanking it out; the membership change (e.g. leaving an org) has
+    // already happened by the time this runs, so there's no clean "abort"
+    // here, just avoid compounding it with a data wipe.
+    if (snap === undefined) {
+      setAuthError('Could not load your data for this workspace. Reload to retry.')
+      return
+    }
     app.hydrate?.(snap || emptySnapshot(), false)
   }, [user, app, memberships])
 
@@ -176,6 +185,13 @@ export function AuthProvider({ children }) {
         flushCurrent(),
         targetOrgId ? loadOrgSnapshot(targetOrgId) : (user ? loadUserSnapshot(user.id) : Promise.resolve(null)),
       ])
+      // undefined = the fetch failed (network/RLS), not "this workspace is
+      // empty". Abort the switch rather than hydrating with an empty
+      // snapshot, which would blank out real data on screen (and risk the
+      // debounced autosave persisting that emptiness back to the cloud).
+      if (snap === undefined) {
+        throw new Error('Could not load that workspace. Check your connection and try again.')
+      }
       const membership = targetOrgId
         ? (membershipsList || memberships).find(m => m.org_id === targetOrgId)
         : null
@@ -256,6 +272,17 @@ export function AuthProvider({ children }) {
         ? await loadOrgSnapshot(target)
         : await loadUserSnapshot(user.id)
       if (cancelled) return
+      // undefined = the fetch itself failed (network/RLS) — treat as
+      // "unknown", NOT as "confirmed empty". Never push local state over an
+      // unknown cloud state: on a fresh browser/device local is often empty,
+      // and doing so would silently blank out real cloud data on a mere
+      // network hiccup.
+      if (snap === undefined) {
+        setAuthError('Could not load your saved data from the cloud. Showing what’s stored on this device — reload to retry.')
+        hydratedRef.current = true
+        setHydrating(false)
+        return
+      }
       const hasCloudData =
         snap &&
         ((snap.projects && Object.keys(snap.projects).length) ||
@@ -266,7 +293,7 @@ export function AuthProvider({ children }) {
       // empty, keep whatever local edits already exist.
       if (hasCloudData) app.hydrate?.(snap, false)
       hydratedRef.current = true
-      // Local edits but empty cloud → push them up so they persist.
+      // Local edits but confirmed-empty cloud → push them up so they persist.
       if (!hasCloudData) flushCurrent()
       setHydrating(false)
     })()
@@ -348,7 +375,12 @@ export function AuthProvider({ children }) {
   const switchWorkspace = useCallback(async (targetOrgId) => {
     if (!supabaseEnabled || !supabase || !user) return
     if (targetOrgId === orgIdRef.current) return
-    await switchToWorkspace(targetOrgId)
+    try {
+      await switchToWorkspace(targetOrgId)
+      setAuthError(null)
+    } catch (err) {
+      setAuthError(err.message || 'Could not switch workspace')
+    }
   }, [user, switchToWorkspace])
 
   // Create a team and switch to it immediately, starting from an empty

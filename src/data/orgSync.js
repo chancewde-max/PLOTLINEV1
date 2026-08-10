@@ -134,6 +134,11 @@ export function inviteLink(token) {
 
 // ---- Shared org project/sheet storage (parallels cloudSync.js) -----------
 
+// Returns null when the org row is confirmed missing (brand-new org, safe to
+// treat as empty). Returns undefined when the fetch itself failed
+// (network/RLS/etc) — callers must not treat that as "empty", or a
+// transient error will look like a genuinely empty workspace and wipe/
+// overwrite real data.
 export async function loadOrgSnapshot(orgId) {
   if (!supabaseEnabled || !supabase || !orgId) return null
   const { data, error } = await supabase
@@ -144,7 +149,7 @@ export async function loadOrgSnapshot(orgId) {
 
   if (error) {
     console.warn('[orgSync] loadOrgSnapshot failed:', error.message)
-    return null
+    return undefined
   }
   if (!data) return null
 

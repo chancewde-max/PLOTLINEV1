@@ -31,8 +31,12 @@ export function emptySnapshot() {
 }
 
 // Pull a user's full snapshot from the cloud.
-// Returns null when cloud is disabled or the row is missing — callers treat
-// null as "no cloud data; use local state".
+// Returns null when cloud is disabled or the row is confirmed missing (a
+// genuinely new user) — callers treat null as "no cloud data yet; safe to
+// seed from local state". Returns undefined when the fetch itself failed
+// (network/RLS/etc) — callers must NOT treat that the same as "empty",
+// or a transient error will look identical to "this user has no data" and
+// local state (often emptier than the cloud) will get pushed over real data.
 export async function loadUserSnapshot(userId) {
   if (!supabaseEnabled || !supabase) return null
   const { data, error } = await supabase
@@ -42,9 +46,10 @@ export async function loadUserSnapshot(userId) {
     .maybeSingle()
 
   if (error) {
-    // RLS / missing table / network — fail soft, keep local state.
+    // RLS / missing table / network — fail soft, but signal "unknown" so
+    // callers don't mistake this for a confirmed-empty row.
     console.warn('[cloudSync] loadUserSnapshot failed:', error.message)
-    return null
+    return undefined
   }
   if (!data) return null
 

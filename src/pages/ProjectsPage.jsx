@@ -55,7 +55,7 @@ function fmtDate(iso) {
 export default function ProjectsPage() {
   const navigate = useNavigate()
   const { projects: allProjects, sheets, addProject, updateProject, pdfAssets } = useAppData()
-  const { user: authUser, cloudEnabled, memberships, orgId, switchWorkspace, dataLoading, updateProfile } = useAuth()
+  const { user: authUser, cloudEnabled, memberships, orgId, switchWorkspace, dataLoading, updateProfile, authError } = useAuth()
   const { theme, setTheme, accent, setAccent } = useSettings()
 
   // --- Account profile (name / position) — stored on the Supabase auth user ---
@@ -174,6 +174,15 @@ export default function ProjectsPage() {
 
   return (
     <div className={s.root} data-theme={theme}>
+      {authError && (
+        <div style={{
+          background: 'var(--red-50, #fef2f2)', color: 'var(--red-700, #b91c1c)',
+          border: '1px solid var(--red-200, #fecaca)', borderRadius: 8,
+          padding: '8px 16px', margin: '12px 24px 0', fontSize: 13, fontWeight: 500,
+        }}>
+          {authError}
+        </div>
+      )}
       <header className={s.top}>
         <div className={s.brand}>
           <img src="/plotline-mark.svg" alt="Plotline" className={s.logo} />
