@@ -16,7 +16,7 @@ import { Checkbox } from '../components/ui/Checkbox.jsx'
 import { Tabs } from '../components/ui/Tabs.jsx'
 import { Tooltip } from '../components/ui/Tooltip.jsx'
 import { useAppData } from '../data/useAppData.jsx'
-import { useSettings, DEFAULT_TOOLBAR_ORDER } from '../data/useSettings.jsx'
+import { useSettings, DEFAULT_TOOLBAR_ORDER, MIN_ZOOM_SENSITIVITY, MAX_ZOOM_SENSITIVITY } from '../data/useSettings.jsx'
 import { useAuth } from '../auth/AuthProvider.jsx'
 import { SheetPageSkeleton } from '../components/Skeleton.jsx'
 import PdfCanvas from '../components/PdfCanvas.jsx'
@@ -127,7 +127,7 @@ export default function SheetPage() {
   const { projectId, sheetId } = useParams()
   const navigate = useNavigate()
   const { projects, sheets, updateSheet, addRegion, updateRegion, deleteRegion, pdfAssets } = useAppData()
-  const { theme, setTheme, accent, setAccent, hotkeys, toolbarOrder, setToolbarOrder } = useSettings()
+  const { theme, setTheme, accent, setAccent, hotkeys, toolbarOrder, setToolbarOrder, zoomSensitivity, setZoomSensitivity } = useSettings()
   const { dataLoading } = useAuth()
 
   // ---- UI state ----
@@ -453,12 +453,15 @@ export default function SheetPage() {
     const onWheel = (e) => {
       e.preventDefault()
       const delta = e.deltaMode === 1 ? e.deltaY * 20 : e.deltaMode === 2 ? e.deltaY * 300 : e.deltaY
-      const factor = Math.pow(0.999, delta)
+      // zoomSensitivity scales how much zoom each scroll tick produces —
+      // multiplying delta scales the exponent linearly, so 1 reproduces the
+      // original feel, 2 zooms twice as fast per tick, 0.5 zooms half as fast.
+      const factor = Math.pow(0.999, delta * zoomSensitivity)
       applyZoomAtPoint(factor, e.clientX, e.clientY)
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => { el.removeEventListener('wheel', onWheel); if (zoomRafRef.current) cancelAnimationFrame(zoomRafRef.current) }
-  }, [])
+  }, [zoomSensitivity])
 
   // Global mouseup to end pan/box-select
   useEffect(() => {
@@ -1780,7 +1783,7 @@ export default function SheetPage() {
             <button className={s.zoomBtn} onClick={() => setZoom(z => Math.min(6400, z + 25))}><Plus size={14} /></button>
           </div>
           <Badge variant="success" dot>Synced</Badge>
-          <button className={s.iconBtn} data-on={settings} onClick={() => setSettings(v => !v)}>
+          <button className={s.iconBtn} data-on={settings} onClick={() => setSettings(v => !v)} aria-label="Display settings">
             <Settings2 size={17} />
           </button>
           <Button size="sm" variant="secondary" iconLeft={<Share2 size={14} />}>Share</Button>
@@ -1860,6 +1863,17 @@ export default function SheetPage() {
               <button data-on={precision === 0} onClick={() => setPrecision(0)}>Whole</button>
               <button data-on={precision === 1} onClick={() => setPrecision(1)}>0.1</button>
               <button data-on={precision === 2} onClick={() => setPrecision(2)}>0.01</button>
+            </div>
+          </div>
+          <div>
+            <div className={s.popHead}>Scroll zoom speed</div>
+            <div className={s.fsRow}>
+              <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>slow</span>
+              <input type="range" min={MIN_ZOOM_SENSITIVITY} max={MAX_ZOOM_SENSITIVITY} step="0.05" value={zoomSensitivity}
+                style={{ flex: 1, accentColor: 'var(--brand-600)' }}
+                onChange={e => setZoomSensitivity(parseFloat(e.target.value))} />
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>fast</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, minWidth: 38, textAlign: 'right' }}>{Math.round(zoomSensitivity * 100)}%</span>
             </div>
           </div>
         </div>

@@ -39,6 +39,12 @@ export const HOTKEY_LABELS = {
 // toolbar. Customized by dragging buttons around; persisted per-browser.
 export const DEFAULT_TOOLBAR_ORDER = ['select', 'pan', 'region', 'measure', 'text', 'area', 'linear', 'count']
 
+// Multiplier applied to scroll-wheel zoom speed on the sheet canvas. 1 =
+// original feel; higher zooms faster per scroll tick, lower is finer/slower.
+export const DEFAULT_ZOOM_SENSITIVITY = 1
+export const MIN_ZOOM_SENSITIVITY = 0.25
+export const MAX_ZOOM_SENSITIVITY = 3
+
 function load() {
   try { return JSON.parse(localStorage.getItem('plotline-settings') || 'null') } catch { return null }
 }
@@ -49,11 +55,12 @@ export function SettingsProvider({ children }) {
   const [accent, setAccent] = useState(saved?.accent || 'green')
   const [hotkeys, setHotkeys] = useState({ ...DEFAULT_HOTKEYS, ...(saved?.hotkeys || {}) })
   const [toolbarOrder, setToolbarOrder] = useState(saved?.toolbarOrder || DEFAULT_TOOLBAR_ORDER)
+  const [zoomSensitivity, setZoomSensitivity] = useState(saved?.zoomSensitivity ?? DEFAULT_ZOOM_SENSITIVITY)
 
   useEffect(() => {
-    localStorage.setItem('plotline-settings', JSON.stringify({ theme, accent, hotkeys, toolbarOrder }))
+    localStorage.setItem('plotline-settings', JSON.stringify({ theme, accent, hotkeys, toolbarOrder, zoomSensitivity }))
     document.documentElement.setAttribute('data-theme', theme)
-  }, [theme, accent, hotkeys, toolbarOrder])
+  }, [theme, accent, hotkeys, toolbarOrder, zoomSensitivity])
 
   // Apply on mount
   useEffect(() => {
@@ -71,6 +78,7 @@ export function SettingsProvider({ children }) {
       theme, setTheme, accent, setAccent,
       hotkeys, setHotkey, setHotkeys, resetHotkeys,
       toolbarOrder, setToolbarOrder, resetToolbarOrder,
+      zoomSensitivity, setZoomSensitivity,
     }}>
       {children}
     </Ctx.Provider>
