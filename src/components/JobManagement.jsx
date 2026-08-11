@@ -512,67 +512,112 @@ function Materials({ field, setField, areaName, txTotal, onSync }) {
   }
   const reqFor = (materialId, areaId) => field.requirements.find(r => r.materialId === materialId && r.areaId === areaId)?.requiredQty ?? ''
   const colSpan = 9
+
+  // Group materials by the region (job folder) their required qty is split
+  // into, instead of one flat undifferentiated list — a material split
+  // across several regions appears once per region with that region's own
+  // required/ordered/delivered/installed numbers. A material that hasn't
+  // been assigned a required qty in any region yet lands in "Unassigned".
+  const groups = field.areas
+    .map(a => ({ area: a, materialIds: field.materials.filter(m => num(reqFor(m.id, a.id)) > 0).map(m => m.id) }))
+    .filter(g => g.materialIds.length)
+  const assignedIds = new Set(groups.flatMap(g => g.materialIds))
+  const unassignedIds = field.materials.filter(m => !assignedIds.has(m.id)).map(m => m.id)
+
+  const groupHeader = (label, sub) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '12px 10px 6px' }}>
+      <MapPin size={13} style={{ color: 'var(--text-subtle)' }} />
+      <span style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-subtle)' }}>{label}</span>
+      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>· {sub}</span>
+    </div>
+  )
+
+  const tableHead = (
+    <thead><tr>
+      <th style={{ ...th, width: 28 }}></th><th style={th}>Code</th><th style={th}>Description</th><th style={th}>Unit</th>
+      <th style={th}>Required</th><th style={th}>Ordered</th><th style={th}>Delivered</th><th style={th}>Installed</th><th style={th}>Remaining</th><th style={th}></th>
+    </tr></thead>
+  )
+
+  // A material row's Required/Ordered/Delivered/Installed reflect just the
+  // passed region (areaId) — or, for the "Unassigned" group, the material's
+  // totals across every transaction regardless of region.
+  const materialRow = (m, areaId) => {
+    const required = areaId ? num(reqFor(m.id, areaId)) : 0
+    const tot = (type) => areaId
+      ? txTotal(areaId, m.id, type)
+      : field.transactions.filter(t => t.materialId === m.id && t.type === type).reduce((s, t) => s + num(t.qty), 0)
+    const installed = tot('Installed')
+    const isOpen = expanded.has(m.id)
+    return (
+      <React.Fragment key={`${areaId || 'unassigned'}-${m.id}`}>
+        <tr>
+          <td style={{ ...td, textAlign: 'center' }}>
+            <button onClick={() => toggleExpand(m.id)} title="Split required qty by region"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', display: 'inline-flex', padding: 0 }}>
+              {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+            </button>
+          </td>
+          <td style={{ ...td, fontFamily: 'var(--font-mono)' }}>{m.code || '—'}</td>
+          <td style={td}>{m.description || '—'}</td>
+          <td style={td}>{m.unit || '—'}</td>
+          <td style={td}>{required.toLocaleString()}</td>
+          <td style={td}>{tot('Ordered').toLocaleString()}</td>
+          <td style={td}>{tot('Delivered').toLocaleString()}</td>
+          <td style={td}>{installed.toLocaleString()}</td>
+          <td style={{ ...td, fontWeight: 700, color: (required - installed) > 0 ? 'var(--text-strong)' : 'var(--brand-600)' }}>{(required - installed).toLocaleString()}</td>
+          <td style={{ ...td, textAlign: 'right' }}><DelBtn onClick={() => delMaterial(m.id)} /></td>
+        </tr>
+        {isOpen && (
+          <tr>
+            <td style={{ padding: 0, background: 'var(--surface-sunken)' }} colSpan={colSpan + 1}>
+              <div style={{ padding: '10px 16px' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-subtle)', marginBottom: 8 }}>Required quantity by region</div>
+                {field.areas.length === 0 ? <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Add regions first.</div> : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10 }}>
+                    {field.areas.map(a => (
+                      <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ flex: 1, fontSize: 13, color: 'var(--text-body)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.name}</span>
+                        <input type="number" value={reqFor(m.id, a.id)} placeholder="0"
+                          onChange={e => setReq(m.id, a.id, e.target.value)}
+                          style={{ width: 80, fontFamily: 'var(--font-mono)', fontSize: 13, padding: '5px 8px', borderRadius: 6, border: '1px solid var(--border-default)', background: 'var(--surface-card)', color: 'var(--text-strong)' }} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </td>
+          </tr>
+        )}
+      </React.Fragment>
+    )
+  }
+
   return (
     <Card title="Materials — required vs installed"
       right={<Button variant="ghost" size="sm" iconLeft={<Download size={14} style={{ transform: 'rotate(180deg)' }} />} onClick={onSync}>Sync from takeoff</Button>}>
 
       {field.materials.length === 0 ? <Empty>No materials yet. They seed from your Material List (takeoff) — use “Sync from takeoff”, or add one below.</Empty> : (
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead><tr>
-            <th style={{ ...th, width: 28 }}></th><th style={th}>Code</th><th style={th}>Description</th><th style={th}>Unit</th>
-            <th style={th}>Required</th><th style={th}>Ordered</th><th style={th}>Delivered</th><th style={th}>Installed</th><th style={th}>Remaining</th><th style={th}></th>
-          </tr></thead>
-          <tbody>
-            {field.materials.map(m => {
-              const required = field.requirements.filter(r => r.materialId === m.id).reduce((s, r) => s + num(r.requiredQty), 0)
-              const tot = (type) => field.transactions.filter(t => t.materialId === m.id && t.type === type).reduce((s, t) => s + num(t.qty), 0)
-              const installed = tot('Installed')
-              const isOpen = expanded.has(m.id)
-              return (
-                <React.Fragment key={m.id}>
-                  <tr>
-                    <td style={{ ...td, textAlign: 'center' }}>
-                      <button onClick={() => toggleExpand(m.id)} title="Split required qty by area"
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', display: 'inline-flex', padding: 0 }}>
-                        {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-                      </button>
-                    </td>
-                    <td style={{ ...td, fontFamily: 'var(--font-mono)' }}>{m.code || '—'}</td>
-                    <td style={td}>{m.description || '—'}</td>
-                    <td style={td}>{m.unit || '—'}</td>
-                    <td style={td}>{required.toLocaleString()}</td>
-                    <td style={td}>{tot('Ordered').toLocaleString()}</td>
-                    <td style={td}>{tot('Delivered').toLocaleString()}</td>
-                    <td style={td}>{installed.toLocaleString()}</td>
-                    <td style={{ ...td, fontWeight: 700, color: (required - installed) > 0 ? 'var(--text-strong)' : 'var(--brand-600)' }}>{(required - installed).toLocaleString()}</td>
-                    <td style={{ ...td, textAlign: 'right' }}><DelBtn onClick={() => delMaterial(m.id)} /></td>
-                  </tr>
-                  {isOpen && (
-                    <tr>
-                      <td style={{ padding: 0, background: 'var(--surface-sunken)' }} colSpan={colSpan + 1}>
-                        <div style={{ padding: '10px 16px' }}>
-                          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-subtle)', marginBottom: 8 }}>Required quantity by area</div>
-                          {field.areas.length === 0 ? <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Add areas first.</div> : (
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10 }}>
-                              {field.areas.map(a => (
-                                <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                  <span style={{ flex: 1, fontSize: 13, color: 'var(--text-body)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.name}</span>
-                                  <input type="number" value={reqFor(m.id, a.id)} placeholder="0"
-                                    onChange={e => setReq(m.id, a.id, e.target.value)}
-                                    style={{ width: 80, fontFamily: 'var(--font-mono)', fontSize: 13, padding: '5px 8px', borderRadius: 6, border: '1px solid var(--border-default)', background: 'var(--surface-card)', color: 'var(--text-strong)' }} />
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </React.Fragment>
-              )
-            })}
-          </tbody>
-        </table>
+        <>
+          {groups.map(g => (
+            <div key={g.area.id}>
+              {groupHeader(g.area.name, `${g.materialIds.length} material${g.materialIds.length === 1 ? '' : 's'}`)}
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                {tableHead}
+                <tbody>{field.materials.filter(m => g.materialIds.includes(m.id)).map(m => materialRow(m, g.area.id))}</tbody>
+              </table>
+            </div>
+          ))}
+          {unassignedIds.length > 0 && (
+            <div>
+              {groupHeader('Unassigned', 'not yet split to a region')}
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                {tableHead}
+                <tbody>{field.materials.filter(m => unassignedIds.includes(m.id)).map(m => materialRow(m, null))}</tbody>
+              </table>
+            </div>
+          )}
+        </>
       )}
       <AddRow
         fields={[

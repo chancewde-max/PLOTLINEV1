@@ -170,10 +170,11 @@ export default function SheetPage() {
 
   // ---- Right-click context menu + on-canvas legends ----
   const [ctxMenu, setCtxMenu]   = useState(null) // { x, y } in viewport coords, or null
-  // Legend boxes are positioned/sized in PLAN-SPACE (same coordinate system as
-  // SHEET_W/SHEET_H, the svg viewBox) and rendered inside the pan/zoom-transformed
-  // .sheet layer — so they pan and scale together with the drawing, like a title
-  // block printed on the sheet, instead of floating fixed on screen.
+  // Legend boxes are positioned/sized in PLAN-SPACE (page-relative, same
+  // coordinate system as the svg viewBox — see pageW/pageH below) and
+  // rendered inside the pan/zoom-transformed .sheet layer — so they pan and
+  // scale together with the drawing, like a title block printed on the
+  // sheet, instead of floating fixed on screen.
   const [legends, setLegends]   = useState([])   // [{ id, x, y, w, h, title, hiddenCats }]
   const [editingLegendId, setEditingLegendId] = useState(null)
   const legendDragRef = useRef(null)  // { id, mode: 'move'|'resize', startX, startY, origX, origY, origW, origH }
@@ -375,6 +376,40 @@ export default function SheetPage() {
   const project = projects[projectId]
   const sheet   = sheets[sheetId]
 
+  // ---- Page size (auto-fit to the real PDF page, no letterbox gap) ----
+  // The plan-space box used to be a hardcoded SHEET_W x SHEET_H (900x620) for
+  // every sheet, regardless of the uploaded page's real size — a page whose
+  // aspect ratio didn't match 900:620 (e.g. ARCH D/E) got "contain"-fit and
+  // anchored top-left inside that fixed box, leaving blank paper in the gap
+  // (usually along the bottom). pageAspect (width/height) drives pageW/pageH
+  // below so the box always matches the real page exactly. Seeded from the
+  // sheet's stored thumbAspect (height/width, captured at upload time) for an
+  // immediate correct-ish size, then corrected precisely once PdfCanvas
+  // measures the actual page. Existing saved markup coordinates are safe:
+  // this only shrinks the box to the content's own bounds (never rescales),
+  // and the page stays anchored at plan-space (0,0) same as before.
+  const [pageAspect, setPageAspect] = useState(() => {
+    const ta = sheets[sheetId]?.thumbAspect
+    return ta > 0 ? 1 / ta : null
+  })
+  useEffect(() => {
+    const ta = sheets[sheetId]?.thumbAspect
+    setPageAspect(ta > 0 ? 1 / ta : null)
+  }, [sheetId]) // eslint-disable-line react-hooks/exhaustive-deps
+  const onPageSize = (w, h) => { if (w > 0 && h > 0) setPageAspect(w / h) }
+  const boxAspect = SHEET_W / SHEET_H
+  const pageW = pageAspect ? (pageAspect >= boxAspect ? SHEET_W : Math.round(SHEET_H * pageAspect)) : SHEET_W
+  const pageH = pageAspect ? (pageAspect >= boxAspect ? Math.round(SHEET_W / pageAspect) : SHEET_H) : SHEET_H
+  // Extra clickable/drawable margin around the page so items (text notes,
+  // counts, etc.) can be placed off the sheet — e.g. a callout that points at
+  // the plan but sits in the white space beside it. The page itself always
+  // stays anchored at (0,0)-(pageW,pageH), exactly like before, so nothing
+  // shifts for existing saved markup; the margin only adds new plan-space
+  // room beyond/around those bounds.
+  const PAGE_MARGIN = 160
+  const deskX = -PAGE_MARGIN, deskY = -PAGE_MARGIN
+  const deskW = pageW + PAGE_MARGIN * 2, deskH = pageH + PAGE_MARGIN * 2
+
   // ---- Smooth zoom to cursor ----
   const zoomTargetRef   = useRef(100)
   const panTargetRef    = useRef({ x: 0, y: 0 })
@@ -492,8 +527,8 @@ export default function SheetPage() {
       const drag = legendDragRef.current
       if (!drag) return
       const rect = svgRef.current?.getBoundingClientRect()
-      const scaleX = rect ? SHEET_W / rect.width : 1
-      const scaleY = rect ? SHEET_H / rect.height : 1
+      const scaleX = rect ? pageW / rect.width : 1
+      const scaleY = rect ? pageH / rect.height : 1
       const dx = (e.clientX - drag.startX) * scaleX
       const dy = (e.clientY - drag.startY) * scaleY
       setLegends((prev) => prev.map((l) => {
@@ -509,7 +544,7 @@ export default function SheetPage() {
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
     }
-  }, [])
+  }, [pageW, pageH])
 
   // Drag-to-reposition the page overlay — same window-level pattern as the
   // legend drag above (so the drag survives the cursor leaving the overlay's
@@ -520,8 +555,8 @@ export default function SheetPage() {
       const drag = overlayDragRef.current
       if (!drag) return
       const rect = svgRef.current?.getBoundingClientRect()
-      const scaleX = rect ? SHEET_W / rect.width : 1
-      const scaleY = rect ? SHEET_H / rect.height : 1
+      const scaleX = rect ? pageW / rect.width : 1
+      const scaleY = rect ? pageH / rect.height : 1
       setOverlayOffset({
         x: drag.origX + (e.clientX - drag.startX) * scaleX,
         y: drag.origY + (e.clientY - drag.startY) * scaleY,
@@ -534,7 +569,7 @@ export default function SheetPage() {
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
     }
-  }, [])
+  }, [pageW, pageH])
 
   // Recompute the page-diff overlay (debounced — dragging/scaling updates
   // overlayOffset/overlayScale continuously, and re-rendering + pixel-diffing
@@ -551,12 +586,12 @@ export default function SheetPage() {
       computeOverlayDiff({
         baseUrl: resolveSheetPdfUrl(sheet, pdfAssets), basePage: sheet.pdfPage || 1,
         overlayUrl: resolveSheetPdfUrl(overlaySh, pdfAssets), overlayPage: overlaySh.pdfPage || 1,
-        offset: overlayOffset, scale: overlayScale, sheetW: SHEET_W, sheetH: SHEET_H,
+        offset: overlayOffset, scale: overlayScale, sheetW: pageW, sheetH: pageH,
       }).then(canvas => { if (!cancelled) { setDiffCanvas(canvas); setDiffLoading(false) } })
         .catch(() => { if (!cancelled) setDiffLoading(false) })
     }, 400)
     return () => { cancelled = true; clearTimeout(timer) }
-  }, [overlayMode, overlaySheetId, overlayOffset.x, overlayOffset.y, overlayScale, sheet, sheets, pdfAssets])
+  }, [overlayMode, overlaySheetId, overlayOffset.x, overlayOffset.y, overlayScale, sheet, sheets, pdfAssets, pageW, pageH])
 
   // Persist active left panel tab across sheet navigations (component remounts with key=sheetId)
   useEffect(() => { sessionStorage.setItem('sheetLeftPanel', leftPanel) }, [leftPanel])
@@ -736,8 +771,8 @@ export default function SheetPage() {
     // whereas getScreenCTM() misses CSS transforms on ancestor divs
     const rect = svg.getBoundingClientRect()
     return {
-      x: (e.clientX - rect.left) * (SHEET_W / rect.width),
-      y: (e.clientY - rect.top) * (SHEET_H / rect.height),
+      x: deskX + (e.clientX - rect.left) * (deskW / rect.width),
+      y: deskY + (e.clientY - rect.top) * (deskH / rect.height),
     }
   }
 
@@ -833,8 +868,8 @@ export default function SheetPage() {
     // transform, so this lands the legend at the plan-space point under the
     // cursor regardless of current zoom — same conversion toSheet() uses.
     const rect = svgRef.current?.getBoundingClientRect()
-    const x = rect ? (clientX - rect.left) * (SHEET_W / rect.width) : clientX
-    const y = rect ? (clientY - rect.top) * (SHEET_H / rect.height) : clientY
+    const x = rect ? deskX + (clientX - rect.left) * (deskW / rect.width) : clientX
+    const y = rect ? deskY + (clientY - rect.top) * (deskH / rect.height) : clientY
     setLegends((prev) => [...prev, { id: `legend-${Date.now()}`, x, y, w: 220, h: 180, title: 'Legend', hiddenCats: [] }])
   }
 
@@ -2103,52 +2138,64 @@ export default function SheetPage() {
           </div>
 
           <div className={s.sheetWrap} style={{ transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${(zoom / 100) * FIT})` }}>
-            <div className={s.sheet} style={{ width: SHEET_W, height: SHEET_H, backgroundImage: sheetHasPdf(sheet) ? 'none' : undefined }}>
-              {sheetHasPdf(sheet) && (
-                <PdfCanvas url={resolveSheetPdfUrl(sheet, pdfAssets)} width={SHEET_W} height={SHEET_H} pageNumber={sheet.pdfPage || 1}
-                  onReuploadNeeded={() => {
-                    const input = document.createElement('input')
-                    input.type = 'file'; input.accept = 'application/pdf'
-                    input.onchange = (e) => {
-                      const file = e.target.files?.[0]
-                      if (!file) return
-                      const reader = new FileReader()
-                      // Re-uploading replaces this sheet's own copy directly —
-                      // clears any (now-stale) shared pdfAssetId reference so
-                      // the freshly set pdfUrl takes priority.
-                      reader.onload = (ev) => updateSheet(sheetId, { pdfUrl: ev.target.result, pdfAssetId: null })
-                      reader.readAsDataURL(file)
-                    }
-                    input.click()
-                  }}
-                />
-              )}
+            {/* .sheet now spans the page PLUS a margin (see PAGE_MARGIN above)
+                so there's room to place items off the sheet; .paper is the
+                actual page rect within it, sized to the real PDF's aspect
+                ratio (pageW x pageH) so there's no letterboxed blank-paper
+                gap when a page's aspect ratio differs from the old fixed
+                900x620 box. The page always stays anchored at plan-space
+                (0,0) — i.e. .paper sits at (PAGE_MARGIN, PAGE_MARGIN) inside
+                the enlarged .sheet — so existing saved markup coordinates
+                are unaffected. */}
+            <div className={s.sheet} style={{ width: deskW, height: deskH }}>
+              <div className={s.paper} style={{ left: PAGE_MARGIN, top: PAGE_MARGIN, width: pageW, height: pageH, backgroundImage: sheetHasPdf(sheet) ? 'none' : undefined }}>
+                {sheetHasPdf(sheet) && (
+                  <PdfCanvas url={resolveSheetPdfUrl(sheet, pdfAssets)} width={pageW} height={pageH} pageNumber={sheet.pdfPage || 1}
+                    onPageSize={onPageSize}
+                    onReuploadNeeded={() => {
+                      const input = document.createElement('input')
+                      input.type = 'file'; input.accept = 'application/pdf'
+                      input.onchange = (e) => {
+                        const file = e.target.files?.[0]
+                        if (!file) return
+                        const reader = new FileReader()
+                        // Re-uploading replaces this sheet's own copy directly —
+                        // clears any (now-stale) shared pdfAssetId reference so
+                        // the freshly set pdfUrl takes priority.
+                        reader.onload = (ev) => updateSheet(sheetId, { pdfUrl: ev.target.result, pdfAssetId: null })
+                        reader.readAsDataURL(file)
+                      }
+                      input.click()
+                    }}
+                  />
+                )}
 
-              {/* Page overlay — the actual PDF page of another sheet ghosted
-                  on top for a PlanSwift-style revision compare (like a light
-                  table), not the measured vector markup on it. */}
-              {overlaySheet && overlayVisible && sheetHasPdf(overlaySheet) && overlayMode === 'transparency' && (
-                <div style={{
-                  position: 'absolute', inset: 0, transformOrigin: '0 0',
-                  transform: `translate(${overlayOffset.x}px, ${overlayOffset.y}px) scale(${overlayScale})`,
-                  opacity: overlayOpacity, pointerEvents: 'none',
-                }}>
-                  <PdfCanvas url={resolveSheetPdfUrl(overlaySheet, pdfAssets)} width={SHEET_W} height={SHEET_H}
-                    pageNumber={overlaySheet.pdfPage || 1} />
-                </div>
-              )}
+                {/* Page overlay — the actual PDF page of another sheet ghosted
+                    on top for a PlanSwift-style revision compare (like a light
+                    table), not the measured vector markup on it. */}
+                {overlaySheet && overlayVisible && sheetHasPdf(overlaySheet) && overlayMode === 'transparency' && (
+                  <div style={{
+                    position: 'absolute', inset: 0, transformOrigin: '0 0',
+                    transform: `translate(${overlayOffset.x}px, ${overlayOffset.y}px) scale(${overlayScale})`,
+                    opacity: overlayOpacity, pointerEvents: 'none',
+                  }}>
+                    <PdfCanvas url={resolveSheetPdfUrl(overlaySheet, pdfAssets)} width={pageW} height={pageH}
+                      pageNumber={overlaySheet.pdfPage || 1} />
+                  </div>
+                )}
 
-              {/* Diff mode — a pre-computed red/blue highlight canvas (see
-                  computeOverlayDiff) instead of the plain ghosted page. It
-                  already carries the offset/scale baked in, so no transform
-                  here — just re-rendered whenever the alignment settles. */}
-              {overlaySheet && overlayVisible && overlayMode === 'diff' && diffCanvas && (
-                <img src={diffCanvas.toDataURL()} alt="" width={SHEET_W} height={SHEET_H}
-                  style={{ position: 'absolute', inset: 0, width: SHEET_W, height: SHEET_H, pointerEvents: 'none' }} />
-              )}
+                {/* Diff mode — a pre-computed red/blue highlight canvas (see
+                    computeOverlayDiff) instead of the plain ghosted page. It
+                    already carries the offset/scale baked in, so no transform
+                    here — just re-rendered whenever the alignment settles. */}
+                {overlaySheet && overlayVisible && overlayMode === 'diff' && diffCanvas && (
+                  <img src={diffCanvas.toDataURL()} alt="" width={pageW} height={pageH}
+                    style={{ position: 'absolute', inset: 0, width: pageW, height: pageH, pointerEvents: 'none' }} />
+                )}
+              </div>
 
-              <svg ref={svgRef} className={s.svg} width={SHEET_W} height={SHEET_H}
-                viewBox={`0 0 ${SHEET_W} ${SHEET_H}`}
+              <svg ref={svgRef} className={s.svg} width={deskW} height={deskH}
+                viewBox={`${deskX} ${deskY} ${deskW} ${deskH}`}
                 style={{ cursor: canvasCursor }}
                 onMouseDown={onMouseDown}
                 onMouseMove={onMouseMove}
@@ -2175,7 +2222,7 @@ export default function SheetPage() {
                     onMouseDown={e => { e.stopPropagation(); overlayDragRef.current = { startX: e.clientX, startY: e.clientY, origX: overlayOffset.x, origY: overlayOffset.y } }}
                     onClick={e => e.stopPropagation()}
                     onDoubleClick={e => e.stopPropagation()}>
-                    <rect x="0" y="0" width={SHEET_W} height={SHEET_H} fill="transparent" />
+                    <rect x="0" y="0" width={pageW} height={pageH} fill="transparent" />
                   </g>
                 )}
 
@@ -2555,7 +2602,7 @@ export default function SheetPage() {
                 if (!a || !cp.c) return null
                 return (
                   <div key={id} className={s.areaLabel}
-                    style={{ left: `${(cp.c.x/SHEET_W)*100}%`, top: `${(cp.c.y/SHEET_H)*100}%`, color: CAT_COLOR[a.type] }}>
+                    style={{ left: `${((cp.c.x - deskX)/deskW)*100}%`, top: `${((cp.c.y - deskY)/deskH)*100}%`, color: CAT_COLOR[a.type] }}>
                     {fSq(sqft(cp.px2))} sq ft
                   </div>
                 )
@@ -2569,7 +2616,7 @@ export default function SheetPage() {
                 const visibleTotals = legendTotals.filter(t => !(l.hiddenCats || []).includes(t.id))
                 const editing = editingLegendId === l.id
                 return (
-                  <div key={l.id} className={s.legendBox} style={{ left: l.x, top: l.y, width: l.w, height: l.h }}>
+                  <div key={l.id} className={s.legendBox} style={{ left: l.x - deskX, top: l.y - deskY, width: l.w, height: l.h }}>
                     <div className={s.legendHeader}
                       onMouseDown={(e) => {
                         e.stopPropagation()
@@ -2638,7 +2685,7 @@ export default function SheetPage() {
 
           {activeTool === 'region' && regionCen && hasRegion && (
             <div className={s.bubble} style={{
-              left: px2pct(regionCen.x, SHEET_W), top: px2pct(regionCen.y, SHEET_H),
+              left: px2pct(regionCen.x, pageW), top: px2pct(regionCen.y, pageH),
               background: activeFolder?.color || 'var(--brand-600)'
             }}>
               {fSq(regionSqft)} sq ft
@@ -2649,7 +2696,7 @@ export default function SheetPage() {
           {activeTool === 'measure' && measureAllPts.length >= 2 && (() => {
             const last = measureAllPts[measureAllPts.length - 1]
             return (
-              <div className={s.bubble} style={{ left: px2pct(last.x, SHEET_W), top: px2pct(last.y - 28, SHEET_H), background: measureColor }}>
+              <div className={s.bubble} style={{ left: px2pct(last.x, pageW), top: px2pct(last.y - 28, pageH), background: measureColor }}>
                 {fLn(measureTotalFt)} ln ft
               </div>
             )

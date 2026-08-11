@@ -281,12 +281,20 @@
    which reads as the canvas lagging behind the cursor during a drag. */
 .sheetWrap { }
 
+/* .sheet spans the page plus its off-sheet margin (see PAGE_MARGIN in
+   SheetPage.jsx) — the desk background shows through the margin, and .paper
+   is the actual page rect within it. */
 .sheet {
   position: relative;
+}
+
+.paper {
+  position: absolute;
   background: var(--surface-paper);
   border: none;
   border-radius: 2px;
   box-shadow: 0 4px 24px rgba(0,0,0,0.45), 0 1px 4px rgba(0,0,0,0.3);
+  pointer-events: none;
 }
 
 .svg { position: absolute; inset: 0; }

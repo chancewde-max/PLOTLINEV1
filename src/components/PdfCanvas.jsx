@@ -15,7 +15,7 @@ function dataUrlToUint8Array(dataUrl) {
   return bytes
 }
 
-export default function PdfCanvas({ url, width, height, onReuploadNeeded, pageNumber = 1 }) {
+export default function PdfCanvas({ url, width, height, onReuploadNeeded, onPageSize, pageNumber = 1 }) {
   const canvasRef = useRef(null)
   const [error, setError] = useState(null)
   const [stale, setStale] = useState(false)
@@ -60,6 +60,7 @@ export default function PdfCanvas({ url, width, height, onReuploadNeeded, pageNu
         if (!canvas) return
 
         const viewport0 = page.getViewport({ scale: 1 })
+        onPageSize?.(viewport0.width, viewport0.height)
         const dpr = window.devicePixelRatio || 1
         const baseFit = Math.min(width / viewport0.width, height / viewport0.height)
         // Higher resolution so PDF stays sharp when zoomed in for counting
