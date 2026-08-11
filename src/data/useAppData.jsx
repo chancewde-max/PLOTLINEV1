@@ -16,6 +16,12 @@ const dataCache = { loaded: false, snapshot: null }
 // New:  project.mtoVersions = [ { id, v:1, templateId:null, ..., isCurrent:true } ]
 // Projects that have no `mto` and no `mtoVersions` get an empty array so the
 // rest of the app can rely on `mtoVersions` always being an array.
+//
+// Migrate the legacy single `project.proposal` shape into a versioned array,
+// the same way, so a job can carry multiple proposal versions (e.g. a change
+// order or a revised plan set) instead of one document that gets overwritten.
+// Old:  project.proposal = { header, to, project, scopeSections, ... }
+// New:  project.proposalVersions = [ { id, v:1, name, isCurrent:true, header, to, ... } ]
 function migrateProjects(projects) {
   if (!projects) return {}
   const out = {}
@@ -38,6 +44,19 @@ function migrateProjects(projects) {
       delete p.mto
     } else if (!Array.isArray(p.mtoVersions)) {
       p.mtoVersions = []
+    }
+    if (p.proposal) {
+      p.proposalVersions = [{
+        id: `prop-${Date.now()}-${pid}`,
+        v: 1,
+        name: 'Original Proposal',
+        createdAt: p.proposal.createdAt || new Date().toISOString(),
+        isCurrent: true,
+        ...p.proposal,
+      }]
+      delete p.proposal
+    } else if (!Array.isArray(p.proposalVersions)) {
+      p.proposalVersions = []
     }
     out[pid] = p
   }
@@ -142,12 +161,17 @@ export function AppDataProvider({ children }) {
   }
   const deleteVendor = (id) => setVendors(list => list.filter(v => v.id !== id))
 
-  // Persist a project's editable client proposal (the "Pricebook" editor).
-  const updateProposal = (projectId, proposal) =>
+  // Persist edits to a project's CURRENT proposal version, in place (the
+  // "Pricebook" editor autosaves here on every field change). No-op if the
+  // job has no proposal version yet — callers should addProposalVersion first.
+  const updateProposal = (projectId, updates) =>
     setProjects(p => {
       const proj = p[projectId]
       if (!proj) return p
-      return { ...p, [projectId]: { ...proj, proposal } }
+      const list = proj.proposalVersions || []
+      if (!list.some(x => x.isCurrent)) return p
+      const next = list.map(x => (x.isCurrent ? { ...x, ...updates } : x))
+      return { ...p, [projectId]: { ...proj, proposalVersions: next } }
     })
 
   // --- Proposal templates (account-level, reusable proposal structures) ---
@@ -383,6 +407,64 @@ export function AppDataProvider({ children }) {
     })
   }
 
+  // --- Proposal versions (per-project — e.g. a change order or a revised
+  // plan set gets its own version instead of overwriting the original bid) ---
+
+  const addProposalVersion = (projectId, version) => {
+    setProjects(p => {
+      const proj = p[projectId]
+      if (!proj) return p
+      const list = Array.isArray(proj.proposalVersions) ? [...proj.proposalVersions] : []
+      const next = list.length + 1
+      const { id, v, name, createdAt, isCurrent, ...content } = version || {}
+      const entry = {
+        ...content,
+        id: id || `prop-${Date.now()}`,
+        v: v || next,
+        name: name || `Version ${next}`,
+        createdAt: createdAt || new Date().toISOString(),
+        isCurrent: true,
+      }
+      const demoted = list.map(x => ({ ...x, isCurrent: false }))
+      return { ...p, [projectId]: { ...proj, proposalVersions: [...demoted, entry] } }
+    })
+  }
+
+  const setCurrentProposalVersion = (projectId, versionId) => {
+    setProjects(p => {
+      const proj = p[projectId]
+      if (!proj) return p
+      const list = (proj.proposalVersions || []).map(x => ({ ...x, isCurrent: x.id === versionId }))
+      return { ...p, [projectId]: { ...proj, proposalVersions: list } }
+    })
+  }
+
+  const removeProposalVersion = (projectId, versionId) => {
+    setProjects(p => {
+      const proj = p[projectId]
+      if (!proj) return p
+      const list = (proj.proposalVersions || []).filter(x => x.id !== versionId)
+      // If we removed the current version, promote the most-recent remaining
+      // one (highest v) as current; otherwise leave the array as-is.
+      if (!list.some(x => x.isCurrent) && list.length) {
+        const latest = list.reduce((a, b) => (b.v > a.v ? b : a))
+        latest.isCurrent = true
+      }
+      return { ...p, [projectId]: { ...proj, proposalVersions: list } }
+    })
+  }
+
+  const updateProposalVersion = (projectId, versionId, updates) => {
+    setProjects(p => {
+      const proj = p[projectId]
+      if (!proj) return p
+      const list = (proj.proposalVersions || []).map(x =>
+        x.id === versionId ? { ...x, ...updates } : x
+      )
+      return { ...p, [projectId]: { ...proj, proposalVersions: list } }
+    })
+  }
+
   // --- Cloud hydration / reset (additive; used by AuthProvider) ---
   // Replace the full collections in one shot (from a cloud snapshot).
   // `merge` keeps existing local keys when the incoming value is empty.
@@ -457,6 +539,7 @@ export function AppDataProvider({ children }) {
       addMtoTemplate, updateMtoTemplate,
       addMtoVersion, setCurrentMtoVersion, removeMtoVersion, updateMtoVersion,
       updateProposal,
+      addProposalVersion, setCurrentProposalVersion, removeProposalVersion, updateProposalVersion,
       addProposalTemplate, updateProposalTemplate,
       phrases, addPhrase, deletePhrase,
       hydrate, reset,

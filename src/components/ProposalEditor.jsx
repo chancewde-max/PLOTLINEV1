@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react'
 import {
   Plus, Trash2, RefreshCw, FileText, Save, Upload, Download, Printer,
   Sparkles, ChevronDown, X, ImagePlus, Building2, Package, GripVertical, Quote,
+  Layers, Copy, Pencil,
 } from 'lucide-react'
 import { useAppData } from '../data/useAppData.jsx'
 import { takeoffMaterialItems } from '../data/takeoff.js'
@@ -14,8 +15,10 @@ import s from './ProposalEditor.module.css'
    ProposalEditor — a commercial bid/proposal document (Word-like).
    The document uses the ACCOUNT'S OWN company logo + identity
    (from the account-level `company` object), not a hardcoded logo.
-   The proposal `structure` is stored as project.proposal and is
-   fully editable via structured inputs / textareas / editable tables.
+   A job can carry multiple proposal versions (change orders, revised plan
+   sets, …) in project.proposalVersions[]; this editor always reads/writes
+   whichever one is currently marked isCurrent, fully editable via
+   structured inputs / textareas / editable tables.
    ============================================================ */
 
 // Custom drag MIME types for the materials/phrases pickers — deliberately
@@ -116,6 +119,15 @@ function money(n) {
   return '$' + (Number.isInteger(n) ? n.toLocaleString() : n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
 }
 
+// Strip a proposalVersions entry down to just its document content, dropping
+// the versioning metadata (id/v/name/createdAt/isCurrent) so it can seed the
+// editor's `doc` state or be exported/copied like a plain proposal.
+function versionContent(v) {
+  if (!v) return null
+  const { id, v: _v, name, createdAt, isCurrent, ...content } = v
+  return content
+}
+
 // Build proposal line items from the current MTO version via its columnMap.
 function lineItemsFromMto(version) {
   if (!version || !Array.isArray(version.rows)) return null
@@ -145,6 +157,7 @@ function lineItemsFromMto(version) {
 export default function ProposalEditor({ projectId, project, sheets }) {
   const {
     proposalTemplates, addProposalTemplate, updateProposal,
+    addProposalVersion, setCurrentProposalVersion, removeProposalVersion, updateProposalVersion,
     company, updateCompany,
     phrases, addPhrase, deletePhrase,
   } = useAppData()
@@ -153,8 +166,14 @@ export default function ProposalEditor({ projectId, project, sheets }) {
     a && b && a.name === b.name && a.address === b.address &&
     a.phone === b.phone && a.email === b.email && a.logoDataUrl === b.logoDataUrl
 
-  // Seed the editor from the persisted proposal, falling back to defaults.
-  const [doc, setDoc] = useState(() => project?.proposal || defaultProposal(project))
+  // A job can carry multiple proposal versions (change orders, revised plan
+  // sets, …) — this is the one currently being viewed/edited.
+  const proposalVersions = project?.proposalVersions || []
+  const currentVersion = proposalVersions.find((v) => v.isCurrent) || null
+  const sortedVersions = [...proposalVersions].sort((a, b) => a.v - b.v)
+
+  // Seed the editor from the current version's content, falling back to defaults.
+  const [doc, setDoc] = useState(() => versionContent(currentVersion) || defaultProposal(project))
   const [dirty, setDirty] = useState(false)
   const [importErr, setImportErr] = useState(null)
   const [logoErr, setLogoErr] = useState(null)
@@ -164,22 +183,67 @@ export default function ProposalEditor({ projectId, project, sheets }) {
   const [tplName, setTplName] = useState('')
   const [loadOpen, setLoadOpen] = useState(false)
   const [newPhraseText, setNewPhraseText] = useState('')
+  // Proposal version management UI
+  const [newVersionOpen, setNewVersionOpen] = useState(false)
+  const [newVersionName, setNewVersionName] = useState('')
+  const [renameOpen, setRenameOpen] = useState(false)
+  const [renameValue, setRenameValue] = useState('')
   const importRef = useRef(null)
   const logoRef = useRef(null)
   const exhibitRef = useRef(null)
   const printRef = useRef(null)
 
-  // If the project's proposal changes externally (e.g. navigation), re-seed.
+  // A lazily-created "first version" (see persist() below) flips
+  // currentVersion.id from null to a real id without any user-visible
+  // navigation — skip the reseed that change would otherwise trigger so the
+  // in-progress edit and the "Saved" pill aren't clobbered mid-keystroke.
+  const suppressReseedRef = useRef(false)
+
+  // If the project or the selected version changes externally (navigation,
+  // switching versions, a version being added/removed), re-seed.
   useEffect(() => {
-    setDoc(project?.proposal || defaultProposal(project))
+    if (suppressReseedRef.current) { suppressReseedRef.current = false; return }
+    setDoc(versionContent(currentVersion) || defaultProposal(project))
     setDirty(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId])
+  }, [projectId, currentVersion?.id])
 
-  // Persist on every change.
+  // Persist edits to the current version on every change. If the job has no
+  // proposal version yet, the first edit lazily creates "Original Proposal".
   const persist = (next) => {
     setDirty(true)
-    updateProposal(projectId, next)
+    if (currentVersion) {
+      updateProposalVersion(projectId, currentVersion.id, next)
+    } else {
+      suppressReseedRef.current = true
+      addProposalVersion(projectId, { name: 'Original Proposal', ...next })
+    }
+  }
+
+  // ----- Version management (new version / rename / delete / switch) -----
+  const handleCreateVersion = () => {
+    const name = newVersionName.trim() || `Version ${sortedVersions.length + 1}`
+    addProposalVersion(projectId, { name, ...doc })
+    setNewVersionName('')
+    setNewVersionOpen(false)
+  }
+
+  const openRenameVersion = () => {
+    if (!currentVersion) return
+    setRenameValue(currentVersion.name || '')
+    setRenameOpen(true)
+  }
+  const handleRenameVersion = () => {
+    if (!currentVersion) return
+    const name = renameValue.trim()
+    if (name) updateProposalVersion(projectId, currentVersion.id, { name })
+    setRenameOpen(false)
+  }
+
+  const handleDeleteVersion = () => {
+    if (!currentVersion || proposalVersions.length <= 1) return
+    const ok = window.confirm(`Delete "${currentVersion.name}" (v${currentVersion.v})? This cannot be undone.`)
+    if (ok) removeProposalVersion(projectId, currentVersion.id)
   }
 
   const patch = (updates) => {
@@ -585,6 +649,43 @@ export default function ProposalEditor({ projectId, project, sheets }) {
           </Button>
           <Button variant="primary" size="sm" iconLeft={<Printer size={15} />} onClick={handlePrint}>
             Print
+          </Button>
+        </div>
+      </div>
+
+      {/* Version toolbar — a job can carry multiple proposal versions
+          (change orders, revised plan sets, …); this switches/manages them. */}
+      <div className={s.toolbar}>
+        <div className={s.toolLeft}>
+          <span className={s.toolTitle}>
+            <Layers size={15} /> Version
+          </span>
+          {sortedVersions.length > 0 ? (
+            <select
+              className={s.versionSelect}
+              value={currentVersion?.id || ''}
+              onChange={(e) => setCurrentProposalVersion(projectId, e.target.value)}
+              aria-label="Proposal version"
+            >
+              {sortedVersions.map((v) => (
+                <option key={v.id} value={v.id}>v{v.v} — {v.name}</option>
+              ))}
+            </select>
+          ) : (
+            <span className={s.versionEmpty}>Original Proposal — start typing to save</span>
+          )}
+        </div>
+        <div className={s.toolActions}>
+          <Button variant="secondary" size="sm" iconLeft={<Copy size={15} />}
+            onClick={() => { setNewVersionName(''); setNewVersionOpen(true) }}>
+            New version
+          </Button>
+          <Button variant="ghost" size="sm" iconLeft={<Pencil size={15} />} disabled={!currentVersion} onClick={openRenameVersion}>
+            Rename
+          </Button>
+          <Button variant="ghost" size="sm" iconLeft={<Trash2 size={15} />}
+            disabled={!currentVersion || proposalVersions.length <= 1} onClick={handleDeleteVersion}>
+            Delete version
           </Button>
         </div>
       </div>
@@ -1155,6 +1256,27 @@ export default function ProposalEditor({ projectId, project, sheets }) {
           </footer>
         </div>
       </div>
+
+      {/* New-version dialog */}
+      <Dialog open={newVersionOpen} onClose={() => setNewVersionOpen(false)} title="New proposal version"
+        description="Duplicates the current proposal into a new version — for a change order or a revised plan set. The current version is left untouched." width={420}
+        footer={<>
+          <Button variant="ghost" onClick={() => setNewVersionOpen(false)}>Cancel</Button>
+          <Button variant="primary" iconLeft={<Copy size={15} />} onClick={handleCreateVersion}>Create version</Button>
+        </>}>
+        <Input label="Version name" placeholder="Change Order 1, Revised Plan Set…" value={newVersionName} onChange={(e) => setNewVersionName(e.target.value)} autoFocus
+          onKeyDown={(e) => { if (e.key === 'Enter') handleCreateVersion() }} />
+      </Dialog>
+
+      {/* Rename-version dialog */}
+      <Dialog open={renameOpen} onClose={() => setRenameOpen(false)} title="Rename version" width={380}
+        footer={<>
+          <Button variant="ghost" onClick={() => setRenameOpen(false)}>Cancel</Button>
+          <Button variant="primary" onClick={handleRenameVersion}>Save name</Button>
+        </>}>
+        <Input label="Version name" value={renameValue} onChange={(e) => setRenameValue(e.target.value)} autoFocus
+          onKeyDown={(e) => { if (e.key === 'Enter') handleRenameVersion() }} />
+      </Dialog>
 
       {/* Save-as-template dialog */}
       <Dialog open={saveTplOpen} onClose={() => setSaveTplOpen(false)} title="Save as template"
