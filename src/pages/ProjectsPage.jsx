@@ -6,9 +6,10 @@ import { Badge } from '../components/ui/Badge.jsx'
 import { Input } from '../components/ui/Input.jsx'
 import { Dialog } from '../components/ui/Dialog.jsx'
 import { Select } from '../components/ui/Select.jsx'
+import { Tabs } from '../components/ui/Tabs.jsx'
 import { useAppData } from '../data/useAppData.jsx'
 import { useAuth } from '../auth/AuthProvider.jsx'
-import { useSettings } from '../data/useSettings.jsx'
+import { useSettings, HOTKEY_LABELS } from '../data/useSettings.jsx'
 import { STATUS_LABEL, STATUS_VARIANT } from '../data/sampleData.js'
 import { loadSubscription, SUB_KEY } from '../data/subscription.js'
 import PdfCanvas from '../components/PdfCanvas.jsx'
@@ -56,7 +57,8 @@ export default function ProjectsPage() {
   const navigate = useNavigate()
   const { projects: allProjects, sheets, addProject, updateProject, pdfAssets } = useAppData()
   const { user: authUser, cloudEnabled, memberships, orgId, switchWorkspace, dataLoading, updateProfile, authError } = useAuth()
-  const { theme, setTheme, accent, setAccent } = useSettings()
+  const { theme, setTheme, accent, setAccent, hotkeys, setHotkey, resetHotkeys } = useSettings()
+  const [settingsTab, setSettingsTab] = useState('general')
 
   // --- Account profile (name / position) — stored on the Supabase auth user ---
   const [profileForm, setProfileForm] = useState({ full_name: '', position: '' })
@@ -233,8 +235,23 @@ export default function ProjectsPage() {
         {activeTab === 'settings' ? (
           <div style={{ maxWidth: 520, paddingTop: 8 }}>
             <h1 className={s.title} style={{ marginBottom: 4 }}>Settings</h1>
-            <p className={s.sub} style={{ marginBottom: 32 }}>Appearance preferences saved to this browser.</p>
+            <p className={s.sub} style={{ marginBottom: 20 }}>Appearance preferences saved to this browser.</p>
 
+            <div style={{ marginBottom: 24 }}>
+              <Tabs
+                value={settingsTab}
+                onChange={setSettingsTab}
+                items={[
+                  { value: 'general', label: 'General' },
+                  { value: 'hotkeys', label: 'Hotkeys' },
+                ]}
+              />
+            </div>
+
+            {settingsTab === 'hotkeys' ? (
+              <HotkeysPanel hotkeys={hotkeys} setHotkey={setHotkey} resetHotkeys={resetHotkeys} />
+            ) : (
+            <>
             {authUser && (
               <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 12, padding: 24, marginBottom: 20 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-strong)', marginBottom: 16 }}>Account</div>
@@ -327,6 +344,8 @@ export default function ProjectsPage() {
                 <a href="mailto:sales@plotline.app">sales@plotline.app</a>
               </div>
             </div>
+            </>
+            )}
           </div>
         ) : activeTab === 'team' ? (
           <TeamTab />
@@ -510,6 +529,72 @@ export default function ProjectsPage() {
           <a href="mailto:sales@plotline.app">sales@plotline.app</a>.
         </p>
       </Dialog>
+    </div>
+  )
+}
+
+// ---- Hotkeys settings panel -------------------------------------------------
+// Rebinds sheet-editor keyboard shortcuts, stored per-browser via useSettings.
+// "Change" arms capture mode, then the next real keypress (any key/letter,
+// Escape cancels) becomes that action's shortcut.
+function HotkeysPanel({ hotkeys, setHotkey, resetHotkeys }) {
+  const [listening, setListening] = useState(null) // actionId currently capturing, or null
+
+  useEffect(() => {
+    if (!listening) return
+    const onKey = (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.key === 'Escape') { setListening(null); return }
+      const key = e.key.length === 1 ? e.key.toUpperCase() : e.key
+      setHotkey(listening, key)
+      setListening(null)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [listening, setHotkey])
+
+  const keyCounts = {}
+  Object.values(hotkeys).forEach(k => { keyCounts[k] = (keyCounts[k] || 0) + 1 })
+
+  return (
+    <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: 12, padding: 24 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-strong)' }}>Keyboard shortcuts</div>
+        <Button variant="ghost" size="sm" onClick={resetHotkeys}>Reset to defaults</Button>
+      </div>
+      <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 16px' }}>
+        Click Change, then press the key you want to use. Applies inside the sheet editor.
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {Object.keys(HOTKEY_LABELS).map(actionId => {
+          const key = hotkeys[actionId]
+          const isListening = listening === actionId
+          const conflict = !isListening && keyCounts[key] > 1
+          return (
+            <div key={actionId} style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '10px 4px', borderBottom: '1px solid var(--border-subtle)', gap: 12,
+            }}>
+              <span style={{ fontSize: 13, color: 'var(--text-body)' }}>{HOTKEY_LABELS[actionId]}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {conflict && <span style={{ fontSize: 11, color: 'var(--danger-600, #dc2626)' }}>duplicate</span>}
+                <button
+                  onClick={() => setListening(actionId)}
+                  style={{
+                    minWidth: 40, textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700,
+                    padding: '5px 10px', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
+                    border: `1.5px solid ${isListening ? 'var(--brand-600)' : conflict ? 'var(--danger-600, #dc2626)' : 'var(--border-default)'}`,
+                    background: isListening ? 'var(--brand-50)' : 'var(--surface-sunken)',
+                    color: isListening ? 'var(--brand-600)' : 'var(--text-strong)',
+                  }}>
+                  {isListening ? 'Press a key…' : key}
+                </button>
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

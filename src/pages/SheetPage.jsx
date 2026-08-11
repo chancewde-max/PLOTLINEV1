@@ -5,7 +5,7 @@ import {
   Ruler, Lasso, Eye, EyeOff, Check, TriangleAlert, Sun, Moon,
   Settings2, FileDown, Share2, ChevronRight, ChevronLeft, Eraser, Sparkles,
   X as XIcon, Map, Pencil, Trash2, MousePointer2, Layers, Download, GripVertical,
-  Printer,
+  Printer, Type,
 } from 'lucide-react'
 import { Button } from '../components/ui/Button.jsx'
 import { Badge } from '../components/ui/Badge.jsx'
@@ -16,7 +16,7 @@ import { Checkbox } from '../components/ui/Checkbox.jsx'
 import { Tabs } from '../components/ui/Tabs.jsx'
 import { Tooltip } from '../components/ui/Tooltip.jsx'
 import { useAppData } from '../data/useAppData.jsx'
-import { useSettings } from '../data/useSettings.jsx'
+import { useSettings, DEFAULT_TOOLBAR_ORDER } from '../data/useSettings.jsx'
 import { useAuth } from '../auth/AuthProvider.jsx'
 import { SheetPageSkeleton } from '../components/Skeleton.jsx'
 import PdfCanvas from '../components/PdfCanvas.jsx'
@@ -32,11 +32,21 @@ const TOOLS = [
   { id: 'pan',    label: 'Pan',          Icon: Hand,          k: 'H' },
   { id: 'region', label: 'Region count', Icon: Lasso,         k: 'R' },
   { id: 'measure',label: 'Measure',      Icon: Ruler,         k: 'M' },
-  'sep',
+  { id: 'text',   label: 'Text',         Icon: Type,          k: 'T' },
   { id: 'area',   label: 'Area',         Icon: SquareDashed,  k: 'A' },
   { id: 'linear', label: 'Linear',       Icon: Spline,        k: 'L' },
   { id: 'count',  label: 'Count',        Icon: MapPin,        k: 'C' },
 ]
+const TOOLS_BY_ID = Object.fromEntries(TOOLS.map(t => [t.id, t]))
+
+const DEFAULT_TEXT_STYLE = {
+  fontSize: 16,
+  color: '#111827',
+  bg: '#ffffff',
+  bgOpacity: 0.9,
+  border: '#111827',
+  borderWidth: 1,
+}
 
 const ACCENTS = {
   // SheetPage keys — kept in sync with ProjectsPage accent ids
@@ -74,6 +84,17 @@ function distToSeg(p, a, b) {
   t = Math.max(0, Math.min(1, t))
   return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy))
 }
+// Approximate on-screen box for a text annotation (anchored at its x,y),
+// used for hit-testing and for drawing its background/border rect. Sized
+// off the annotation's own fontSize (plan-space units, not screen px) so
+// hit-testing lines up with what's actually drawn at any zoom level.
+function textBBox(t) {
+  const fs = t.fontSize || DEFAULT_TEXT_STYLE.fontSize
+  const padX = fs * 0.45, padY = fs * 0.4
+  const w = Math.max(fs, (t.text || '').length * fs * 0.56) + padX * 2
+  const h = fs * 1.3 + padY * 2
+  return { x: t.x - padX, y: t.y - padY, w, h }
+}
 const ptInRect = (p, r) => p.x >= r.minX && p.x <= r.maxX && p.y >= r.minY && p.y <= r.maxY
 // Do segments p1-p2 and p3-p4 cross?
 function segsCross(p1, p2, p3, p4) {
@@ -106,7 +127,7 @@ export default function SheetPage() {
   const { projectId, sheetId } = useParams()
   const navigate = useNavigate()
   const { projects, sheets, updateSheet, addRegion, updateRegion, deleteRegion, pdfAssets } = useAppData()
-  const { theme, setTheme, accent, setAccent } = useSettings()
+  const { theme, setTheme, accent, setAccent, hotkeys, toolbarOrder, setToolbarOrder } = useSettings()
   const { dataLoading } = useAuth()
 
   // ---- UI state ----
@@ -197,6 +218,14 @@ export default function SheetPage() {
   const [linearType, setLinearType]     = useState(LINEAR_CATS[0]?.id || 'lime-wall')
   const [addedLines, setAddedLines]     = useState(() => sheets[sheetId]?.savedLines || [])
 
+  // ---- Text tool ----
+  // Text boxes live in the same plan-pixel coordinate space as everything
+  // else drawn on the sheet (no zoom-invariant `u` compensation), so they
+  // pan/scale together with the plan instead of staying a fixed screen size.
+  const [textAnnotations, setTextAnnotations] = useState(() => sheets[sheetId]?.savedTextAnnotations || [])
+  const [textStyleDlg, setTextStyleDlg] = useState(null) // id of text annotation being edited, or null
+  const [dragToolId, setDragToolId] = useState(null) // toolbar drag-to-reorder
+
   // ---- Arc mode (shared for area + linear) ----
   const [arcMode, setArcMode]               = useState(false)
   const [pendingArcThrough, setPendingArcThrough] = useState(null)
@@ -270,11 +299,20 @@ export default function SheetPage() {
   const [deductMode, setDeductMode]     = useState(false)
 
   // ---- Page overlay ----
+  // A ghosted reference page, not a takeoff layer — its page image is only
+  // ever drawn on screen (see the <PdfCanvas> below); it's never merged into
+  // allAreas/allPoints/allLines, so nothing about it can leak into the
+  // material list or totals no matter how it's aligned.
   const [overlaySheetId, setOverlaySheetId] = useState(null)  // which sheet to overlay
   const [overlayOpacity, setOverlayOpacity] = useState(0.4)
   const [overlayOffset, setOverlayOffset]   = useState({ x: 0, y: 0 })
   const [overlayScale, setOverlayScale]     = useState(1)
   const [overlayDlg, setOverlayDlg]         = useState(false)
+  const [overlayVisible, setOverlayVisible] = useState(true) // layer show/hide, keeps alignment
+  // 3-step alignment wizard: 1 = place roughly, 2 = size to match, 3 = fine-
+  // tune placement now that the scale is right (sizing shifts what "aligned"
+  // looks like, so position gets one more pass after it).
+  const [overlayStep, setOverlayStep]       = useState(1)
   // 'transparency' ghosts the raw page (drag to align, like laying one sheet
   // over a light table); 'diff' highlights what changed between the two
   // pages instead — additions in red, deletions in blue, PlanSwift-style.
@@ -532,12 +570,13 @@ export default function SheetPage() {
         savedAreaGroups: areaGroups,
         savedAreas: addedAreas,
         savedLines: addedLines,
+        savedTextAnnotations: textAnnotations,
         pxPerFt,
         calib,
       })
     }, 400)
     return () => clearTimeout(saveTimerRef.current)
-  }, [sheetId, countGroups, linearGroups, areaGroups, addedAreas, addedLines, pxPerFt, calib])
+  }, [sheetId, countGroups, linearGroups, areaGroups, addedAreas, addedLines, textAnnotations, pxPerFt, calib])
 
   // Save active region poly to sheet whenever regionClosed changes (skip null to avoid Escape wiping saved regions)
   useEffect(() => {
@@ -553,28 +592,30 @@ export default function SheetPage() {
     const onKey = (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
       const key = e.key.toUpperCase()
-      if (key === 'V') setActiveTool('select')
-      if (key === 'H') setActiveTool('pan')
-      if (key === 'R') setActiveTool('region')
-      if (key === 'M') setActiveTool('measure')
-      if (key === 'L') {
+      const hk = hotkeys
+      if (key === hk.select) setActiveTool('select')
+      if (key === hk.pan) setActiveTool('pan')
+      if (key === hk.region) setActiveTool('region')
+      if (key === hk.measure) setActiveTool('measure')
+      if (key === hk.text) setActiveTool('text')
+      if (key === hk.linear) {
         openNewDlg('linear')
       }
-      if (key === 'C') {
+      if (key === hk.count) {
         openNewDlg('count')
       }
-      if (key === 'A' && activeTool !== 'area' && activeTool !== 'linear') {
+      if (key === hk.area && activeTool !== 'area' && activeTool !== 'linear') {
         openNewDlg('area')
       }
-      if (e.key === 'F3') { e.preventDefault(); setSnapEnabled(v => !v) }
-      if (e.key === 'F8') { e.preventDefault(); setOrthoEnabled(v => !v) }
+      if (key === hk.snap) { e.preventDefault(); setSnapEnabled(v => !v) }
+      if (key === hk.ortho) { e.preventDefault(); setOrthoEnabled(v => !v) }
       // Minus flips the selected item between add and deduction; with nothing
       // selected it toggles deduct-draw mode for new items.
       if ((e.key === '-' || e.key === '_' || e.key === 'Subtract') && !e.ctrlKey && !e.metaKey) {
         if (selectedId && selectedKind) { e.preventDefault(); toggleSelectedDeduct() }
         else { e.preventDefault(); setDeductMode(v => !v) }
       }
-      if (e.ctrlKey && key === 'Z') {
+      if (e.ctrlKey && key === hk.undo) {
         e.preventDefault()
         // Undo last in-progress vertex first
         if (activeTool === 'area' && areaVerts.length > 0) { setAreaVerts(v => v.slice(0, -1)); return }
@@ -588,7 +629,7 @@ export default function SheetPage() {
           setCountGroups(last.counts)
         }
       }
-      if (key === 'A') {
+      if (key === hk.area) {
         // If drawing area or linear: toggle arc mode; otherwise switch to area tool
         if ((activeTool === 'area' && areaVerts.length > 0) ||
             (activeTool === 'linear' && linearVerts.length > 0)) {
@@ -600,7 +641,7 @@ export default function SheetPage() {
           setActiveTool('area')
         }
       }
-      if (key === 'N') {
+      if (key === hk.newItem) {
         if (activeTool === 'count') {
           openNewDlg('count')
         } else if (activeTool === 'area') {
@@ -620,6 +661,7 @@ export default function SheetPage() {
         arcSegsRef.current = {}; linearArcSegsRef.current = {}
         setSettings(false)
         setSelectedId(null); setSelectedKind(null)
+        setTextStyleDlg(null)
         if (wasCountingTool) setActiveTool('select')
       }
       if (key === 'DELETE' || e.key === 'Backspace') {
@@ -635,6 +677,7 @@ export default function SheetPage() {
           if (selectedKind === 'area') setAddedAreas(prev => prev.filter(a => a.id !== selectedId))
           else if (selectedKind === 'point') setCountGroups(prev => prev.map(g => ({ ...g, points: g.points.filter(p => p.id !== selectedId) })))
           else if (selectedKind === 'line') setAddedLines(prev => prev.filter(l => l.id !== selectedId))
+          else if (selectedKind === 'text') setTextAnnotations(prev => prev.filter(t => t.id !== selectedId))
           setSelectedId(null); setSelectedKind(null)
         }
       }
@@ -661,7 +704,7 @@ export default function SheetPage() {
       window.removeEventListener('keydown', onKey)
       window.removeEventListener('keydown', onEnter)
     }
-  }, [project, sheet, activeTool, regionVerts, measureDone, measurePts, areaVerts, areaType, linearVerts, linearType, arcMode, selectedId, selectedKind, selectedIds])
+  }, [project, sheet, activeTool, regionVerts, measureDone, measurePts, areaVerts, areaType, linearVerts, linearType, arcMode, selectedId, selectedKind, selectedIds, hotkeys])
 
   if (dataLoading) return <SheetPageSkeleton />
   if (!project || !sheet) {
@@ -816,6 +859,19 @@ export default function SheetPage() {
     if (selectedIds.length) setSelectedIds([])
     // Hit thresholds fixed in screen pixels (~10px) regardless of zoom
     const hitPx = 10 / ((zoom / 100) * FIT)
+    // Check text boxes first (they render on top)
+    for (let i = textAnnotations.length - 1; i >= 0; i--) {
+      const t = textAnnotations[i]
+      const b = textBBox(t)
+      if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) {
+        pushUndo()
+        setSelectedId(t.id); setSelectedKind('text')
+        isDraggingRef.current = true
+        dragStartRef.current = p
+        origDragRef.current = { x: t.x, y: t.y }
+        return
+      }
+    }
     // Check added points first
     for (let i = addedPoints.length - 1; i >= 0; i--) {
       const pt = addedPoints[i]
@@ -969,6 +1025,11 @@ export default function SheetPage() {
               : l
           ))
         }
+      } else if (selectedKind === 'text') {
+        const orig = origDragRef.current
+        setTextAnnotations(prev => prev.map(t =>
+          t.id === selectedId ? { ...t, x: orig.x + dx, y: orig.y + dy } : t
+        ))
       }
     }
 
@@ -1186,6 +1247,15 @@ export default function SheetPage() {
         setActiveCountGroupId(gid)
       }
     }
+
+    if (activeTool === 'text') {
+      pushUndo()
+      const id = `txt-${Date.now()}`
+      setTextAnnotations(prev => [...prev, { id, x: p.x, y: p.y, text: 'Text', ...DEFAULT_TEXT_STYLE }])
+      setSelectedId(id); setSelectedKind('text')
+      setTextStyleDlg(id)
+      setActiveTool('select')
+    }
   }
 
   const onDblClick = (e) => {
@@ -1198,6 +1268,19 @@ export default function SheetPage() {
       setActiveTool('select')
     }
     if (activeTool === 'linear' && linearVerts.length >= 2) finishLine()
+    // Double-click a text box → open its style/content editor
+    if (activeTool === 'select') {
+      const p = toSheet(e)
+      for (const t of textAnnotations) {
+        const b = textBBox(t)
+        if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) {
+          setSelectedId(t.id); setSelectedKind('text')
+          setTextStyleDlg(t.id)
+          e.stopPropagation()
+          return
+        }
+      }
+    }
     // Double-click count marker → open edit popup
     if (activeTool === 'select') {
       const p = toSheet(e)
@@ -1555,6 +1638,22 @@ export default function SheetPage() {
   const selectedPoint = selectedKind === 'point' ? addedPoints.find(p => p.id === selectedId) : null
   const selectedLine  = selectedKind === 'line'  ? addedLines.find(l => l.id === selectedId) : null
   const selectedItem  = selectedArea || selectedPoint || selectedLine
+  const editingText = textStyleDlg ? textAnnotations.find(t => t.id === textStyleDlg) : null
+  const patchEditingText = (patch) => {
+    if (!textStyleDlg) return
+    setTextAnnotations(prev => prev.map(t => t.id === textStyleDlg ? { ...t, ...patch } : t))
+  }
+
+  // Toolbar buttons in the user's customized order (drag to reorder), falling
+  // back to the default order and appending any tool the saved order predates.
+  const orderedTools = useMemo(() => {
+    const order = (toolbarOrder && toolbarOrder.length) ? toolbarOrder : DEFAULT_TOOLBAR_ORDER
+    const seen = new Set()
+    const out = []
+    order.forEach(id => { const t = TOOLS_BY_ID[id]; if (t && !seen.has(id)) { out.push(t); seen.add(id) } })
+    TOOLS.forEach(t => { if (!seen.has(t.id)) { out.push(t); seen.add(t.id) } })
+    return out
+  }, [toolbarOrder])
 
   // Flip the selected item between a normal add and a deduction (negative).
   const toggleSelectedDeduct = () => {
@@ -1980,10 +2079,12 @@ export default function SheetPage() {
                   : <><Spline size={14} /><span>Keep clicking · <kbd>A</kbd> for arc · double-click or <kbd>Enter</kbd> to finish</span></>
             ) : activeTool === 'count' ? (
               <><MapPin size={14} /><span><b>Click</b> to place a {COUNT_CATS.find(c => c.id === addCountType)?.name || addCountType} — change type in the right panel</span></>
+            ) : activeTool === 'text' ? (
+              <><Type size={14} /><span><b>Click</b> to place a text box, then customize its color, background, border, and size</span></>
             ) : activeTool === 'pan' ? (
               <><Hand size={14} /><span>Drag to pan · scroll to zoom</span></>
             ) : (
-              <><SquareDashed size={14} /><span><b>{TOOLS.find(t => t !== 'sep' && t.id === activeTool)?.label}</b></span></>
+              <><SquareDashed size={14} /><span><b>{TOOLS.find(t => t.id === activeTool)?.label}</b></span></>
             )}
           </div>
 
@@ -2012,7 +2113,7 @@ export default function SheetPage() {
               {/* Page overlay — the actual PDF page of another sheet ghosted
                   on top for a PlanSwift-style revision compare (like a light
                   table), not the measured vector markup on it. */}
-              {overlaySheet && sheetHasPdf(overlaySheet) && overlayMode === 'transparency' && (
+              {overlaySheet && overlayVisible && sheetHasPdf(overlaySheet) && overlayMode === 'transparency' && (
                 <div style={{
                   position: 'absolute', inset: 0, transformOrigin: '0 0',
                   transform: `translate(${overlayOffset.x}px, ${overlayOffset.y}px) scale(${overlayScale})`,
@@ -2027,7 +2128,7 @@ export default function SheetPage() {
                   computeOverlayDiff) instead of the plain ghosted page. It
                   already carries the offset/scale baked in, so no transform
                   here — just re-rendered whenever the alignment settles. */}
-              {overlaySheet && overlayMode === 'diff' && diffCanvas && (
+              {overlaySheet && overlayVisible && overlayMode === 'diff' && diffCanvas && (
                 <img src={diffCanvas.toDataURL()} alt="" width={SHEET_W} height={SHEET_H}
                   style={{ position: 'absolute', inset: 0, width: SHEET_W, height: SHEET_H, pointerEvents: 'none' }} />
               )}
@@ -2054,7 +2155,7 @@ export default function SheetPage() {
                     a page-vs-page compare, PlanSwift-style) so it can be
                     grabbed and dragged into alignment anywhere on the sheet,
                     in either overlay mode. */}
-                {overlaySheet && (
+                {overlaySheet && overlayVisible && (
                   <g transform={overlayMode === 'transparency' ? `translate(${overlayOffset.x},${overlayOffset.y}) scale(${overlayScale})` : undefined}
                     style={{ cursor: 'move' }}
                     onMouseDown={e => { e.stopPropagation(); overlayDragRef.current = { startX: e.clientX, startY: e.clientY, origX: overlayOffset.x, origY: overlayOffset.y } }}
@@ -2349,9 +2450,11 @@ export default function SheetPage() {
                   g.points.map(p => {
                     const isSelected = selectedId === p.id
                     const r = dotSize * u * 5 * (isSelected ? 1.5 : 1)
-                    const sw = strokeW * u * (isSelected ? 1.5 : 1)
+                    const sw = (p.deduct ? Math.max(strokeW * 1.8, 1) : strokeW) * u * (isSelected ? 1.5 : 1)
                     const col = g.color
-                    const bdr = isSelected ? '#000' : col
+                    // Deducted (negative) markers get a red border so they read
+                    // as a subtraction at a glance, without hunting the panel.
+                    const bdr = p.deduct ? '#dc2626' : (isSelected ? '#000' : col)
                     const halo = r + u * 1.5
                     if (g.shape === 'circle') {
                       return (
@@ -2377,6 +2480,30 @@ export default function SheetPage() {
                     }
                   })
                 )}
+
+                {/* Text boxes — sized in plan-space units (no `u` zoom-invariant
+                    compensation), so they pan and scale together with the plan
+                    just like the PDF page and every other measured item. */}
+                {textAnnotations.map(t => {
+                  const isSelected = selectedId === t.id
+                  const b = textBBox(t)
+                  return (
+                    <g key={t.id} style={{ cursor: 'move' }}>
+                      <rect x={b.x} y={b.y} width={b.w} height={b.h}
+                        rx={Math.min(6, (t.fontSize || 16) * 0.2)}
+                        fill={t.bg || '#ffffff'} fillOpacity={t.bgOpacity ?? 0.9}
+                        stroke={isSelected ? 'var(--brand-600)' : (t.border || 'transparent')}
+                        strokeWidth={isSelected ? Math.max(1.5, t.borderWidth || 1) : (t.borderWidth || 0)}
+                        strokeDasharray={isSelected ? '4 3' : undefined} />
+                      <text x={t.x} y={t.y + (t.fontSize || 16) * 0.35}
+                        fontSize={t.fontSize || 16} fill={t.color || '#111827'}
+                        fontFamily="system-ui, -apple-system, sans-serif" textAnchor="start"
+                        style={{ userSelect: 'none' }}>
+                        {t.text || 'Text'}
+                      </text>
+                    </g>
+                  )
+                })}
 
                 {/* Box select rectangle */}
                 {boxSelect && (
@@ -2599,12 +2726,29 @@ export default function SheetPage() {
             const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }
             window.addEventListener('mousemove', move); window.addEventListener('mouseup', up)
           }} />
-        {TOOLS.map((t, i) => {
-          if (t === 'sep') return <div key={'sep-' + i} className={s.railSepH} />
+        {orderedTools.map((t) => {
           const { Icon } = t
+          const shortcut = hotkeys[t.id] || t.k
           return (
-            <Tooltip key={t.id} label={t.label} shortcut={t.k} side="top">
+            <Tooltip key={t.id} label={`${t.label} — drag to reorder`} shortcut={shortcut} side="top">
               <button className={s.tool} data-on={activeTool === t.id}
+                draggable
+                onDragStart={() => setDragToolId(t.id)}
+                onDragOver={e => e.preventDefault()}
+                onDrop={() => {
+                  if (!dragToolId || dragToolId === t.id) return
+                  const ids = orderedTools.map(x => x.id)
+                  const from = ids.indexOf(dragToolId)
+                  const to = ids.indexOf(t.id)
+                  if (from === -1 || to === -1) return
+                  const next = [...ids]
+                  next.splice(from, 1)
+                  next.splice(to, 0, dragToolId)
+                  setToolbarOrder(next)
+                  setDragToolId(null)
+                }}
+                onDragEnd={() => setDragToolId(null)}
+                style={dragToolId === t.id ? { opacity: 0.5 } : undefined}
                 onClick={() => {
                   if (t.id === 'count') {
                     openNewDlg('count')
@@ -2617,7 +2761,7 @@ export default function SheetPage() {
                   }
                 }} aria-label={t.label}>
                 <Icon size={20} />
-                <span className={s.toolKbd}>{t.k}</span>
+                <span className={s.toolKbd}>{shortcut}</span>
               </button>
             </Tooltip>
           )
@@ -2631,12 +2775,12 @@ export default function SheetPage() {
           </button>
         </Tooltip>
         <div className={s.railSepH} />
-        <Tooltip label={`Snap ${snapEnabled ? 'ON' : 'OFF'} (F3)`} side="top">
+        <Tooltip label={`Snap ${snapEnabled ? 'ON' : 'OFF'} (${hotkeys.snap})`} side="top">
           <button className={s.tool} data-on={snapEnabled} onClick={() => setSnapEnabled(v => !v)} aria-label="Toggle snap">
             <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '-0.02em' }}>SNAP</span>
           </button>
         </Tooltip>
-        <Tooltip label={`Ortho ${orthoEnabled ? 'ON' : 'OFF'} (F8)`} side="top">
+        <Tooltip label={`Ortho ${orthoEnabled ? 'ON' : 'OFF'} (${hotkeys.ortho})`} side="top">
           <button className={s.tool} data-on={orthoEnabled} onClick={() => setOrthoEnabled(v => !v)} aria-label="Toggle ortho">
             <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '-0.02em' }}>ORTH</span>
           </button>
@@ -2655,7 +2799,7 @@ export default function SheetPage() {
         {/* Tool detail inline (current tool indicator) */}
         <div className={s.railSepH} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', paddingLeft: 4 }}>
-          <span style={{ fontWeight: 700, color: 'var(--text-strong)' }}>{TOOLS.find(t => t !== 'sep' && t.id === activeTool)?.label || activeTool}</span>
+          <span style={{ fontWeight: 700, color: 'var(--text-strong)' }}>{TOOLS.find(t => t.id === activeTool)?.label || activeTool}</span>
           {activeTool === 'area' && <span style={{ color: 'var(--brand-600)' }}>· {areaGroups.find(g => g.id === activeAreaGroupId)?.name || 'No group'}</span>}
           {activeTool === 'count' && <span style={{ color: 'var(--brand-600)' }}>· {countGroups.find(g => g.id === activeCountGroupId)?.name || 'No group'}</span>}
         </div>
@@ -2724,12 +2868,77 @@ export default function SheetPage() {
         sheetOrder={project.sheetIds}
       />
 
-      {/* Page Overlay Dialog */}
+      {/* Text box style/content editor */}
+      <Dialog open={!!textStyleDlg} onClose={() => setTextStyleDlg(null)} title="Text box" width={380}
+        footer={<>
+          <Button variant="ghost" onClick={() => {
+            if (editingText) setTextAnnotations(prev => prev.filter(t => t.id !== editingText.id))
+            setTextStyleDlg(null); setSelectedId(null); setSelectedKind(null)
+          }} style={{ color: 'var(--error-500)' }}>Delete</Button>
+          <Button variant="primary" onClick={() => setTextStyleDlg(null)}>Done</Button>
+        </>}>
+        {editingText && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <Input label="Text" value={editingText.text}
+              autoFocus
+              onChange={e => patchEditingText({ text: e.target.value })} />
+            <div style={{ display: 'flex', gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>Text color</div>
+                <input type="color" value={editingText.color} onChange={e => patchEditingText({ color: e.target.value })}
+                  style={{ width: '100%', height: 32, border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', background: 'none' }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>Background</div>
+                <input type="color" value={editingText.bg} onChange={e => patchEditingText({ bg: e.target.value })}
+                  style={{ width: '100%', height: 32, border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', background: 'none' }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>Border</div>
+                <input type="color" value={editingText.border} onChange={e => patchEditingText({ border: e.target.value })}
+                  style={{ width: '100%', height: 32, border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', background: 'none' }} />
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>
+                Background opacity: {Math.round((editingText.bgOpacity ?? 0.9) * 100)}%
+              </div>
+              <input type="range" min="0" max="1" step="0.05" value={editingText.bgOpacity ?? 0.9}
+                onChange={e => patchEditingText({ bgOpacity: parseFloat(e.target.value) })}
+                style={{ width: '100%', accentColor: 'var(--brand-600)' }} />
+            </div>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <Input label="Font size" type="number" min="8" max="96" value={editingText.fontSize}
+                  onChange={e => patchEditingText({ fontSize: Math.max(8, parseFloat(e.target.value) || 8) })} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <Input label="Border width" type="number" min="0" max="12" value={editingText.borderWidth}
+                  onChange={e => patchEditingText({ borderWidth: Math.max(0, parseFloat(e.target.value) || 0) })} />
+              </div>
+            </div>
+            <p style={{ margin: 0, fontSize: 11, color: 'var(--text-subtle)' }}>
+              Text boxes scale and pan together with the plan, like everything else drawn on it.
+            </p>
+          </div>
+        )}
+      </Dialog>
+
+      {/* Page Overlay Dialog — a 3-step alignment wizard: place roughly, size
+          to match, then place again now that sizing changed what "aligned"
+          looks like. */}
       <Dialog open={overlayDlg} onClose={() => setOverlayDlg(false)} title="Page overlay"
         description="Ghost another sheet's page over this one, like a light table, for a revision compare." width={420}
         footer={<>
-          <Button variant="ghost" onClick={() => { setOverlaySheetId(null); setOverlayMode('transparency'); setDiffCanvas(null); setOverlayDlg(false) }}>Clear overlay</Button>
-          <Button variant="primary" onClick={() => setOverlayDlg(false)}>Done</Button>
+          <Button variant="ghost" onClick={() => { setOverlaySheetId(null); setOverlayMode('transparency'); setDiffCanvas(null); setOverlayStep(1); setOverlayDlg(false) }}>Clear overlay</Button>
+          {overlaySheetId && overlayStep > 1 && (
+            <Button variant="ghost" onClick={() => setOverlayStep(s => s - 1)}>Back</Button>
+          )}
+          {overlaySheetId && overlayStep < 3 ? (
+            <Button variant="primary" onClick={() => setOverlayStep(s => s + 1)}>Next</Button>
+          ) : (
+            <Button variant="primary" onClick={() => setOverlayDlg(false)}>{overlaySheetId ? 'Finish' : 'Done'}</Button>
+          )}
         </>}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div>
@@ -2739,7 +2948,7 @@ export default function SheetPage() {
                 const sh = sheets[id]
                 if (!sh) return null
                 return (
-                  <button key={id} onClick={() => { setOverlaySheetId(id); setOverlayOffset({ x: 0, y: 0 }); setOverlayScale(1) }}
+                  <button key={id} onClick={() => { setOverlaySheetId(id); setOverlayOffset({ x: 0, y: 0 }); setOverlayScale(1); setOverlayStep(1); setOverlayVisible(true) }}
                     style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 'var(--radius-md)', border: `1.5px solid ${overlaySheetId === id ? 'var(--brand-500)' : 'var(--border-subtle)'}`, background: overlaySheetId === id ? 'var(--surface-muted)' : 'transparent', cursor: 'pointer', textAlign: 'left' }}>
                     <Map size={14} style={{ color: 'var(--text-muted)' }} />
                     <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: 'var(--text-strong)' }}>{sh.name}</span>
@@ -2753,6 +2962,43 @@ export default function SheetPage() {
               )}
             </div>
           </div>
+
+          {overlaySheetId && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 10px', background: 'var(--surface-sunken)', borderRadius: 'var(--radius-md)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Layers size={14} style={{ color: 'var(--text-muted)' }} />
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Reference layer — never added to this sheet's material list or totals.</span>
+              </div>
+              <button onClick={() => setOverlayVisible(v => !v)}
+                aria-label={overlayVisible ? 'Hide layer' : 'Show layer'}
+                style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, background: 'none', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', padding: '3px 8px', fontSize: 11, fontWeight: 600, color: 'var(--text-body)', cursor: 'pointer' }}>
+                {overlayVisible ? <Eye size={12} /> : <EyeOff size={12} />} {overlayVisible ? 'Visible' : 'Hidden'}
+              </button>
+            </div>
+          )}
+
+          {overlaySheetId && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {[
+                { n: 1, label: 'Place' },
+                { n: 2, label: 'Size' },
+                { n: 3, label: 'Place again' },
+              ].map((step, i) => (
+                <React.Fragment key={step.n}>
+                  {i > 0 && <div style={{ flex: 1, height: 1, background: overlayStep > step.n - 1 ? 'var(--brand-500)' : 'var(--border-subtle)' }} />}
+                  <button onClick={() => setOverlayStep(step.n)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, cursor: 'pointer',
+                      border: `1.5px solid ${overlayStep === step.n ? 'var(--brand-600)' : 'var(--border-default)'}`,
+                      background: overlayStep === step.n ? 'var(--brand-50)' : overlayStep > step.n ? 'var(--surface-muted)' : 'transparent',
+                      color: overlayStep === step.n ? 'var(--brand-600)' : 'var(--text-muted)', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap',
+                    }}>
+                    {overlayStep > step.n ? <Check size={11} /> : <span>{step.n}</span>} {step.label}
+                  </button>
+                </React.Fragment>
+              ))}
+            </div>
+          )}
 
           {(() => {
             const bothHavePdf = sheetHasPdf(sheet) && sheetHasPdf(overlaySheet)
@@ -2783,29 +3029,42 @@ export default function SheetPage() {
             )
           })()}
 
-          {overlayMode === 'transparency' && (
+          {!overlaySheetId ? null : overlayStep === 2 ? (
             <div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>Opacity: {Math.round(overlayOpacity * 100)}%</div>
-              <input type="range" min="0.1" max="1" step="0.05" value={overlayOpacity}
-                onChange={e => setOverlayOpacity(parseFloat(e.target.value))}
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-strong)', marginBottom: 4 }}>Step 2 — Size the page</div>
+              <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--text-muted)' }}>Resize the ghosted page until its edges match this sheet's, then continue.</p>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>Scale: {Math.round(overlayScale * 100)}%</div>
+              <input type="range" min="0.5" max="2" step="0.05" value={overlayScale}
+                onChange={e => setOverlayScale(parseFloat(e.target.value))}
                 style={{ width: '100%', accentColor: 'var(--brand-600)' }} />
             </div>
+          ) : (
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-strong)', marginBottom: 4 }}>
+                {overlayStep === 1 ? 'Step 1 — Place the page' : 'Step 3 — Fine-tune placement'}
+              </div>
+              <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--text-muted)' }}>
+                {overlayStep === 1
+                  ? 'Drag the ghosted page on the canvas until it roughly lines up, then size it.'
+                  : "Now that it's sized correctly, drag it again to nail the exact position."}
+              </p>
+              {overlayMode === 'transparency' && (
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>Opacity: {Math.round(overlayOpacity * 100)}%</div>
+                  <input type="range" min="0.1" max="1" step="0.05" value={overlayOpacity}
+                    onChange={e => setOverlayOpacity(parseFloat(e.target.value))}
+                    style={{ width: '100%', accentColor: 'var(--brand-600)' }} />
+                </div>
+              )}
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                <span>Drag the overlay on the canvas to reposition it.</span>
+                <button onClick={() => { setOverlayOffset({ x: 0, y: 0 }); if (overlayStep === 1) setOverlayScale(1) }}
+                  style={{ background: 'none', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', padding: '3px 9px', fontSize: 11, fontWeight: 600, color: 'var(--text-body)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  Reset position
+                </button>
+              </div>
+            </div>
           )}
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>Scale: {Math.round(overlayScale * 100)}%</div>
-            <input type="range" min="0.5" max="2" step="0.05" value={overlayScale}
-              onChange={e => setOverlayScale(parseFloat(e.target.value))}
-              style={{ width: '100%', accentColor: 'var(--brand-600)' }} />
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-            <span>Drag the overlay on the canvas to reposition it.</span>
-            {overlaySheetId && (
-              <button onClick={() => { setOverlayOffset({ x: 0, y: 0 }); setOverlayScale(1) }}
-                style={{ background: 'none', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', padding: '3px 9px', fontSize: 11, fontWeight: 600, color: 'var(--text-body)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                Reset position
-              </button>
-            )}
-          </div>
         </div>
       </Dialog>
 

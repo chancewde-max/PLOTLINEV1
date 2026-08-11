@@ -47,8 +47,10 @@ async function renderPdfPageToCanvas(url, pageNumber, targetW, targetH) {
 }
 
 // Bounded so a huge multi-page-set diff never renders an unreasonably large
-// pair of canvases — plenty of resolution to catch real revision changes.
-const DIFF_W = 1400
+// pair of canvases. High enough to catch fine linework (hatching, small
+// text) without the per-pixel compare below getting slow — the 400ms
+// debounce upstream already keeps this off the hot drag path.
+const DIFF_W = 2200
 
 // A pixel counts as "ink" (part of the drawing, not blank paper) once it's
 // noticeably darker than white — catches line work and fills without
