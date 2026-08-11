@@ -11,7 +11,8 @@ import s from './AccountCard.module.css'
 export function AccountCard({ onOpenSettings }) {
   const [show, setShow] = useState(false)
   const rootRef = useRef(null)
-  const { user, cloudEnabled, orgName, orgRole, signOut, openAuth } = useAuth()
+  const { user, cloudEnabled, cloudSyncError, orgName, orgRole, signOut, openAuth } = useAuth()
+  const cloudFailed = !!(user && cloudEnabled && cloudSyncError)
 
   const fullName = user?.user_metadata?.full_name?.trim()
   const position = user?.user_metadata?.position?.trim()
@@ -92,9 +93,13 @@ export function AccountCard({ onOpenSettings }) {
                 <Users size={14} className={s.rowIcon} />
                 <span>{orgName || 'Personal workspace'}</span>
               </div>
-              <div className={s.row}>
-                {cloudEnabled ? <Cloud size={14} className={s.rowIcon} /> : <CloudOff size={14} className={s.rowIcon} />}
-                <span>{cloudEnabled ? 'Cloud sync on' : 'Cloud sync not configured'}</span>
+              <div className={s.row} title={cloudFailed ? cloudSyncError : undefined}>
+                {cloudEnabled && !cloudFailed
+                  ? <Cloud size={14} className={s.rowIcon} />
+                  : <CloudOff size={14} className={s.rowIcon} style={cloudFailed ? { color: 'var(--danger-500, #dc2626)' } : undefined} />}
+                <span style={cloudFailed ? { color: 'var(--danger-500, #dc2626)', fontWeight: 600 } : undefined}>
+                  {cloudFailed ? 'Cloud sync failed — changes may not be backed up' : cloudEnabled ? 'Cloud sync on' : 'Cloud sync not configured'}
+                </span>
               </div>
             </div>
 

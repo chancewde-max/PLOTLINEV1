@@ -123,6 +123,16 @@ export function AppDataProvider({ children }) {
   // back to 'saved' once the background (debounced) persist resolves.
   const [saveStatus, setSaveStatus] = useState('saved')
 
+  // Tracks whether THIS browser has ever actually persisted a real edit —
+  // seeded true if a snapshot already existed in localStorage at mount (a
+  // returning anonymous session), and flipped true the moment a save
+  // actually happens. AuthProvider reads this (via hasLocalEdits() below) on
+  // a user's very first sign-in to decide whether local state is real
+  // pre-signin work worth migrating into their new cloud account, or just
+  // the untouched sample/demo data that ships with a fresh browser — which
+  // should NOT get pushed into a real account.
+  const hasLocalEditsRef = useRef(!!saved)
+
   const lsTimerRef = useRef(null)
   const firstRunRef = useRef(true)
   useEffect(() => {
@@ -136,10 +146,18 @@ export function AppDataProvider({ children }) {
       // Keep the module cache in sync so remounts reuse fresh data.
       dataCache.loaded = true
       dataCache.snapshot = snapshot
+      hasLocalEditsRef.current = true
       setSaveStatus('saved')
     }, 500)
     return () => clearTimeout(lsTimerRef.current)
   }, [projects, sheets, customCats, clients, mtoTemplates, proposalTemplates, phrases, company, pdfAssets, ocrMemory, vendors])
+
+  // Real signal for "is there anything here worth migrating to the cloud":
+  // a save has actually happened at some point AND there's currently
+  // non-empty content (so a just-reset — e.g. post sign-out — local state
+  // doesn't look like "real data" just because a save event fired for it).
+  const hasLocalEdits = () =>
+    hasLocalEditsRef.current && (Object.keys(projects).length > 0 || Object.keys(sheets).length > 0)
 
   const addProject = (proj) =>
     setProjects(p => ({ ...p, [proj.id]: proj }))
@@ -542,7 +560,7 @@ export function AppDataProvider({ children }) {
       addProposalVersion, setCurrentProposalVersion, removeProposalVersion, updateProposalVersion,
       addProposalTemplate, updateProposalTemplate,
       phrases, addPhrase, deletePhrase,
-      hydrate, reset,
+      hydrate, reset, hasLocalEdits,
     }}>
       {children}
     </Ctx.Provider>

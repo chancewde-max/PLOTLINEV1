@@ -82,6 +82,11 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(supabaseEnabled)
   const [authError, setAuthError] = useState(null)
+  // Non-null when the most recent cloud save (flushCurrent) failed — e.g. the
+  // silent schema-drift bug where Supabase rejected every upsert while the
+  // local "Saved" indicator kept showing green. Surfaced by SaveStatus /
+  // AccountCard so a broken cloud sync is never invisible again.
+  const [cloudSyncError, setCloudSyncError] = useState(null)
   // Global modal open-state, so any component can trigger the auth modal.
   const [authOpen, setAuthOpen] = useState(false)
   const openAuth = useCallback((mode) => {
@@ -134,11 +139,11 @@ export function AuthProvider({ children }) {
       clients: app.clients,
       pdfAssets: app.pdfAssets,
     }
-    if (orgIdRef.current) {
-      await saveOrgSnapshot(orgIdRef.current, payload).catch(() => {})
-    } else {
-      await saveUserSnapshot(user.id, payload).catch(() => {})
-    }
+    const ok = orgIdRef.current
+      ? await saveOrgSnapshot(orgIdRef.current, payload).catch(() => false)
+      : await saveUserSnapshot(user.id, payload).catch(() => false)
+    setCloudSyncError(ok ? null :
+      'Your changes are saved on this device, but couldn’t reach the cloud — they could be lost if you switch devices or clear browser data.')
   }, [user, app.projects, app.sheets, app.customCats, app.company, app.proposalTemplates, app.mtoTemplates, app.clients, app.pdfAssets])
 
   // Point the active workspace at `targetOrgId` (or personal, if null) and
@@ -257,6 +262,7 @@ export function AuthProvider({ children }) {
     ;(async () => {
       setOrgLoading(true)
       setHydrating(true)
+      setCloudSyncError(null)
       const flat = await refreshMemberships(user.id)
       if (cancelled) return
       const pref = getWorkspacePref(user.id)
@@ -289,12 +295,26 @@ export function AuthProvider({ children }) {
           (snap.sheets && Object.keys(snap.sheets).length) ||
           (snap.customCats && snap.customCats.length) ||
           (snap.company && snap.company.name))
-      // Replace local state with cloud data (merge=false). If the cloud row is
-      // empty, keep whatever local edits already exist.
-      if (hasCloudData) app.hydrate?.(snap, false)
-      hydratedRef.current = true
-      // Local edits but confirmed-empty cloud → push them up so they persist.
-      if (!hasCloudData) flushCurrent()
+      if (hasCloudData) {
+        // This account already has cloud data (returning user, or a fresh
+        // browser signing into an existing account) — the cloud row is
+        // authoritative for a real account, so replace local state with it.
+        app.hydrate?.(snap, false)
+        hydratedRef.current = true
+      } else if (app.hasLocalEdits?.()) {
+        // Brand-new account (cloud confirmed empty) but this browser has
+        // real pre-signin edits (e.g. work done while trying the app out
+        // before creating an account) — migrate them up so they become this
+        // account's projects instead of staying stuck on one device.
+        hydratedRef.current = true
+        flushCurrent()
+      } else {
+        // Brand-new account and nothing but the untouched sample/demo data
+        // locally — start the account genuinely empty instead of pushing
+        // the canned demo projects in as if the user had created them.
+        app.hydrate?.(emptySnapshot(), false)
+        hydratedRef.current = true
+      }
       setHydrating(false)
     })()
     return () => { cancelled = true }
@@ -364,6 +384,7 @@ export function AuthProvider({ children }) {
     setOrgName(null)
     app.reset?.()
     setAuthError(null)
+    setCloudSyncError(null)
     navigate('/', { replace: true })
   }, [app, navigate])
 
@@ -446,6 +467,7 @@ export function AuthProvider({ children }) {
     // the workspace snapshot fetch have finished.
     dataLoading: loading || hydrating,
     authError,
+    cloudSyncError,
     authOpen,
     openAuth,
     closeAuth,

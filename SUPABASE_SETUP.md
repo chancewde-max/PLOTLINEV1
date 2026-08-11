@@ -27,6 +27,40 @@ create one for you.
 4. This creates a `public.app_data` table with **Row Level Security** enabled,
    so each user can only read/write their own row.
 
+## 2b. Apply the follow-up migrations — REQUIRED, not optional
+
+`schema.sql` alone is not enough to run this app. The client
+(`src/data/cloudSync.js`) has always saved/loaded a few columns —
+`company`, `proposal_templates`, `mto_templates`, `clients`, `pdf_assets`,
+`ocr_memory` — that only exist once these run. **Skip this step and every
+single save silently fails** (Postgres rejects an upsert that references a
+column that doesn't exist) while the UI still shows "Saved" — this is a
+real incident that happened because these migrations were undocumented.
+
+Run each of these, **in this exact order**, in **SQL → New query** (one at a
+time, click **Run** after each):
+
+1. [`supabase/schema_add_templates.sql`](./supabase/schema_add_templates.sql)
+2. [`supabase/schema_add_pdf_assets.sql`](./supabase/schema_add_pdf_assets.sql)
+3. [`supabase/schema_add_ocr_memory.sql`](./supabase/schema_add_ocr_memory.sql)
+4. [`supabase/schema_add_member_names.sql`](./supabase/schema_add_member_names.sql)
+   (only meaningful once you've also run `schema_teams.sql` in step 6 below,
+   but safe to run now regardless)
+
+**Verify** by running this in the SQL editor — it should return `company`,
+`custom_cats`, `mto_templates`, `ocr_memory`, `pdf_assets`, `projects`,
+`proposal_templates`, `sheets`, `updated_at`, `user_id`:
+
+```sql
+select column_name from information_schema.columns
+where table_name = 'app_data' and table_schema = 'public'
+order by column_name;
+```
+
+If any of `company`, `proposal_templates`, `mto_templates`, `pdf_assets`, or
+`ocr_memory` are missing, saves are failing silently right now — run the
+missing migration file(s) above.
+
 ## 3. Enable Email/Password auth
 
 1. Open **Authentication → Providers**.
@@ -73,7 +107,11 @@ base schema above:
    (a shared, RLS-scoped counterpart to `app_data`), plus a couple of
    `security definer` RPCs (`create_organization`, `accept_org_invite`) that
    do the multi-row writes those actions need atomically.
-3. No new env vars — it reuses the same Supabase project/credentials.
+3. Then run [`supabase/schema_add_member_names.sql`](./supabase/schema_add_member_names.sql)
+   (step 2b above) if you haven't already — it caches each member's display
+   name on `org_members` for the roster/assignment UI, and depends on
+   `schema_teams.sql` already existing.
+4. No new env vars — it reuses the same Supabase project/credentials.
 
 How it works:
 
@@ -112,6 +150,10 @@ How it works:
 | File | Purpose |
 |------|---------|
 | `supabase/schema.sql` | Table + RLS policies to run in Supabase |
+| `supabase/schema_add_templates.sql` | **Required** — adds `company`/`proposal_templates`/`mto_templates`/`clients` columns |
+| `supabase/schema_add_pdf_assets.sql` | **Required** — adds `pdf_assets` column |
+| `supabase/schema_add_ocr_memory.sql` | **Required** — adds `ocr_memory` column |
+| `supabase/schema_add_member_names.sql` | **Required for Teams** — caches member display names, adds `create_organization`/`accept_org_invite` RPCs |
 | `supabase/schema_teams.sql` | Teams: orgs, membership, invites, shared `org_data` |
 | `src/lib/supabaseClient.js` | `createClient` + `supabaseEnabled` guard |
 | `src/data/cloudSync.js` | `loadUserSnapshot` / `saveUserSnapshot` (personal) |
