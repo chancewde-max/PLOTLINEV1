@@ -111,7 +111,17 @@ base schema above:
    (step 2b above) if you haven't already — it caches each member's display
    name on `org_members` for the roster/assignment UI, and depends on
    `schema_teams.sql` already existing.
-4. No new env vars — it reuses the same Supabase project/credentials.
+4. Then run [`supabase/schema_add_delete_org.sql`](./supabase/schema_add_delete_org.sql) —
+   **required**, not optional, if Teams is enabled at all. Without it, a
+   team's creator can only "leave" it like any other member, which abandons
+   the team's `org_data` row (and every project/sheet in it) with nobody left
+   who can reach it to clean up — a real ghost row was found holding ~49MB of
+   stale data this way, large enough to make an unrelated team's saves start
+   failing. This migration adds a `delete_organization()` RPC (owner-only —
+   permanently deletes the team and everything in it) and locks the owner's
+   own membership row so leaving isn't possible for them; only deleting the
+   team is.
+5. No new env vars — it reuses the same Supabase project/credentials.
 
 How it works:
 
@@ -154,6 +164,7 @@ How it works:
 | `supabase/schema_add_pdf_assets.sql` | **Required** — adds `pdf_assets` column |
 | `supabase/schema_add_ocr_memory.sql` | **Required** — adds `ocr_memory` column |
 | `supabase/schema_add_member_names.sql` | **Required for Teams** — caches member display names, adds `create_organization`/`accept_org_invite` RPCs |
+| `supabase/schema_add_delete_org.sql` | **Required for Teams** — adds `delete_organization()` RPC and locks the owner's membership row so a team can be deleted but never abandoned |
 | `supabase/schema_teams.sql` | Teams: orgs, membership, invites, shared `org_data` |
 | `src/lib/supabaseClient.js` | `createClient` + `supabaseEnabled` guard |
 | `src/data/cloudSync.js` | `loadUserSnapshot` / `saveUserSnapshot` (personal) |

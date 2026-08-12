@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { UserPlus, Copy, Check, X, Crown, LogOut, Link as LinkIcon } from 'lucide-react'
+import { UserPlus, Copy, Check, X, Crown, LogOut, Trash2, Link as LinkIcon } from 'lucide-react'
 import { Button } from '../components/ui/Button.jsx'
 import { Badge } from '../components/ui/Badge.jsx'
 import { Avatar } from '../components/ui/Avatar.jsx'
@@ -31,8 +31,8 @@ function tokenFromInput(raw) {
 export default function TeamTab() {
   const {
     user, cloudEnabled, openAuth,
-    memberships, orgId, orgRole, orgName, orgLoading, isOrgAdmin,
-    switchWorkspace, createOrganization, acceptInvite, leaveOrganization,
+    memberships, orgId, orgRole, orgName, orgLoading, isOrgAdmin, isOrgOwner,
+    switchWorkspace, createOrganization, acceptInvite, leaveOrganization, deleteOrganization,
   } = useAuth()
   const { projects, updateProject } = useAppData()
 
@@ -76,7 +76,9 @@ export default function TeamTab() {
       orgRole={orgRole}
       orgName={orgName}
       isOrgAdmin={isOrgAdmin}
+      isOrgOwner={isOrgOwner}
       leaveOrganization={leaveOrganization}
+      deleteOrganization={deleteOrganization}
       projects={projects}
       updateProject={updateProject}
     />
@@ -190,11 +192,12 @@ function NoOrgState({ memberships, switchWorkspace, createOrganization, acceptIn
 
 // ---------------------------------------------------------------------------
 
-function OrgState({ user, orgId, orgRole, orgName, isOrgAdmin, leaveOrganization, projects, updateProject }) {
+function OrgState({ user, orgId, orgRole, orgName, isOrgAdmin, isOrgOwner, leaveOrganization, deleteOrganization, projects, updateProject }) {
   const [subTab, setSubTab] = useState('members')
   const [members, setMembers] = useState([])
   const [invites, setInvites] = useState([])
   const [loadingRoster, setLoadingRoster] = useState(true)
+  const [deleteOpen, setDeleteOpen] = useState(false)
 
   const refreshRoster = useCallback(async () => {
     setLoadingRoster(true)
@@ -216,14 +219,34 @@ function OrgState({ user, orgId, orgRole, orgName, isOrgAdmin, leaveOrganization
             <Badge variant={isOrgAdmin ? 'brand' : 'neutral'}>{orgRole === 'admin' ? 'Admin' : 'Member'}</Badge>
           </div>
         </div>
-        <Button variant="ghost" size="sm" iconLeft={<LogOut size={14} />} onClick={() => {
-          if (window.confirm(`Leave ${orgName}? You'll go back to your personal workspace.`)) {
-            leaveOrganization()
-          }
-        }}>
-          Leave team
-        </Button>
+        {isOrgOwner ? (
+          // The team's creator can't just leave — a team abandoned by its
+          // only owner would sit in the database forever with nobody able to
+          // reach it to clean up. Deleting it removes everyone and every
+          // project outright, so it gets its own harder confirmation below.
+          <Button variant="danger" size="sm" iconLeft={<Trash2 size={14} />} onClick={() => setDeleteOpen(true)}>
+            Delete team
+          </Button>
+        ) : (
+          <Button variant="ghost" size="sm" iconLeft={<LogOut size={14} />} onClick={() => {
+            if (window.confirm(`Leave ${orgName}? You'll go back to your personal workspace.`)) {
+              leaveOrganization()
+            }
+          }}>
+            Leave team
+          </Button>
+        )}
       </div>
+
+      {isOrgOwner && (
+        <DeleteTeamDialog
+          open={deleteOpen}
+          onClose={() => setDeleteOpen(false)}
+          orgName={orgName}
+          memberCount={members.length}
+          deleteOrganization={deleteOrganization}
+        />
+      )}
 
       <div className={s.subnav}>
         <Tabs
@@ -255,6 +278,63 @@ function OrgState({ user, orgId, orgRole, orgName, isOrgAdmin, leaveOrganization
         />
       )}
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+
+// Permanently deletes the team — every member loses access, every project
+// and sheet in it is gone, and the row is actually removed from the
+// database (not just orphaned). That's irreversible for however many people
+// are on the team, not just the owner, so this asks them to type the exact
+// team name before the button will do anything — the same friction GitHub
+// etc. use for repo deletion.
+function DeleteTeamDialog({ open, onClose, orgName, memberCount, deleteOrganization }) {
+  const [confirmText, setConfirmText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState(null)
+
+  useEffect(() => {
+    if (open) { setConfirmText(''); setErr(null) }
+  }, [open])
+
+  const matches = confirmText.trim() === orgName
+  const submit = async () => {
+    if (!matches) return
+    setBusy(true); setErr(null)
+    try {
+      await deleteOrganization()
+      onClose()
+    } catch (e) {
+      setErr(e?.message || 'Could not delete this team')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose} title="Delete team" width={440}
+      description={`This permanently deletes "${orgName}" for ${memberCount === 1 ? 'you' : `all ${memberCount} members`} — every project and sheet in it is gone for good. This can't be undone.`}
+      footer={<>
+        <Button variant="ghost" onClick={onClose}>Cancel</Button>
+        <Button variant="danger" iconLeft={<Trash2 size={15} />} onClick={submit} disabled={busy || !matches}>
+          {busy ? 'Deleting…' : 'Delete team'}
+        </Button>
+      </>}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--text-body)' }}>
+          Type <strong>{orgName}</strong> to confirm.
+        </p>
+        <Input
+          placeholder={orgName}
+          value={confirmText}
+          onChange={e => setConfirmText(e.target.value)}
+          autoFocus
+          onKeyDown={e => { if (e.key === 'Enter' && matches) submit() }}
+        />
+        {err && <div className={s.error}>{err}</div>}
+      </div>
+    </Dialog>
   )
 }
 

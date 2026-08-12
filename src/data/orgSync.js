@@ -16,7 +16,7 @@ export async function listMyOrgMemberships(userId) {
   if (!supabaseEnabled || !supabase) return []
   const { data, error } = await supabase
     .from('org_members')
-    .select('org_id, role, joined_at, organizations ( name )')
+    .select('org_id, role, joined_at, organizations ( name, owner_id )')
     .eq('user_id', userId)
     .order('joined_at', { ascending: false })
   if (error) {
@@ -31,6 +31,17 @@ export async function createOrganization(name) {
   const { data, error } = await supabase.rpc('create_organization', { org_name: name })
   if (error) throw error
   return data // new org id
+}
+
+// Owner-only: permanently deletes the team. org_members/org_invites/org_data
+// all cascade-delete server-side (see schema_add_delete_org.sql) — this is
+// the ONLY way to stop being on a team you created; leaveOrganization()
+// refuses for the owner (both client-side and via RLS) precisely so a team
+// can't be abandoned as a ghost row that keeps consuming storage forever.
+export async function deleteOrganization(orgId) {
+  if (!supabaseEnabled || !supabase) throw new Error('Cloud not configured')
+  const { error } = await supabase.rpc('delete_organization', { target_org: orgId })
+  if (error) throw error
 }
 
 export async function listOrgMembers(orgId) {

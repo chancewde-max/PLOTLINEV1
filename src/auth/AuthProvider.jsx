@@ -43,6 +43,7 @@ import {
   createOrganization as createOrganizationApi,
   acceptInvite as acceptInviteApi,
   leaveOrganization as leaveOrganizationApi,
+  deleteOrganization as deleteOrganizationApi,
   loadOrgSnapshot,
   saveOrgSnapshot,
 } from '../data/orgSync.js'
@@ -67,12 +68,17 @@ function setWorkspacePref(userId, orgId) {
 }
 
 // Flatten the org_members(+organizations) join into a simple list the UI can
-// render directly: [{ org_id, role, name }, ...]
+// render directly: [{ org_id, role, name, ownerId }, ...]. ownerId (not the
+// same as role === 'admin' — the creator is always an admin, but not every
+// admin is the creator) drives the owner-lock: the team's creator can't
+// leave, only delete the whole team (see leaveOrganization/deleteOrganization
+// below).
 function flattenMemberships(rows) {
   return (rows || []).map(r => ({
     org_id: r.org_id,
     role: r.role,
     name: r.organizations?.name || 'Untitled team',
+    ownerId: r.organizations?.owner_id || null,
   }))
 }
 
@@ -436,9 +442,20 @@ export function AuthProvider({ children }) {
   }, [user, switchToWorkspace, refreshMemberships])
 
   // Leave the currently-active org and fall back to the personal workspace.
+  // The team's OWNER can't leave this way — otherwise a team becomes an
+  // abandoned ghost row (org_data, still holding all its projects/sheets)
+  // with nobody left able to see or clean it up, permanently consuming
+  // storage. This is a fast client-side fail; the real boundary is the
+  // org_members_delete RLS policy (schema_add_delete_org.sql), which refuses
+  // to remove the owner's own membership row regardless of who asks.
   const leaveOrganization = useCallback(async () => {
     if (!supabaseEnabled || !supabase || !user || !orgIdRef.current) return
     const leftOrgId = orgIdRef.current
+    const membership = memberships.find(m => m.org_id === leftOrgId)
+    if (membership?.ownerId === user.id) {
+      setAuthError('You created this team — delete it instead of leaving (Team → Delete team).')
+      return
+    }
     // Save any pending edits to the org before giving up write access to it.
     // This must finish (and the membership removal after it) before we're
     // safe to read the org row again, so these two stay sequential.
@@ -455,7 +472,34 @@ export function AuthProvider({ children }) {
     } finally {
       setHydrating(false)
     }
-  }, [user, flushCurrent, refreshMemberships, applyWorkspace])
+  }, [user, memberships, flushCurrent, refreshMemberships, applyWorkspace])
+
+  // Owner-only: permanently deletes the currently-active team. org_members,
+  // org_invites, and org_data all cascade-delete server-side (see
+  // schema_add_delete_org.sql — one call removes every trace, not just the
+  // caller's own membership), then falls back to the personal workspace.
+  // This is the ONLY way off a team you created, by design (see
+  // leaveOrganization above) — so a team can never be abandoned as a ghost
+  // row nobody can reach to clean up.
+  const deleteOrganization = useCallback(async () => {
+    if (!supabaseEnabled || !supabase || !user || !orgIdRef.current) return
+    const targetOrgId = orgIdRef.current
+    try {
+      await deleteOrganizationApi(targetOrgId)
+    } catch (err) {
+      setAuthError(err.message || 'Could not delete this team')
+      throw err
+    }
+    setHydrating(true)
+    try {
+      await Promise.all([
+        refreshMemberships(user.id),
+        applyWorkspace(null),
+      ])
+    } finally {
+      setHydrating(false)
+    }
+  }, [user, refreshMemberships, applyWorkspace])
 
   const value = {
     ...app,
@@ -483,10 +527,12 @@ export function AuthProvider({ children }) {
     orgName,
     orgLoading,
     isOrgAdmin: orgRole === 'admin',
+    isOrgOwner: !!(orgId && user && memberships.find(m => m.org_id === orgId)?.ownerId === user.id),
     switchWorkspace,
     createOrganization,
     acceptInvite,
     leaveOrganization,
+    deleteOrganization,
   }
 
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>
