@@ -3,6 +3,7 @@
 // deletions in blue) instead of just alpha-blending one page over the other.
 import * as pdfjsLib from 'pdfjs-dist'
 import { pdfCache } from './pdfCache.js'
+import { resolveStoragePdfUrl } from '../data/pdfStorage.js'
 
 function dataUrlToUint8Array(dataUrl) {
   const base64 = dataUrl.split(',')[1]
@@ -30,7 +31,20 @@ async function renderPdfPageToCanvas(url, pageNumber, targetW, targetH) {
   } else if (url.startsWith('blob:')) {
     return null // stale after reload, same as PdfCanvas's handling
   }
-  const src = resolvedBytes ? { data: resolvedBytes } : url.startsWith('data:') ? { data: dataUrlToUint8Array(url) } : url
+  let src
+  if (resolvedBytes) {
+    src = { data: resolvedBytes }
+  } else if (url.startsWith('data:')) {
+    src = { data: dataUrlToUint8Array(url) }
+  } else if (url.startsWith('storage:')) {
+    // Private bucket — exchange the stored path for a fresh signed URL
+    // right before fetching (see src/data/pdfStorage.js).
+    const signedUrl = await resolveStoragePdfUrl(url)
+    if (!signedUrl) return null
+    src = signedUrl
+  } else {
+    src = url
+  }
   const pdf = await pdfjsLib.getDocument(src).promise
   const page = await pdf.getPage(resolvedPage)
   const vp0 = page.getViewport({ scale: 1 })

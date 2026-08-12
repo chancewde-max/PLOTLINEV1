@@ -23,6 +23,7 @@ import PdfCanvas from '../components/PdfCanvas.jsx'
 import SheetPrintView from '../components/SheetPrintView.jsx'
 import { resolveSheetPdfUrl, sheetHasPdf } from '../components/pdfCache.js'
 import { computeOverlayDiff } from '../components/pdfDiff.js'
+import { uploadPdfAsset, personalPdfPath, orgPdfPath } from '../data/pdfStorage.js'
 import { CATS, CAT_COLOR, SHEET_W, SHEET_H, categoryTotals } from '../data/sampleData.js'
 import { inside, polyAreaPx, perimPx, centroid, clipPx2, dist, buildAreaPath, buildLinePath, linePathLenPx, circularArcSeg } from '../workspace/geometry.js'
 import s from './SheetPage.module.css'
@@ -128,7 +129,7 @@ export default function SheetPage() {
   const navigate = useNavigate()
   const { projects, sheets, updateSheet, addRegion, updateRegion, deleteRegion, pdfAssets } = useAppData()
   const { theme, setTheme, accent, setAccent, hotkeys, toolbarOrder, setToolbarOrder, zoomSensitivity, setZoomSensitivity } = useSettings()
-  const { dataLoading } = useAuth()
+  const { dataLoading, user, orgId, cloudEnabled } = useAuth()
 
   // ---- UI state ----
   const [fs, setFs]             = useState(1)
@@ -2155,15 +2156,29 @@ export default function SheetPage() {
                     onReuploadNeeded={() => {
                       const input = document.createElement('input')
                       input.type = 'file'; input.accept = 'application/pdf'
-                      input.onchange = (e) => {
+                      input.onchange = async (e) => {
                         const file = e.target.files?.[0]
                         if (!file) return
-                        const reader = new FileReader()
+                        const bytes = new Uint8Array(await file.arrayBuffer())
                         // Re-uploading replaces this sheet's own copy directly —
                         // clears any (now-stale) shared pdfAssetId reference so
-                        // the freshly set pdfUrl takes priority.
-                        reader.onload = (ev) => updateSheet(sheetId, { pdfUrl: ev.target.result, pdfAssetId: null })
-                        reader.readAsDataURL(file)
+                        // the freshly set pdfUrl takes priority. Signed in:
+                        // upload to Storage instead of embedding as base64 text
+                        // (see schema_add_storage.sql); falls back to embedding
+                        // if not signed in or the upload fails.
+                        let pdfUrl = null
+                        if (cloudEnabled && user) {
+                          try {
+                            const path = orgId ? orgPdfPath(orgId, sheetId) : personalPdfPath(user.id, sheetId)
+                            pdfUrl = await uploadPdfAsset(bytes, path)
+                          } catch { /* fall through to embed */ }
+                        }
+                        if (!pdfUrl) {
+                          let binary = ''
+                          for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+                          pdfUrl = `data:application/pdf;base64,${btoa(binary)}`
+                        }
+                        updateSheet(sheetId, { pdfUrl, pdfAssetId: null })
                       }
                       input.click()
                     }}

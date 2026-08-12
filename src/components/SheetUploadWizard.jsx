@@ -6,7 +6,9 @@ import { Button } from './ui/Button.jsx'
 import { Skeleton } from './Skeleton.jsx'
 import { pdfCache } from './pdfCache.js'
 import { useAppData } from '../data/useAppData.jsx'
+import { useAuth } from '../auth/AuthProvider.jsx'
 import { predictFromNeighbors } from '../data/ocrLearning.js'
+import { uploadPdfAsset, personalPdfPath, orgPdfPath } from '../data/pdfStorage.js'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
@@ -770,6 +772,7 @@ function VersionSetInput({ value, onChange }) {
 // ---- Main wizard ------------------------------------------------------------
 export default function SheetUploadWizard({ open, onClose, onImport }) {
   const { ocrMemory, recordOcrSample, recordOcrCorrection } = useAppData()
+  const { user, orgId, cloudEnabled } = useAuth()
   const [step, setStep] = useState(0)
   const [pages, setPages] = useState([])
   const [processing, setProcessing] = useState(false)
@@ -869,18 +872,31 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
   }
 
   const handleImport = async () => {
-    // Store the ORIGINAL PDF bytes as a data:application/pdf URL (so PdfCanvas
-    // can re-parse it with pdfjs after reload, unlike the in-memory
-    // plotline-pdf: reference which dies on reload) — but ONCE PER SOURCE
-    // FILE, not once per sheet. A multi-page PDF split into N sheets used to
-    // embed a full duplicate copy of itself in every one of those N sheets;
-    // for a real plan set that's N× the bytes re-saved on every autosave.
-    // Sheets now just carry a `pdfAssetId` pointing at a shared map entry.
+    // Store the ORIGINAL PDF bytes so PdfCanvas can re-parse it with pdfjs
+    // after reload, unlike the in-memory plotline-pdf: reference which dies
+    // on reload — but ONCE PER SOURCE FILE, not once per sheet. A multi-page
+    // PDF split into N sheets used to embed a full duplicate copy of itself
+    // in every one of those N sheets; sheets now just carry a `pdfAssetId`
+    // pointing at a shared map entry.
+    //
+    // Signed in: upload to Supabase Storage and store a `storage:` reference
+    // — embedding as base64 text in the JSONB blob is what grew one team's
+    // cloud row to ~49MB and started timing out every save (see
+    // schema_add_storage.sql). Not signed in (or the upload fails): fall
+    // back to the original base64-embed so local-only/demo mode keeps
+    // working unchanged and a Storage hiccup doesn't block the import.
     const pdfAssets = {}
     for (const fileId of new Set(pages.map(p => p.fileId))) {
+      const bytes = pdfCache.get(fileId)
+      if (!bytes) continue
+      if (cloudEnabled && user) {
+        try {
+          const path = orgId ? orgPdfPath(orgId, fileId) : personalPdfPath(user.id, fileId)
+          pdfAssets[fileId] = await uploadPdfAsset(bytes, path)
+          continue
+        } catch { /* fall through to embed */ }
+      }
       try {
-        const bytes = pdfCache.get(fileId)
-        if (!bytes) continue
         let binary = ''
         for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
         pdfAssets[fileId] = `data:application/pdf;base64,${btoa(binary)}`

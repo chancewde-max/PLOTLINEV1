@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
 import { pdfCache } from './pdfCache.js'
+import { resolveStoragePdfUrl } from '../data/pdfStorage.js'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
@@ -47,6 +48,12 @@ export default function PdfCanvas({ url, width, height, onReuploadNeeded, onPage
           src = { data: resolvedBytes }
         } else if (url.startsWith('data:')) {
           src = { data: dataUrlToUint8Array(url) }
+        } else if (url.startsWith('storage:')) {
+          // Private bucket — exchange the stored path for a fresh signed URL
+          // right before fetching (see src/data/pdfStorage.js).
+          const signedUrl = await resolveStoragePdfUrl(url)
+          if (!signedUrl) { if (!cancelled) setStale(true); return }
+          src = signedUrl
         } else {
           src = url
         }

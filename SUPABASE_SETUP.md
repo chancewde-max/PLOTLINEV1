@@ -46,10 +46,16 @@ time, click **Run** after each):
 4. [`supabase/schema_add_member_names.sql`](./supabase/schema_add_member_names.sql)
    (only meaningful once you've also run `schema_teams.sql` in step 6 below,
    but safe to run now regardless)
+5. [`supabase/schema_add_storage.sql`](./supabase/schema_add_storage.sql) —
+   creates the private `sheet-pdfs` Storage bucket (uploaded PDFs now live
+   here instead of embedded as base64 text — see the "PDF storage" note
+   below) and adds the `phrases`/`vendors` columns, which had never had a
+   cloud column at all before this.
 
-**Verify** by running this in the SQL editor — it should return `company`,
-`custom_cats`, `mto_templates`, `ocr_memory`, `pdf_assets`, `projects`,
-`proposal_templates`, `sheets`, `updated_at`, `user_id`:
+**Verify** by running this in the SQL editor — it should return `clients`,
+`company`, `custom_cats`, `mto_templates`, `ocr_memory`, `pdf_assets`,
+`phrases`, `projects`, `proposal_templates`, `sheets`, `updated_at`,
+`user_id`, `vendors`:
 
 ```sql
 select column_name from information_schema.columns
@@ -57,9 +63,23 @@ where table_name = 'app_data' and table_schema = 'public'
 order by column_name;
 ```
 
-If any of `company`, `proposal_templates`, `mto_templates`, `pdf_assets`, or
-`ocr_memory` are missing, saves are failing silently right now — run the
-missing migration file(s) above.
+If any of `company`, `proposal_templates`, `mto_templates`, `pdf_assets`,
+`ocr_memory`, `phrases`, or `vendors` are missing, saves are failing
+silently right now (for the missing-before-`schema_add_templates.sql`
+columns) or that data just isn't reaching the cloud (`phrases`/`vendors`) —
+run the missing migration file(s) above.
+
+### PDF storage — why this matters
+
+Before `schema_add_storage.sql`, every uploaded PDF was base64-encoded and
+embedded directly as JSONB text on the sheet (or the shared `pdf_assets`
+map) — the wrong medium for binary data. One team's cloud row grew to
+**~49MB** of embedded PDF text this way, which made Postgres reject every
+save to that row with a `statement timeout`, blocking that entire team's
+sync (not just the oversized sheet). New uploads now go into the
+`sheet-pdfs` Storage bucket instead; existing accounts self-heal (any
+legacy embedded PDFs get moved to Storage automatically, in the background,
+the next time that account signs in) once this migration has been run.
 
 ## 3. Enable Email/Password auth
 
@@ -165,6 +185,8 @@ How it works:
 | `supabase/schema_add_ocr_memory.sql` | **Required** — adds `ocr_memory` column |
 | `supabase/schema_add_member_names.sql` | **Required for Teams** — caches member display names, adds `create_organization`/`accept_org_invite` RPCs |
 | `supabase/schema_add_delete_org.sql` | **Required for Teams** — adds `delete_organization()` RPC and locks the owner's membership row so a team can be deleted but never abandoned |
+| `supabase/schema_add_storage.sql` | **Required** — creates the private `sheet-pdfs` Storage bucket + RLS, adds `phrases`/`vendors` columns |
+| `src/data/pdfStorage.js` | Upload/path-builder/signed-URL helpers + the legacy-PDF self-heal migration |
 | `supabase/schema_teams.sql` | Teams: orgs, membership, invites, shared `org_data` |
 | `src/lib/supabaseClient.js` | `createClient` + `supabaseEnabled` guard |
 | `src/data/cloudSync.js` | `loadUserSnapshot` / `saveUserSnapshot` (personal) |

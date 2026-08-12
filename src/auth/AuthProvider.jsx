@@ -38,6 +38,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAppData } from '../data/useAppData.jsx'
 import { supabase, supabaseEnabled } from '../lib/supabaseClient.js'
 import { loadUserSnapshot, saveUserSnapshot, emptySnapshot } from '../data/cloudSync.js'
+import { migrateLegacyPdfsToStorage } from '../data/pdfStorage.js'
 import {
   listMyOrgMemberships,
   createOrganization as createOrganizationApi,
@@ -144,13 +145,22 @@ export function AuthProvider({ children }) {
       mtoTemplates: app.mtoTemplates,
       clients: app.clients,
       pdfAssets: app.pdfAssets,
+      // ocrMemory was already selected/loaded by cloudSync.js/orgSync.js but
+      // never actually included here — every cloud save was silently
+      // wiping it back to empty (saveUserSnapshot/saveOrgSnapshot default a
+      // missing key to emptyOcrMemory()). phrases/vendors never had a cloud
+      // column at all until schema_add_storage.sql — genuinely local-only
+      // for every user, cloud or not, since the very first schema.
+      ocrMemory: app.ocrMemory,
+      phrases: app.phrases,
+      vendors: app.vendors,
     }
     const ok = orgIdRef.current
       ? await saveOrgSnapshot(orgIdRef.current, payload).catch(() => false)
       : await saveUserSnapshot(user.id, payload).catch(() => false)
     setCloudSyncError(ok ? null :
       'Your changes are saved on this device, but couldn’t reach the cloud — they could be lost if you switch devices or clear browser data.')
-  }, [user, app.projects, app.sheets, app.customCats, app.company, app.proposalTemplates, app.mtoTemplates, app.clients, app.pdfAssets])
+  }, [user, app.projects, app.sheets, app.customCats, app.company, app.proposalTemplates, app.mtoTemplates, app.clients, app.pdfAssets, app.ocrMemory, app.phrases, app.vendors])
 
   // Point the active workspace at `targetOrgId` (or personal, if null) and
   // hydrate from it. `membershipsList` lets callers pass a just-refreshed
@@ -307,6 +317,16 @@ export function AuthProvider({ children }) {
         // authoritative for a real account, so replace local state with it.
         app.hydrate?.(snap, false)
         hydratedRef.current = true
+        // Fire-and-forget: move any PDFs still embedded as base64 text (a
+        // pre-Storage-era account) into Storage in the background — this is
+        // exactly the failure mode that grew one team's row to ~49MB and
+        // started timing out every save. Best-effort and never blocks
+        // sign-in; a failed upload just leaves that PDF embedded and
+        // retries next sign-in (see pdfStorage.js).
+        const pathPrefix = target ? `org/${target}` : `personal/${user.id}`
+        migrateLegacyPdfsToStorage({ sheets: snap.sheets, pdfAssets: snap.pdfAssets }, pathPrefix, {
+          updateSheet: app.updateSheet, addPdfAssets: app.addPdfAssets,
+        })
       } else if (app.hasLocalEdits?.()) {
         // Brand-new account (cloud confirmed empty) but this browser has
         // real pre-signin edits (e.g. work done while trying the app out
@@ -339,7 +359,7 @@ export function AuthProvider({ children }) {
       if (saveTimer.current) clearTimeout(saveTimer.current)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [app.projects, app.sheets, app.customCats, app.company, app.proposalTemplates, app.mtoTemplates, app.clients, app.pdfAssets, user])
+  }, [app.projects, app.sheets, app.customCats, app.company, app.proposalTemplates, app.mtoTemplates, app.clients, app.pdfAssets, app.ocrMemory, app.phrases, app.vendors, user])
 
   // ---- Auth actions ----
   const signIn = useCallback(async (email, password) => {
