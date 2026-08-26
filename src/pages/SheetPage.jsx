@@ -40,6 +40,18 @@ const TOOLS = [
 ]
 const TOOLS_BY_ID = Object.fromEntries(TOOLS.map(t => [t.id, t]))
 
+// The rest of the bottom toolbar's buttons — not draw tools, but still
+// freely reorderable alongside them (see DEFAULT_TOOLBAR_ORDER).
+const EXTRA_TOOLS = [
+  { id: 'scale',   label: 'Set scale',          Icon: Ruler, k: 'S' },
+  { id: 'snap',    label: 'Toggle snap',        text: 'SNAP' },
+  { id: 'ortho',   label: 'Toggle ortho',       text: 'ORTH' },
+  { id: 'deduct',  label: 'Toggle deduct mode', Icon: Minus },
+  { id: 'overlay', label: 'Page overlay',       Icon: Layers },
+]
+const ALL_TOOLS = [...TOOLS, ...EXTRA_TOOLS]
+const ALL_TOOLS_BY_ID = Object.fromEntries(ALL_TOOLS.map(t => [t.id, t]))
+
 const DEFAULT_TEXT_STYLE = {
   fontSize: 16,
   color: '#111827',
@@ -690,7 +702,6 @@ export default function SheetPage() {
         }
       }
       if (key === 'ESCAPE') {
-        const wasCountingTool = activeTool === 'count' || activeTool === 'area' || activeTool === 'linear'
         setRegionVerts([]); setRegionClosed(null); setRegionCursor(null)
         setScalePts([]); setScaleDlg(null)
         setMeasurePts([]); setMeasureDone(false); setMeasureCursor(null); setMeasureSessions([])
@@ -701,7 +712,8 @@ export default function SheetPage() {
         setSettings(false)
         setSelectedId(null); setSelectedKind(null)
         setTextStyleDlg(null)
-        if (wasCountingTool) setActiveTool('select')
+        // Esc always returns to the selection tool, from any tool.
+        setActiveTool('select')
       }
       if (key === 'DELETE' || e.key === 'Backspace') {
         if (selectedIds.length > 0) {
@@ -1683,14 +1695,15 @@ export default function SheetPage() {
     setTextAnnotations(prev => prev.map(t => t.id === textStyleDlg ? { ...t, ...patch } : t))
   }
 
-  // Toolbar buttons in the user's customized order (drag to reorder), falling
-  // back to the default order and appending any tool the saved order predates.
+  // Every bottom-toolbar button (draw tools + scale/snap/ortho/deduct/overlay)
+  // in the user's customized order (drag any button to any position), falling
+  // back to the default order and appending any button the saved order predates.
   const orderedTools = useMemo(() => {
     const order = (toolbarOrder && toolbarOrder.length) ? toolbarOrder : DEFAULT_TOOLBAR_ORDER
     const seen = new Set()
     const out = []
-    order.forEach(id => { const t = TOOLS_BY_ID[id]; if (t && !seen.has(id)) { out.push(t); seen.add(id) } })
-    TOOLS.forEach(t => { if (!seen.has(t.id)) { out.push(t); seen.add(t.id) } })
+    order.forEach(id => { const t = ALL_TOOLS_BY_ID[id]; if (t && !seen.has(id)) { out.push(t); seen.add(id) } })
+    ALL_TOOLS.forEach(t => { if (!seen.has(t.id)) { out.push(t); seen.add(t.id) } })
     return out
   }, [toolbarOrder])
 
@@ -2128,13 +2141,13 @@ export default function SheetPage() {
                   ? <><Spline size={14} /><span><b>Click</b> to start drawing a line · <kbd>A</kbd> for arc segment</span></>
                   : <><Spline size={14} /><span>Keep clicking · <kbd>A</kbd> for arc · double-click or <kbd>Enter</kbd> to finish</span></>
             ) : activeTool === 'count' ? (
-              <><MapPin size={14} /><span><b>Click</b> to place a {COUNT_CATS.find(c => c.id === addCountType)?.name || addCountType} — change type in the right panel</span></>
+              <><MapPin size={14} /><span><b>Click</b> to place an item — change type in the right panel · <kbd>{hotkeys.newItem}</kbd> to start a new count</span></>
             ) : activeTool === 'text' ? (
               <><Type size={14} /><span><b>Click</b> to place a text box, then customize its color, background, border, and size</span></>
             ) : activeTool === 'pan' ? (
               <><Hand size={14} /><span>Drag to pan · scroll to zoom</span></>
             ) : (
-              <><SquareDashed size={14} /><span><b>{TOOLS.find(t => t.id === activeTool)?.label}</b></span></>
+              <><SquareDashed size={14} /><span><b>{ALL_TOOLS_BY_ID[activeTool]?.label}</b></span></>
             )}
           </div>
 
@@ -2379,7 +2392,7 @@ export default function SheetPage() {
                     points={previewPoly.map(p => `${p.x},${p.y}`).join(' ')}
                     fill={activeFolder?.color || 'var(--brand-600)'} fillOpacity="0.04"
                     stroke={activeFolder?.color || 'var(--brand-600)'}
-                    strokeWidth={2*u} strokeDasharray={isDrawingRegion ? `${7*u} ${5*u}` : '0'} strokeLinejoin="round" />
+                    strokeWidth={2*u} strokeLinejoin="round" />
                 )}
                 {activeTool === 'region' && isDrawingRegion && regionVerts.map((v, i) => (
                   <circle key={i} cx={v.x} cy={v.y}
@@ -2403,7 +2416,7 @@ export default function SheetPage() {
                       <path d={pathD}
                         fill={CAT_COLOR[areaType] || '#888'} fillOpacity="0.15"
                         stroke={CAT_COLOR[areaType] || '#888'} strokeWidth={2*u}
-                        strokeDasharray={`${6*u} ${4*u}`} strokeLinejoin="round" />
+                        strokeLinejoin="round" />
                       {pendingArcThrough && (
                         <circle cx={pendingArcThrough.x} cy={pendingArcThrough.y} r={6*u}
                           fill={CAT_COLOR[areaType] || '#888'} opacity="0.8" />
@@ -2430,7 +2443,7 @@ export default function SheetPage() {
                       <path d={pathD}
                         fill="none"
                         stroke={CAT_COLOR[linearType] || '#888'} strokeWidth={2*u}
-                        strokeDasharray={`${6*u} ${4*u}`} strokeLinecap="round" strokeLinejoin="round" />
+                        strokeLinecap="round" strokeLinejoin="round" />
                       {pendingArcThrough && (
                         <circle cx={pendingArcThrough.x} cy={pendingArcThrough.y} r={6*u}
                           fill={CAT_COLOR[linearType] || '#888'} opacity="0.8" />
@@ -2484,7 +2497,7 @@ export default function SheetPage() {
                       {measureAllPts.length >= 2 && (
                         <polyline points={measureAllPts.map(p => `${p.x},${p.y}`).join(' ')}
                           fill="none" stroke={measureColor} strokeWidth={2 * u}
-                          strokeDasharray={`${6*u} ${4*u}`} strokeLinecap="round" />
+                          strokeLinecap="round" />
                       )}
                       {measureSegments.map((seg, i) => (
                         <text key={i} x={(seg.a.x+seg.b.x)/2} y={(seg.a.y+seg.b.y)/2 - 10*ms}
@@ -2803,11 +2816,35 @@ export default function SheetPage() {
             window.addEventListener('mousemove', move); window.addEventListener('mouseup', up)
           }} />
         {orderedTools.map((t) => {
-          const { Icon } = t
-          const shortcut = hotkeys[t.id] || t.k
+          const isOn =
+            t.id === 'snap'    ? snapEnabled :
+            t.id === 'ortho'   ? orthoEnabled :
+            t.id === 'deduct'  ? deductMode :
+            t.id === 'overlay' ? !!overlaySheetId :
+            activeTool === t.id
+          const shortcut =
+            t.id === 'snap'  ? hotkeys.snap :
+            t.id === 'ortho' ? hotkeys.ortho :
+            hotkeys[t.id] || t.k || null
+          const tooltipLabel =
+            t.id === 'snap'    ? `Snap ${snapEnabled ? 'ON' : 'OFF'} (${hotkeys.snap}) — drag to reorder` :
+            t.id === 'ortho'   ? `Ortho ${orthoEnabled ? 'ON' : 'OFF'} (${hotkeys.ortho}) — drag to reorder` :
+            t.id === 'deduct'  ? `Deduct ${deductMode ? 'ON — new items subtract' : 'OFF'} — drag to reorder` :
+            `${t.label} — drag to reorder`
+          const onButtonClick = () => {
+            if (t.id === 'count')        openNewDlg('count')
+            else if (t.id === 'area')    openNewDlg('area')
+            else if (t.id === 'linear')  openNewDlg('linear')
+            else if (t.id === 'scale')   { setActiveTool('scale'); setScalePts([]) }
+            else if (t.id === 'snap')    setSnapEnabled(v => !v)
+            else if (t.id === 'ortho')   setOrthoEnabled(v => !v)
+            else if (t.id === 'deduct')  setDeductMode(v => !v)
+            else if (t.id === 'overlay') setOverlayDlg(true)
+            else setActiveTool(t.id)
+          }
           return (
-            <Tooltip key={t.id} label={`${t.label} — drag to reorder`} shortcut={shortcut} side="top">
-              <button className={s.tool} data-on={activeTool === t.id}
+            <Tooltip key={t.id} label={tooltipLabel} shortcut={shortcut} side="top">
+              <button className={s.tool} data-on={isOn}
                 draggable
                 onDragStart={() => setDragToolId(t.id)}
                 onDragOver={e => e.preventDefault()}
@@ -2824,58 +2861,23 @@ export default function SheetPage() {
                   setDragToolId(null)
                 }}
                 onDragEnd={() => setDragToolId(null)}
-                style={dragToolId === t.id ? { opacity: 0.5 } : undefined}
-                onClick={() => {
-                  if (t.id === 'count') {
-                    openNewDlg('count')
-                  } else if (t.id === 'area') {
-                    openNewDlg('area')
-                  } else if (t.id === 'linear') {
-                    openNewDlg('linear')
-                  } else {
-                    setActiveTool(t.id)
-                  }
-                }} aria-label={t.label}>
-                <Icon size={20} />
-                <span className={s.toolKbd}>{shortcut}</span>
+                style={{
+                  ...(dragToolId === t.id ? { opacity: 0.5 } : null),
+                  ...(t.id === 'deduct' && deductMode ? { color: '#dc2626' } : null),
+                }}
+                onClick={onButtonClick} aria-label={t.label}>
+                {t.text
+                  ? <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '-0.02em' }}>{t.text}</span>
+                  : <t.Icon size={t.id === 'overlay' ? 18 : 20} />}
+                {shortcut && <span className={s.toolKbd}>{shortcut}</span>}
               </button>
             </Tooltip>
           )
         })}
-        <div className={s.railSepH} />
-        <Tooltip label="Set scale" shortcut="S" side="top">
-          <button className={s.tool} data-on={activeTool === 'scale'}
-            onClick={() => { setActiveTool('scale'); setScalePts([]) }} aria-label="Set scale">
-            <Ruler size={20} />
-            <span className={s.toolKbd}>S</span>
-          </button>
-        </Tooltip>
-        <div className={s.railSepH} />
-        <Tooltip label={`Snap ${snapEnabled ? 'ON' : 'OFF'} (${hotkeys.snap})`} side="top">
-          <button className={s.tool} data-on={snapEnabled} onClick={() => setSnapEnabled(v => !v)} aria-label="Toggle snap">
-            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '-0.02em' }}>SNAP</span>
-          </button>
-        </Tooltip>
-        <Tooltip label={`Ortho ${orthoEnabled ? 'ON' : 'OFF'} (${hotkeys.ortho})`} side="top">
-          <button className={s.tool} data-on={orthoEnabled} onClick={() => setOrthoEnabled(v => !v)} aria-label="Toggle ortho">
-            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '-0.02em' }}>ORTH</span>
-          </button>
-        </Tooltip>
-        <Tooltip label={`Deduct ${deductMode ? 'ON — new items subtract' : 'OFF'}`} side="top">
-          <button className={s.tool} data-on={deductMode} onClick={() => setDeductMode(v => !v)} aria-label="Toggle deduct mode"
-            style={deductMode ? { color: '#dc2626' } : undefined}>
-            <Minus size={20} />
-          </button>
-        </Tooltip>
-        <Tooltip label="Page overlay" side="top">
-          <button className={s.tool} data-on={!!overlaySheetId} onClick={() => setOverlayDlg(true)} aria-label="Page overlay">
-            <Layers size={18} />
-          </button>
-        </Tooltip>
         {/* Tool detail inline (current tool indicator) */}
         <div className={s.railSepH} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', paddingLeft: 4 }}>
-          <span style={{ fontWeight: 700, color: 'var(--text-strong)' }}>{TOOLS.find(t => t.id === activeTool)?.label || activeTool}</span>
+          <span style={{ fontWeight: 700, color: 'var(--text-strong)' }}>{ALL_TOOLS_BY_ID[activeTool]?.label || activeTool}</span>
           {activeTool === 'area' && <span style={{ color: 'var(--brand-600)' }}>· {areaGroups.find(g => g.id === activeAreaGroupId)?.name || 'No group'}</span>}
           {activeTool === 'count' && <span style={{ color: 'var(--brand-600)' }}>· {countGroups.find(g => g.id === activeCountGroupId)?.name || 'No group'}</span>}
         </div>

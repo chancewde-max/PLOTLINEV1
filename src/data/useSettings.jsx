@@ -35,9 +35,10 @@ export const HOTKEY_LABELS = {
   ortho:   'Toggle ortho',
 }
 
-// Default order of the primary drawing-tool buttons in the sheet-editor
-// toolbar. Customized by dragging buttons around; persisted per-browser.
-export const DEFAULT_TOOLBAR_ORDER = ['select', 'pan', 'region', 'measure', 'text', 'area', 'linear', 'count']
+// Default order of every button in the sheet-editor's bottom toolbar —
+// the drawing tools plus scale/snap/ortho/deduct/overlay. Any button can be
+// dragged to any position; persisted per-browser.
+export const DEFAULT_TOOLBAR_ORDER = ['select', 'pan', 'region', 'measure', 'text', 'area', 'linear', 'count', 'scale', 'snap', 'ortho', 'deduct', 'overlay']
 
 // Multiplier applied to scroll-wheel zoom speed on the sheet canvas. 1 =
 // original feel; higher zooms faster per scroll tick, lower is finer/slower.
