@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect } from 'react'
 import {
   LayoutDashboard, MapPin, Package, Truck, ClipboardList,
   CalendarDays, ListChecks, Users, ClipboardCheck, Plus, Trash2,
-  Download, ChevronRight, ChevronDown, RotateCw,
+  Download, ChevronRight, ChevronDown, RotateCw, Paperclip, Camera, X,
 } from 'lucide-react'
 import { Button } from './ui/Button.jsx'
 import { Input } from './ui/Input.jsx'
@@ -122,6 +122,32 @@ function seedField(project, sheets) {
 
 const fmtMoney = (n) => `$${(Number(n) || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
 const num = (v) => { const n = parseFloat(v); return isFinite(n) ? n : 0 }
+
+// Quote/receipt screenshots are stored as JPEG data URLs inline on the field
+// workspace (same local-first storage as everything else here) — downscale
+// first so a handful of phone-camera photos don't blow up localStorage/the
+// synced snapshot.
+function readAndCompressImage(file, maxDim = 1280, quality = 0.72) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(reader.error)
+    reader.onload = () => {
+      const img = new Image()
+      img.onerror = reject
+      img.onload = () => {
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height))
+        const w = Math.round(img.width * scale) || 1
+        const h = Math.round(img.height * scale) || 1
+        const canvas = document.createElement('canvas')
+        canvas.width = w; canvas.height = h
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h)
+        resolve(canvas.toDataURL('image/jpeg', quality))
+      }
+      img.src = reader.result
+    }
+    reader.readAsDataURL(file)
+  })
+}
 
 // Build a multi-section CSV of the whole field workspace and download it.
 function exportFieldCsv(project, field, vendors = []) {
@@ -631,32 +657,71 @@ function Materials({ field, setField, areaName, txTotal, onSync }) {
 }
 
 // Add form for the deliveries log. One order/log action can carry several
-// material lines (shared area/type/date/notes) — each line becomes its own
-// transaction so the rest of the app (totals, CSV export) is unchanged.
-function OrderForm({ areaOpts, matOpts, onAdd, prefill }) {
-  const blankItem = () => ({ key: uid('item'), materialId: matOpts[0]?.value || '', qty: '' })
+// material lines (shared area/type/date/notes/attachments) — each line
+// becomes its own transaction so the rest of the app (totals, CSV export) is
+// unchanged.
+function OrderForm({ field, areaOpts, onAdd, prefill }) {
+  const materials = field.materials
   const [areaId, setAreaId] = useState(prefill?.areaId ?? areaOpts[0]?.value ?? '')
   const [type, setType] = useState(prefill?.type ?? 'Ordered')
   const [date, setDate] = useState('')
   const [notes, setNotes] = useState('')
+  const blankItem = () => ({ key: uid('item'), materialId: materials[0]?.id || '', qty: '' })
   const [items, setItems] = useState(() => prefill
     ? [{ key: uid('item'), materialId: prefill.materialId, qty: prefill.qty }]
     : [blankItem()])
+  const [attachments, setAttachments] = useState([])
+  const [attachBusy, setAttachBusy] = useState(false)
+
+  // Material options carry how much is still needed for the selected area —
+  // right in the dropdown text — so picking the right line item doesn't mean
+  // cross-checking the Materials tab first.
+  const matOpts = useMemo(() => materials.map(m => {
+    const base = m.code && m.description ? `${m.code} - ${m.description}` : (m.code || m.description || 'Material')
+    const unit = m.unit ? ` ${m.unit}` : ''
+    const required = field.requirements
+      .filter(r => r.areaId === areaId && r.materialId === m.id)
+      .reduce((s, r) => s + num(r.requiredQty), 0)
+    const delivered = field.transactions
+      .filter(t => t.areaId === areaId && t.materialId === m.id && t.type === 'Delivered')
+      .reduce((s, t) => s + num(t.qty), 0)
+    let suffix = ''
+    if (required > 0) {
+      const remaining = required - delivered
+      suffix = remaining > 0 ? `  ·  need ${remaining.toLocaleString()}${unit}` : '  ·  fully delivered'
+    }
+    return { value: m.id, label: base + suffix }
+  }), [materials, field.requirements, field.transactions, areaId])
 
   const setItem = (key, patch) => setItems(list => list.map(it => it.key === key ? { ...it, ...patch } : it))
   const addItem = () => setItems(list => [...list, blankItem()])
   const delItem = (key) => setItems(list => list.length > 1 ? list.filter(it => it.key !== key) : list)
 
+  const MAX_ATTACHMENTS = 6
+  const onFiles = async (fileList) => {
+    const files = Array.from(fileList).slice(0, MAX_ATTACHMENTS - attachments.length)
+    if (!files.length) return
+    setAttachBusy(true)
+    try {
+      const compressed = await Promise.all(files.map(async f => ({ id: uid('att'), name: f.name, dataUrl: await readAndCompressImage(f) })))
+      setAttachments(prev => [...prev, ...compressed])
+    } finally {
+      setAttachBusy(false)
+    }
+  }
+  const removeAttachment = (id) => setAttachments(prev => prev.filter(a => a.id !== id))
+
   const submit = () => {
     if (!areaId) return
     const valid = items.filter(it => it.materialId && num(it.qty) > 0)
     if (!valid.length) return
-    onAdd({ areaId, type, date, notes, items: valid })
+    onAdd({ areaId, type, date, notes, items: valid, attachments })
     setAreaId(areaOpts[0]?.value ?? '')
     setType('Ordered')
     setDate('')
     setNotes('')
     setItems([blankItem()])
+    setAttachments([])
   }
 
   return (
@@ -676,6 +741,31 @@ function OrderForm({ areaOpts, matOpts, onAdd, prefill }) {
           </div>
         ))}
       </div>
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>Quote / receipt (optional — applies to whole order)</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+          {attachments.map(a => (
+            <div key={a.id} style={{ position: 'relative', width: 52, height: 52 }}>
+              <img src={a.dataUrl} alt={a.name} style={{ width: 52, height: 52, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border-default)' }} />
+              <button onClick={() => removeAttachment(a.id)} title="Remove"
+                style={{ position: 'absolute', top: -6, right: -6, width: 18, height: 18, borderRadius: '50%', border: 'none', background: 'var(--text-strong)', color: 'var(--surface-base, #fff)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0 }}>
+                <X size={11} />
+              </button>
+            </div>
+          ))}
+          {attachments.length < MAX_ATTACHMENTS && (
+            <label style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
+              width: 52, height: 52, borderRadius: 8, border: '1.5px dashed var(--border-default)',
+              color: 'var(--text-muted)', cursor: attachBusy ? 'wait' : 'pointer', fontSize: 9,
+            }}>
+              <Camera size={16} />
+              <input type="file" accept="image/*" multiple disabled={attachBusy} style={{ display: 'none' }}
+                onChange={e => { onFiles(e.target.files); e.target.value = '' }} />
+            </label>
+          )}
+        </div>
+      </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <Button variant="ghost" size="sm" iconLeft={<Plus size={14} />} onClick={addItem}>Add another item</Button>
         <span style={{ flex: 1 }} />
@@ -687,19 +777,17 @@ function OrderForm({ areaOpts, matOpts, onAdd, prefill }) {
 
 function Deliveries({ field, setField, areaName, materialLabel }) {
   const areaOpts = field.areas.map(a => ({ value: a.id, label: a.name }))
-  const matOpts = field.materials.map(m => ({
-    value: m.id,
-    label: m.code && m.description ? `${m.code} - ${m.description}` : (m.code || m.description || 'Material'),
-  }))
   const [prefill, setPrefill] = useState(null)
   const [expandedOrders, setExpandedOrders] = useState(() => new Set())
+  const [preview, setPreview] = useState(null) // attachments array being viewed in the lightbox, or null
   const add = (v) => {
     const date = v.date || new Date().toISOString().slice(0, 10)
     const notes = v.notes.trim()
+    const attachments = v.attachments || []
     // Multi-item orders share an orderId so the log can show them as one
     // collapsed entry instead of a wall of identical-looking rows.
     const orderId = v.items.length > 1 ? uid('order') : null
-    const newTx = v.items.map(it => ({ id: uid('tx'), orderId, areaId: v.areaId, materialId: it.materialId, type: v.type, qty: num(it.qty), date, notes }))
+    const newTx = v.items.map(it => ({ id: uid('tx'), orderId, areaId: v.areaId, materialId: it.materialId, type: v.type, qty: num(it.qty), date, notes, attachments }))
     setField({ transactions: [...newTx, ...field.transactions] })
     setPrefill(null)
   }
@@ -725,17 +813,23 @@ function Deliveries({ field, setField, areaName, materialLabel }) {
       rows.push({ kind: 'single', tx: t })
     }
   }
-  const preview = (items) => {
+  const itemsPreview = (items) => {
     const labels = items.map(it => materialLabel(it.materialId))
     return labels.length > 3 ? `${labels.slice(0, 3).join(', ')} +${labels.length - 3} more` : labels.join(', ')
   }
+  const AttachmentBadge = ({ attachments }) => !attachments?.length ? null : (
+    <button onClick={() => setPreview(attachments)} title="View quote / receipt photos"
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 6, padding: '1px 6px', borderRadius: 999, border: '1px solid var(--border-default)', background: 'none', color: 'var(--text-muted)', fontSize: 11, cursor: 'pointer' }}>
+      <Paperclip size={10} /> {attachments.length}
+    </button>
+  )
 
   return (
     <Card title="Orders & deliveries log">
       {!canAdd ? <Empty>Add at least one area and one material first.</Empty> : (
         <OrderForm
           key={prefill ? `${prefill.areaId}-${prefill.materialId}-${prefill.type}-${prefill.qty}` : 'default'}
-          areaOpts={areaOpts} matOpts={matOpts} onAdd={add} prefill={prefill} />
+          field={field} areaOpts={areaOpts} onAdd={add} prefill={prefill} />
       )}
       {field.transactions.length === 0 ? <Empty>No transactions logged yet.</Empty> : (
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -748,7 +842,7 @@ function Deliveries({ field, setField, areaName, materialLabel }) {
                 <td style={td}>{areaName(r.tx.areaId)}</td>
                 <td style={td}>{materialLabel(r.tx.materialId)}</td>
                 <td style={{ ...td, fontFamily: 'var(--font-mono)' }}>{num(r.tx.qty).toLocaleString()}</td>
-                <td style={td}>{r.tx.notes || '—'}</td>
+                <td style={td}>{r.tx.notes || '—'}<AttachmentBadge attachments={r.tx.attachments} /></td>
                 <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
                   <IconBtn icon={RotateCw} title={`Log as ${nextTxType(r.tx.type)}…`} onClick={() => repeat(r.tx)} />
                   <DelBtn onClick={() => del(r.tx.id)} />
@@ -767,11 +861,11 @@ function Deliveries({ field, setField, areaName, materialLabel }) {
                       {r.items.length} items
                     </button>
                     {!expandedOrders.has(r.orderId) && (
-                      <div style={{ fontSize: 12, color: 'var(--text-subtle)', marginTop: 2 }}>{preview(r.items)}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-subtle)', marginTop: 2 }}>{itemsPreview(r.items)}</div>
                     )}
                   </td>
                   <td style={{ ...td, fontFamily: 'var(--font-mono)' }}>{r.items.reduce((s, it) => s + num(it.qty), 0).toLocaleString()}</td>
-                  <td style={td}>{r.notes || '—'}</td>
+                  <td style={td}>{r.notes || '—'}<AttachmentBadge attachments={r.items[0]?.attachments} /></td>
                   <td style={{ ...td, textAlign: 'right' }}><DelBtn onClick={() => delOrder(r.orderId)} /></td>
                 </tr>
                 {expandedOrders.has(r.orderId) && r.items.map(it => (
@@ -792,6 +886,21 @@ function Deliveries({ field, setField, areaName, materialLabel }) {
             ))}
           </tbody>
         </table>
+      )}
+      {preview && (
+        <div onClick={() => setPreview(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <button onClick={() => setPreview(null)} title="Close"
+            style={{ position: 'fixed', top: 20, right: 20, width: 32, height: 32, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.15)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+            <X size={18} />
+          </button>
+          <div onClick={e => e.stopPropagation()}
+            style={{ display: 'flex', flexWrap: 'wrap', gap: 12, maxWidth: '90vw', maxHeight: '90vh', overflow: 'auto' }}>
+            {preview.map(a => (
+              <img key={a.id} src={a.dataUrl} alt={a.name} style={{ maxHeight: '80vh', maxWidth: '100%', borderRadius: 8, display: 'block' }} />
+            ))}
+          </div>
+        </div>
       )}
     </Card>
   )
