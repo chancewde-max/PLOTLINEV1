@@ -378,6 +378,20 @@ export default function SheetPage() {
   const isPanningRef     = useRef(false)
   const rightDragMovedRef = useRef(false) // did a right-button press turn into an actual pan drag?
   const pinchRef         = useRef(null) // { dist } — last two-finger spacing, for incremental pinch-zoom
+  // Drag-panning used to call setPanOffset on every raw pointermove/touchmove —
+  // those can fire far faster than the browser can paint, so React piled up a
+  // full re-render per event and dragging felt sluggish. Collapse to one
+  // state update per animation frame; panCurrentRef stays the authoritative
+  // "right now" value so the delta math above still sees a live position.
+  const panRafScheduledRef = useRef(false)
+  const schedulePanRender = () => {
+    if (panRafScheduledRef.current) return
+    panRafScheduledRef.current = true
+    requestAnimationFrame(() => {
+      panRafScheduledRef.current = false
+      setPanOffset(panCurrentRef.current)
+    })
+  }
 
   // ---- Name counters ----
   const nameCountRef = useRef({})
@@ -1006,7 +1020,7 @@ export default function SheetPage() {
       const np = { x: panCurrentRef.current.x + dx, y: panCurrentRef.current.y + dy }
       panLastPosRef.current = { x: e.clientX, y: e.clientY }
       panTargetRef.current = np; panCurrentRef.current = np
-      setPanOffset(np)
+      schedulePanRender()
       if (activeTool === 'pan' || e.buttons === 2) return
     }
     const rawP = toSheet(e)
@@ -1211,7 +1225,7 @@ export default function SheetPage() {
       const np = { x: panCurrentRef.current.x + dx, y: panCurrentRef.current.y + dy }
       panLastPosRef.current = { x: t.clientX, y: t.clientY }
       panTargetRef.current = np; panCurrentRef.current = np
-      setPanOffset(np)
+      schedulePanRender()
     }
   }
 
