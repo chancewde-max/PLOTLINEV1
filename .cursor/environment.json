@@ -1,0 +1,17 @@
+{
+  "name": "Plotline",
+  "install": "npm ci && npx playwright install firefox",
+  "terminals": [
+    {
+      "name": "dev",
+      "command": "npm run dev",
+      "description": "Vite dev server for the Plotline app (http://localhost:5173)."
+    }
+  ],
+  "ports": [
+    {
+      "name": "vite dev server",
+      "port": 5173
+    }
+  ]
+}
