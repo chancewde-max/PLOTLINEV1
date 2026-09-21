@@ -996,6 +996,27 @@ export default function SheetPage() {
     setTurfHint('')
   }
 
+  const placeCurrentTurfPreview = () => {
+    const preview = turfPreview
+    if (!preview?.valid || !preview.hostId) return false
+    const host = addedAreas.find(a => a.id === preview.hostId)
+    if (!host) return false
+    pushUndo()
+    const roll = {
+      id: `tr-${Date.now()}`,
+      cx: preview.cx,
+      cy: preview.cy,
+      wFt: preview.wFt,
+      lFt: preview.lFt,
+      rotation: preview.rotation,
+    }
+    setAddedAreas(prev => prev.map(a => a.id === host.id ? { ...a, rolls: [...(a.rolls || []), roll] } : a))
+    setActiveTurfAreaId(host.id)
+    setSelectedId(roll.id); setSelectedKind('roll')
+    setTurfRollRot(String(roll.rotation ?? 0))
+    return true
+  }
+
   const finishLine = () => {
     if (linearVerts.length < 2) return
     const capturedArcSegs = { ...linearArcSegsRef.current }
@@ -1088,7 +1109,12 @@ export default function SheetPage() {
         // clicking the flush seat (which sits on the existing roll's edge)
         // would steal the click and block the count workflow. Alt/Option
         // disables snap, so the same click can drag instead.
-        if (turfPreview?.valid && turfPreview.snapped && !e.altKey) return
+        if (turfPreview?.valid && turfPreview.snapped && !e.altKey) {
+          // Stamp on press so a leftover skipStampClick (from rotate/move)
+          // cannot swallow the lock click. The following click is ignored.
+          if (placeCurrentTurfPreview()) skipStampClickRef.current = true
+          return
+        }
         const hit = (host.rolls || []).find(r => pointInRoll(p, r, pxPerFt))
         if (hit) {
           pushUndo()
@@ -1571,23 +1597,7 @@ export default function SheetPage() {
 
     if (activeTool === 'turf' && turfSubmode === 'stamp') {
       if (skipStampClickRef.current) { skipStampClickRef.current = false; return }
-      const preview = turfPreview
-      if (!preview?.valid || !preview.hostId) return
-      const host = addedAreas.find(a => a.id === preview.hostId)
-      if (!host) return
-      pushUndo()
-      const roll = {
-        id: `tr-${Date.now()}`,
-        cx: preview.cx,
-        cy: preview.cy,
-        wFt: preview.wFt,
-        lFt: preview.lFt,
-        rotation: preview.rotation,
-      }
-      setAddedAreas(prev => prev.map(a => a.id === host.id ? { ...a, rolls: [...(a.rolls || []), roll] } : a))
-      setActiveTurfAreaId(host.id)
-      setSelectedId(roll.id); setSelectedKind('roll')
-      setTurfRollRot(String(roll.rotation ?? 0))
+      placeCurrentTurfPreview()
       return
     }
 
