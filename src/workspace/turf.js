@@ -48,29 +48,32 @@ export function neighborSnapTargets(roll, neighbor, pxPerFt) {
   const rHL = halfExtentOnAxis(roll, uy, pxPerFt)
   const gx = nHW + rHW
   const gy = nHL + rHL
+  const slop = Math.max(6, pxPerFt * 0.35)
   return [
-    { cx: neighbor.cx + ux.x * gx, cy: neighbor.cy + ux.y * gx },
-    { cx: neighbor.cx - ux.x * gx, cy: neighbor.cy - ux.y * gx },
-    { cx: neighbor.cx + uy.x * gy, cy: neighbor.cy + uy.y * gy },
-    { cx: neighbor.cx - uy.x * gy, cy: neighbor.cy - uy.y * gy },
+    { cx: neighbor.cx + ux.x * gx, cy: neighbor.cy + ux.y * gx, thresh: rHW + slop },
+    { cx: neighbor.cx - ux.x * gx, cy: neighbor.cy - ux.y * gx, thresh: rHW + slop },
+    { cx: neighbor.cx + uy.x * gy, cy: neighbor.cy + uy.y * gy, thresh: rHL + slop },
+    { cx: neighbor.cx - uy.x * gy, cy: neighbor.cy - uy.y * gy, thresh: rHL + slop },
   ]
 }
 
 /**
  * If `roll` is close to sitting flush against a neighbor, lock its center
  * to that seat. Does not change rotation (free + Shift 15° stays as-is).
+ * Threshold is ~half the moving roll so hovering the neighbor's edge locks,
+ * but hovering its center does not (that stays a drag).
  */
 export function snapRollToNeighbors(roll, neighbors, pxPerFt, opts = {}) {
   if (!roll || !neighbors?.length) return null
-  const thresh = opts.thresholdPx ?? Math.max(8, pxPerFt * ROLL_NEIGHBOR_SNAP_FT)
   const excludeId = opts.excludeId
   let best = null
-  let bestDist = thresh
+  let bestDist = Infinity
   for (const n of neighbors) {
     if (!n || n.id === excludeId || n.id === roll.id) continue
     for (const pos of neighborSnapTargets(roll, n, pxPerFt)) {
+      const limit = opts.thresholdPx ?? pos.thresh
       const d = Math.hypot(pos.cx - roll.cx, pos.cy - roll.cy)
-      if (d <= bestDist) {
+      if (d <= limit && d < bestDist) {
         bestDist = d
         best = { ...roll, cx: pos.cx, cy: pos.cy, snapped: true, snapTo: n.id }
       }

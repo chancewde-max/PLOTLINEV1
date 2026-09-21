@@ -150,7 +150,9 @@ async function main() {
     for (const [x, y] of tpts) { await page.mouse.click(x, y); await page.waitForTimeout(80) }
     await page.keyboard.press('Enter')
     await page.waitForTimeout(250)
-    record('After close, stamp mode is hinted', await page.getByText(/Stamp rolls/i).first().isVisible().catch(() => false))
+    record('After close, stamp mode is hinted',
+      await page.getByRole('tab', { name: 'Stamp rolls' }).getAttribute('aria-selected').then(v => v === 'true').catch(() => false)
+      || await page.getByText(/Stamp rolls/i).first().isVisible().catch(() => false))
     await page.getByRole('tab', { name: 'Stamp rolls' }).click().catch(() => {})
     const widthInput = page.getByLabel('Roll width')
     record('Width input is free-form (no max)', await widthInput.evaluate((el) => el.max === '').catch(() => false))

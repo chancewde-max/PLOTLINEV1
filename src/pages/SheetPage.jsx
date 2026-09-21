@@ -993,7 +993,7 @@ export default function SheetPage() {
     setSelectedId(id); setSelectedKind('area')
     setActiveTurfAreaId(id)
     setTurfSubmode('stamp')
-    setTurfHint('Stamp rolls (or adjust area)')
+    setTurfHint('')
   }
 
   const finishLine = () => {
@@ -1084,6 +1084,10 @@ export default function SheetPage() {
           dragAreaIdRef.current = host.id
           return
         }
+        // A valid neighbor-lock preview is a stamp, not a drag — otherwise
+        // clicking the flush seat (which sits on the existing roll's edge)
+        // would steal the click and block the count workflow.
+        if (turfPreview?.valid && turfPreview.snapped) return
         const hit = (host.rolls || []).find(r => pointInRoll(p, r, pxPerFt))
         if (hit) {
           pushUndo()
@@ -2997,7 +3001,7 @@ export default function SheetPage() {
                   const selected = selectedId === r.id || selectedIds.includes(r.id)
                   const handle = rollHandlePoint(r, pxPerFt)
                   return (
-                    <g key={r.id}>
+                    <g key={r.id} data-testid="turf-roll" data-roll-id={r.id}>
                       <polygon points={pts}
                         fill="#15803d" fillOpacity={selected ? 0.38 : 0.22}
                         stroke={selected ? '#14532d' : '#166534'}
