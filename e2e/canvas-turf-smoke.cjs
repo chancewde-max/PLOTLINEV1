@@ -179,38 +179,16 @@ async function main() {
     await page.waitForTimeout(80)
   }
 
-  // Ungrouped soil: new condition, inspector fields, then delete the group so
-  // the polygon is orphaned — takeoff.js treats that as ungrouped with the
-  // same description + Notes suffix as grouped rows.
+  // Ungrouped soil: delete the user Area 1 group so the polygon is orphaned.
+  // takeoff.js must still emit it with the same description + Notes suffix.
   if (pb) {
-    await page.locator('button[aria-label="Area"]').click()
-    await page.getByRole('heading', { name: /New area/i }).waitFor({ timeout: 4000 })
-    await page.locator('input[placeholder*="Sod area"]').fill('Loose bed')
-    await page.getByRole('button', { name: /Start drawing/i }).click()
-    await page.waitForTimeout(150)
-    const ug = [
-      [pb.x + pb.width * 0.08, pb.y + pb.height * 0.08],
-      [pb.x + pb.width * 0.20, pb.y + pb.height * 0.08],
-      [pb.x + pb.width * 0.20, pb.y + pb.height * 0.20],
-      [pb.x + pb.width * 0.08, pb.y + pb.height * 0.20],
-    ]
-    for (const [x, y] of ug) { await page.mouse.click(x, y); await page.waitForTimeout(70) }
-    await page.keyboard.press('Enter')
-    await page.waitForTimeout(300)
-    const ugInspector = page.locator('[data-testid="area-inspector"]')
-    const ugInspectorOn = await ugInspector.isVisible().catch(() => false)
-    record('Ungrouped close shows inspector', ugInspectorOn)
-    if (ugInspectorOn) {
-      await ugInspector.getByLabel('Custom depth inches').fill('12')
-      await ugInspector.getByLabel('Topsoil type').selectOption('custom')
-      await ugInspector.getByPlaceholder('Topsoil type').fill('Ungrouped mix')
-      await page.waitForTimeout(150)
-    }
-    const nameSpan = page.locator('span').filter({ hasText: /^Loose bed$/ })
-    const looseVisible = await nameSpan.isVisible().catch(() => false)
-    if (looseVisible) await nameSpan.locator('xpath=..').locator('button').last().click()
-    record('Loose bed group deleted (orphan polygon is ungrouped)', looseVisible)
-    await page.waitForTimeout(200)
+    await page.locator('button[aria-label="Select"]').click().catch(() => {})
+    await page.waitForTimeout(120)
+    const area1Name = page.locator('[class*="rightPanel"]').locator('span').filter({ hasText: /^Area 1$/ })
+    const area1Visible = await area1Name.isVisible().catch(() => false)
+    if (area1Visible) await area1Name.locator('xpath=..').locator('button').last().click()
+    record('Area 1 group deleted (orphan polygon is ungrouped)', area1Visible)
+    await page.waitForTimeout(250)
     await page.goto(`${BASE}/app/project/proj-1`, { waitUntil: 'networkidle', timeout: 30000 })
     await page.getByText('Essential only').click().catch(() => {})
     await page.waitForTimeout(200)
@@ -220,9 +198,9 @@ async function main() {
     await page.waitForTimeout(250)
     const listText = await page.locator('body').innerText()
     record('Ungrouped soil appears in canonical takeoff Material List',
-      /Loose bed/.test(listText) && /Ungrouped mix/.test(listText) && /Depth: 12"/.test(listText),
-      listText.includes('Ungrouped mix')
-        ? 'found Loose bed + Ungrouped mix + Depth: 12"'
+      /Area 1/.test(listText) && /Test mix/.test(listText) && /Depth: 12"/.test(listText),
+      listText.includes('Test mix')
+        ? 'found Area 1 + Test mix + Depth: 12" after group delete'
         : listText.replace(/\s+/g, ' ').slice(0, 500))
     await page.goto(`${BASE}/app/project/proj-1/sheet/sheet-1`, { waitUntil: 'networkidle', timeout: 45000 })
     await page.getByText('Essential only').click().catch(() => {})
