@@ -371,6 +371,8 @@ async function main() {
     }
 
     // Persist circular-arc segs on turf close (same as soil finishArea)
+    await page.locator('button[aria-label="Synthetic turf"]').click()
+    await page.waitForTimeout(120)
     await page.getByRole('tab', { name: 'Draw area' }).click()
     await page.waitForTimeout(120)
     const arcPts = [
