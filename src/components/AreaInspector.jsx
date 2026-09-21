@@ -1,7 +1,7 @@
 import React from 'react'
 import { SquareDashed } from 'lucide-react'
 import {
-  TOPSOIL_OPTIONS, DEPTH_PRESETS, volumeCy, formatCy, mixedValue,
+  TOPSOIL_OPTIONS, volumeCy, formatCy, mixedValue,
   areaDepthOf, areaTopsoilOf, areaTopsoilCustomOf,
 } from '../workspace/areaProps.js'
 import { polyAreaPx } from '../workspace/geometry.js'
@@ -27,9 +27,11 @@ export default function AreaInspector({
     return sum + volumeCy(sf, areaDepthOf(a, areaGroups))
   }, 0)
 
-  const depthSelectValue = depthMix.mixed ? '__multiple__' : 'custom'
   const soilSelectValue = soilMix.mixed ? '__multiple__' : (soilMix.value || 'none')
 
+  // TODO(HOLD): depth→cy + topsoil UI already started; Agency Manager has
+  // not confirmed whether soil Area depth→cy is dropped with presets.
+  // Depth-inch PRESET dropdown stripped (Chance: dropped from V1).
   return (
     <div data-testid="area-inspector" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ fontSize: `calc(11px * ${fs})`, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-subtle)', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -39,20 +41,6 @@ export default function AreaInspector({
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <label style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)', fontWeight: 600, minWidth: 56 }}>Depth</label>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, flexWrap: 'wrap' }}>
-          <select
-            aria-label="Area depth"
-            value={depthSelectValue}
-            onChange={e => {
-              if (e.target.value === 'custom') onApply({ depth: depthMix.mixed ? '' : (depthMix.value || '') })
-            }}
-            style={{ padding: '5px 8px', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', fontSize: `calc(13px * ${fs})`, background: 'var(--surface-card)', color: 'var(--text-strong)' }}
-          >
-            {depthMix.mixed && <option value="__multiple__">Multiple</option>}
-            {DEPTH_PRESETS.map(p => (
-              <option key={p} value={String(p)}>{p}″</option>
-            ))}
-            <option value="custom">Custom</option>
-          </select>
           <input
             type="number"
             min="0"

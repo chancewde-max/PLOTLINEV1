@@ -3266,6 +3266,7 @@ export default function SheetPage() {
           <div className={s.resizeHandle} data-testid="right-resize-handle" style={{ left: -3 }}
             onMouseDown={e => { e.preventDefault(); startPanelResize('right', e.clientX, rightPanelW) }}
             onDoubleClick={e => { e.preventDefault(); resetPanelWidth('right') }} />
+          {/* TODO(HOLD): AreaInspector depth→cy + topsoil already started; presets dropped. */}
           {selectedSoilAreas.length > 0 && (
             <AreaInspector
               areas={selectedSoilAreas}

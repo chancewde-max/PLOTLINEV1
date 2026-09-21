@@ -1,6 +1,10 @@
-// Soil Area inspector helpers (depth → cy + topsoil). In V1 for soil takeoff.
-// Depth presets are product-owned; none exist in application code — Custom
-// only. Do not invent inch lists. Turf rolls stay free L×W (no thickness).
+// Soil Area helpers. Chance/client: depth-inch PRESETS are DROPPED from
+// PlotlineV1 — do not add a preset list. Turf rolls are free L×W only
+// (no thickness/depth).
+//
+// TODO(HOLD): soil Area depth→cy + topsoil dropdown are product-unclear
+// (Notion §6 still lists them). Already started in AreaInspector.jsx —
+// leave in place until Agency Manager clarifies. Do not invent.
 
 export const TOPSOIL_OPTIONS = [
   { value: 'enriched', label: 'Enriched' },
@@ -10,7 +14,7 @@ export const TOPSOIL_OPTIONS = [
   { value: 'none', label: 'None' },
 ]
 
-// Empty until product supplies inch values. Do not invent presets.
+// DROPPED from PlotlineV1. Kept empty so callers cannot render inch presets.
 export const DEPTH_PRESETS = []
 
 export function volumeCuFt(areaSqFt, depthIn) {
