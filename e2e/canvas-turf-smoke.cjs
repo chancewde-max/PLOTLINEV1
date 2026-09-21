@@ -91,7 +91,7 @@ async function main() {
   record('Wheel zoom changes HUD', before.z !== after.z, `${before.z} → ${after.z}`)
   record('Zoom-to-cursor keeps paper center near cursor (not recentered)', dx < 80 && dy < 80, `dx=${dx.toFixed(1)} dy=${dy.toFixed(1)}`)
 
-  // Draw a soil area (inspector depth→cy + topsoil HOLD — do not require UI)
+  // Draw a soil area, inspect depth/cy + topsoil
   await page.locator('button[aria-label="Area"]').click()
   await page.waitForTimeout(200)
   // New-area dialog may open
@@ -116,8 +116,21 @@ async function main() {
     await page.mouse.click(pts[0][0] + 40, pts[0][1] + 40)
     await page.waitForTimeout(200)
   }
-  record('Soil depth→cy inspector is held (not shown)',
-    !(await page.locator('[data-testid="area-inspector"]').isVisible().catch(() => false)))
+  const inspector = page.locator('[data-testid="area-inspector"]')
+  record('Area inspector appears after selecting a drawn area', await inspector.isVisible().catch(() => false))
+  if (await inspector.isVisible().catch(() => false)) {
+    await inspector.getByLabel('Custom depth inches').fill('12')
+    await page.waitForTimeout(100)
+    const cy = await page.locator('[data-testid="area-cy"]').innerText()
+    record('Live cubic yards updates (X.XX cy)', /^\d+\.\d{2} cy$/.test(cy) && cy !== '0.00 cy', cy)
+    const topsoil = inspector.getByLabel('Topsoil type')
+    const labels = await topsoil.locator('option').allTextContents()
+    record('Topsoil options match spec',
+      ['Enriched', 'Sandy loam', '4-way mix', 'Custom', 'None'].every(l => labels.includes(l)),
+      labels.join('|'))
+    await topsoil.selectOption('custom')
+    record('Custom topsoil field placeholder', await inspector.getByPlaceholder('Topsoil type').isVisible().catch(() => false))
+  }
 
   // Turf tool
   await page.locator('button[aria-label="Synthetic turf"]').click()

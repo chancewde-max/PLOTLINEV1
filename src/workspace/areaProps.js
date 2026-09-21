@@ -1,6 +1,6 @@
-// Soil helpers. Scope lock: NO depth-inch presets, NO roll thickness,
-// NO soil depth→cy / topsoil inspector UI until Chance reinstates.
-// Helpers kept; AreaInspector.jsx stripped. Turf is free L×W only.
+// Soil Area inspector is IN SCOPE: Custom depth → cy + topsoil.
+// Depth-inch PRESET lists stay empty — do not invent inches.
+// Turf rolls are free L×W only (no thickness).
 
 export const TOPSOIL_OPTIONS = [
   { value: 'enriched', label: 'Enriched' },
@@ -10,7 +10,7 @@ export const TOPSOIL_OPTIONS = [
   { value: 'none', label: 'None' },
 ]
 
-// DROPPED from PlotlineV1. Kept empty so callers cannot render inch presets.
+// No product inch list in repo. Do not invent presets.
 export const DEPTH_PRESETS = []
 
 export function volumeCuFt(areaSqFt, depthIn) {

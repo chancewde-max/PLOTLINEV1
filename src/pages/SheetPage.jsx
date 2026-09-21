@@ -37,6 +37,7 @@ import {
   LEFT_PANEL_W_KEY, RIGHT_PANEL_W_KEY,
   clampPanelWidth, readStoredPanelWidth, persistPanelWidth, viewportWidth,
 } from '../workspace/panelLayout.js'
+import AreaInspector from '../components/AreaInspector.jsx'
 import TurfPanel from '../components/TurfPanel.jsx'
 import s from './SheetPage.module.css'
 
@@ -2059,6 +2060,7 @@ export default function SheetPage() {
     if (selectedKind === 'area' && selectedId) ids.add(selectedId)
     return ids
   })()
+  const selectedSoilAreas = addedAreas.filter(a => selectedAreaSet.has(a.id) && !isTurfArea(a))
   const activeTurfArea = addedAreas.find(a => a.id === activeTurfAreaId && isTurfArea(a))
     || (selectedKind === 'area' && selectedArea && isTurfArea(selectedArea) ? selectedArea : null)
     || addedAreas.find(isTurfArea) || null
@@ -2085,6 +2087,11 @@ export default function SheetPage() {
     return unionBounds(boxes)
   })()
 
+  const applyAreaInspector = (patch) => {
+    const ids = selectedAreaSet
+    pushUndo()
+    setAddedAreas(prev => prev.map(a => ids.has(a.id) && !isTurfArea(a) ? { ...a, ...patch } : a))
+  }
   const editingText = textStyleDlg ? textAnnotations.find(t => t.id === textStyleDlg) : null
   const patchEditingText = (patch) => {
     if (!textStyleDlg) return
@@ -3259,6 +3266,15 @@ export default function SheetPage() {
           <div className={s.resizeHandle} data-testid="right-resize-handle" style={{ left: -3 }}
             onMouseDown={e => { e.preventDefault(); startPanelResize('right', e.clientX, rightPanelW) }}
             onDoubleClick={e => { e.preventDefault(); resetPanelWidth('right') }} />
+          {selectedSoilAreas.length > 0 && (
+            <AreaInspector
+              areas={selectedSoilAreas}
+              areaGroups={areaGroups}
+              sqft={sqft}
+              onApply={applyAreaInspector}
+              fs={fs}
+            />
+          )}
           {activeTool === 'turf' ? (
             <TurfPanel
               submode={turfSubmode}
