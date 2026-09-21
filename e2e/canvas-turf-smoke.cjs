@@ -119,6 +119,8 @@ async function main() {
   const inspector = page.locator('[data-testid="area-inspector"]')
   record('Area inspector appears after selecting a drawn area', await inspector.isVisible().catch(() => false))
   if (await inspector.isVisible().catch(() => false)) {
+    const sqftText = await page.locator('[data-testid="area-sqft"]').innerText().catch(() => '')
+    record('Inspector shows closed-area sq ft', /\d+\.\d+ sq ft/.test(sqftText) && sqftText !== '0.0 sq ft', sqftText)
     await inspector.getByLabel('Custom depth inches').fill('12')
     await page.waitForTimeout(100)
     const cy = await page.locator('[data-testid="area-cy"]').innerText()

@@ -22,6 +22,7 @@ export default function AreaInspector({
   const soilMix = mixedValue(soils)
   const customMix = mixedValue(customs)
 
+  const totalSqFt = areas.reduce((sum, a) => sum + sqft(polyAreaPx(a.poly || [])), 0)
   const totalCy = areas.reduce((sum, a) => {
     const sf = sqft(polyAreaPx(a.poly || []))
     return sum + volumeCy(sf, areaDepthOf(a, areaGroups))
@@ -34,6 +35,10 @@ export default function AreaInspector({
     <div data-testid="area-inspector" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ fontSize: `calc(11px * ${fs})`, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-subtle)', display: 'flex', alignItems: 'center', gap: 6 }}>
         <SquareDashed size={12} /> Area{areas.length > 1 ? ` · ${areas.length}` : ''}
+      </div>
+
+      <div data-testid="area-sqft" style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(12px * ${fs})`, fontWeight: 700, color: 'var(--text-strong)' }}>
+        {Number.isFinite(totalSqFt) ? `${totalSqFt.toFixed(1)} sq ft` : '0.0 sq ft'}
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
