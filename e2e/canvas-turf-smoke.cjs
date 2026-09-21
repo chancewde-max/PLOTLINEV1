@@ -254,6 +254,10 @@ async function main() {
     }
     record('Adjacent preview inherits neighbor angle + flush', inheritHint,
       inheritHintText.slice(0, 140) || `seats=${seats.length} neighbor=${neighborRot}`)
+    const highlighted = inheritHint
+      ? await page.locator('[data-testid="turf-roll"][data-snap-target="true"]').count().catch(() => 0)
+      : 0
+    record('Hover preview highlights the winning neighbor', highlighted === 1, `targets=${highlighted}`)
     if (inheritClick) {
       const lockPt = await page.evaluate(() => {
         const poly = document.querySelector('[data-testid="turf-roll-preview"]')

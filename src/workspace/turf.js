@@ -63,10 +63,12 @@ export function neighborSnapTargets(roll, neighbor, pxPerFt) {
  * turns off snap and inheritance. Free continuous rotation when no
  * neighbor is in range.
  *
- * PENDING CLIENT (scaffolding only — not product law):
+ * Working defaults (Agency Manager: implement unless Chance overrides;
+ * still PENDING CLIENT confirm — not product law):
  * 1) Two in-range neighbors at different angles → nearest single neighbor
- *    by flush-seat / edge distance. Do not invent other conflict rules.
- * 2) Callers may also run this on move-into-contact (place + move).
+ *    by flush-seat / edge distance. `snapTo` is that winner (for hover
+ *    highlight). Do not invent other conflict rules.
+ * 2) Callers also run this on move-into-contact (place + move).
  * 3) This helper is not applied during rotate, so post-snap free-rotate
  *    may break flush until the user re-snaps.
  */

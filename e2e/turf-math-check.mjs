@@ -60,6 +60,8 @@ const lock37 = snapRollToNeighbors(incoming0, [a37], pxPerFt)
 check('adjacent snap adopts neighbor rotation', !!(lock37 && lock37.rotation === 37),
   lock37 ? String(lock37.rotation) : 'null')
 check('adjacent snap is flush after co-rotate', !!(lock37 && Math.abs(lock37.cx - seat37.cx) < 0.01 && Math.abs(lock37.cy - seat37.cy) < 0.01))
+check('winning neighbor id is snapTo for hover highlight', !!(lock37 && lock37.snapTo === 'a37'),
+  lock37 ? String(lock37.snapTo) : 'null')
 
 const n0 = { id: 'n0', cx: 0, cy: 50, wFt: 10, lFt: 10, rotation: 0 }
 const n45 = { id: 'n45', cx: 400, cy: 400, wFt: 10, lFt: 10, rotation: 45 }

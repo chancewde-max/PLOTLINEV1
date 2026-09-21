@@ -385,7 +385,14 @@ export default function SheetPage() {
   const [turfRollRot, setTurfRollRot]   = useState(String(DEFAULT_ROLL_ROT))
   const [turfHint, setTurfHint]         = useState('')
   const [activeTurfAreaId, setActiveTurfAreaId] = useState(null)
-  const [turfPreview, setTurfPreview]   = useState(null) // { cx, cy, valid }
+  const [turfPreview, setTurfPreview]   = useState(null) // { cx, cy, valid, snapTo }
+  const [turfSnapTo, setTurfSnapTo]     = useState(null) // winning neighbor id while snap-previewing
+  useEffect(() => {
+    if (activeTool !== 'turf' || turfSubmode !== 'stamp') {
+      setTurfPreview(null)
+      setTurfSnapTo(null)
+    }
+  }, [activeTool, turfSubmode])
   const [pendingTurfDelete, setPendingTurfDelete] = useState(null) // { ids: string[] }
   const rHeldRef         = useRef(false)
   const turfNumRef       = useRef((sheets[sheetId]?.savedAreas || []).filter(isTurfArea).length)
@@ -810,6 +817,7 @@ export default function SheetPage() {
         arcSegsRef.current = {}; linearArcSegsRef.current = {}
         setSettings(false)
         setTurfPreview(null)
+        setTurfSnapTo(null)
         setTurfHint('')
         if (activeTool === 'turf' && turfSubmode === 'draw' && areaVerts.length > 0) {
           // Cancel in-progress turf polygon only
@@ -1302,7 +1310,9 @@ export default function SheetPage() {
       const snapped = snapRollToNeighbors(rawPreview, neighbors, pxPerFt, { disable: !!e.altKey })
       const preview = (snapped && host && rollFitsInArea(snapped, host.poly, pxPerFt)) ? snapped : rawPreview
       const valid = !!(host && rollFitsInArea(preview, host.poly, pxPerFt))
-      setTurfPreview({ ...preview, valid, hostId: host?.id || null })
+      const nextPreview = { ...preview, valid, hostId: host?.id || null }
+      setTurfPreview(nextPreview)
+      setTurfSnapTo(nextPreview.snapped && nextPreview.valid ? nextPreview.snapTo : null)
     }
 
     // Update box select
@@ -1365,7 +1375,8 @@ export default function SheetPage() {
         const host = addedAreas.find(a => a.id === dragAreaIdRef.current)
         if (orig?.mode === 'rotate') {
           // FINAL: explicit rotate is the only intentional angle change.
-          // PENDING CLIENT: post-snap free-rotate may break flush until re-snap.
+          // Working default (PENDING CLIENT confirm): post-snap rotate may break flush.
+          setTurfSnapTo(null)
           const ang = Math.atan2(p.y - orig.cy, p.x - orig.cx) * 180 / Math.PI
           const rot = ang
           setTurfRollRot(String(rot))
@@ -1375,13 +1386,14 @@ export default function SheetPage() {
           }))
         } else {
           const rawNext = { ...orig, cx: orig.cx + dx, cy: orig.cy + dy }
-          // PENDING CLIENT: inherit + flush on move-into-contact (not only first place).
+          // Working default (PENDING CLIENT confirm): inherit + flush on move-into-contact.
           const snapped = host
             ? snapRollToNeighbors(rawNext, host.rolls || [], pxPerFt, { excludeId: selectedId, disable: !!e.altKey })
             : null
           const next = (snapped && host && rollFitsInArea(snapped, host.poly, pxPerFt)) ? snapped : rawNext
           const fits = host ? rollFitsInArea(next, host.poly, pxPerFt) : false
           if (fits) {
+            setTurfSnapTo(next.snapped ? next.snapTo : null)
             setTurfRollRot(String(next.rotation ?? 0))
             setAddedAreas(prev => prev.map(a => a.id !== dragAreaIdRef.current ? a : {
               ...a,
@@ -1437,6 +1449,7 @@ export default function SheetPage() {
       setCtxMenu({ x: e.clientX, y: e.clientY })
     }
     if (isDraggingRef.current && selectedKind === 'roll') skipStampClickRef.current = true
+    if (isDraggingRef.current && selectedKind === 'roll') setTurfSnapTo(null)
     isPanningRef.current = false
     setPanningUi(false)
     isDraggingRef.current = false
@@ -2545,7 +2558,7 @@ export default function SheetPage() {
                   : <><Sprout size={14} /><span>Keep clicking · double-click or <kbd>Enter</kbd> to close · <kbd>Esc</kbd> cancel</span></>)
                 : <><Sprout size={14} /><span>{turfHint || (activeTurfArea
                   ? (turfPreview?.snapped
-                    ? `Snapped flush at ${Number(turfPreview.rotation).toFixed(1)}° · click to lock · Alt/Option disables snap and angle inherit`
+                    ? `Snapped flush at ${Number(turfPreview.rotation).toFixed(1)}° from highlighted roll · click to lock · Alt/Option disables snap`
                     : 'Hover to preview · place or move within 0.5 ft snaps flush and matches neighbor angle · Alt/Option disables snap · rotate after snap may break flush')
                   : 'Select or draw a turf area first')}</span></>
             ) : activeTool === 'pan' ? (
@@ -3014,13 +3027,21 @@ export default function SheetPage() {
                   const corners = rollCorners(r, pxPerFt)
                   const pts = corners.map(p => `${p.x},${p.y}`).join(' ')
                   const selected = selectedId === r.id || selectedIds.includes(r.id)
+                  const snapTarget = !!(turfSnapTo && r.id === turfSnapTo)
                   const handle = rollHandlePoint(r, pxPerFt)
                   return (
-                    <g key={r.id} data-testid="turf-roll" data-roll-id={r.id} data-rotation={String(r.rotation ?? 0)}>
+                    <g key={r.id} data-testid="turf-roll" data-roll-id={r.id} data-rotation={String(r.rotation ?? 0)} data-snap-target={snapTarget ? 'true' : 'false'}>
                       <polygon points={pts}
-                        fill="#15803d" fillOpacity={selected ? 0.38 : 0.22}
-                        stroke={selected ? '#14532d' : '#166534'}
-                        strokeWidth={(selected ? 2.2 : 1.4) * u} />
+                        fill={snapTarget ? '#d97706' : '#15803d'} fillOpacity={snapTarget ? 0.40 : (selected ? 0.38 : 0.22)}
+                        stroke={snapTarget ? '#b45309' : (selected ? '#14532d' : '#166534')}
+                        strokeWidth={(snapTarget ? 3.2 : selected ? 2.2 : 1.4) * u} />
+                      {snapTarget && (
+                        <text x={r.cx} y={r.cy} textAnchor="middle" dominantBaseline="central"
+                          fontSize={Math.max(9, 11 * u)} fontWeight="700" fill="#78350f"
+                          style={{ pointerEvents: 'none', userSelect: 'none' }}>
+                          {Number(r.rotation || 0).toFixed(1)}°
+                        </text>
+                      )}
                       {selected && (
                         <>
                           <line x1={r.cx} y1={r.cy} x2={handle.x} y2={handle.y}
@@ -3042,6 +3063,7 @@ export default function SheetPage() {
                     <polygon points={pts}
                       data-testid="turf-roll-preview"
                       data-snapped={locked ? 'true' : 'false'}
+                      data-snap-to={locked && turfPreview.snapTo ? String(turfPreview.snapTo) : ''}
                       data-rotation={String(turfPreview.rotation ?? 0)}
                       fill={ok ? '#15803d' : '#dc2626'} fillOpacity={locked ? 0.32 : 0.18}
                       stroke={ok ? '#15803d' : '#dc2626'} strokeWidth={(locked ? 2.6 : 2) * u}
