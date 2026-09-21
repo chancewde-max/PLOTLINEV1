@@ -45,6 +45,22 @@ check('ungrouped soil appears in canonical takeoff with inspector notes',
     && /Area 1/.test(it.description) && /Depth: 12"/.test(it.description)
     && /Ungrouped mix/.test(it.description) && it.qty > 0),
   JSON.stringify(ungroupedTakeoff.map(it => it.description)))
+const orphanedTakeoff = takeoffMaterialItems(
+  { sheetIds: ['s1'] },
+  {
+    s1: {
+      pxPerFt: 4,
+      savedAreaGroups: [{ id: 'ag-alive', name: 'Still here' }],
+      savedAreas: [{
+        name: 'Loose bed', groupId: 'ag-deleted', poly: square,
+        depth: '12', topsoil: 'custom', topsoilCustom: 'Ungrouped mix',
+      }],
+    },
+  },
+)
+check('orphaned-group soil uses the same takeoff Notes suffix',
+  orphanedTakeoff.some(it => /Loose bed/.test(it.description) && /Ungrouped mix/.test(it.description)),
+  JSON.stringify(orphanedTakeoff.map(it => it.description)))
 const turfOnlyTakeoff = takeoffMaterialItems(
   { sheetIds: ['s1'] },
   { s1: { pxPerFt: 4, savedAreaGroups: [], savedAreas: [{ name: 'Turf Area 1', type: 'turf', kind: 'turf', poly: square }] } },

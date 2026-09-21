@@ -185,7 +185,7 @@ async function main() {
   if (pb) {
     await page.locator('button[aria-label="Area"]').click()
     await page.getByRole('heading', { name: /New area/i }).waitFor({ timeout: 4000 })
-    await page.getByPlaceholder(/Sod area/).fill('Loose bed')
+    await page.locator('input[placeholder*="Sod area"]').fill('Loose bed')
     await page.getByRole('button', { name: /Start drawing/i }).click()
     await page.waitForTimeout(150)
     const ug = [
@@ -206,9 +206,9 @@ async function main() {
       await ugInspector.getByPlaceholder('Topsoil type').fill('Ungrouped mix')
       await page.waitForTimeout(150)
     }
-    const looseRow = page.locator('div').filter({ hasText: /^Loose bed$/ }).first()
-    const looseVisible = await looseRow.isVisible().catch(() => false)
-    if (looseVisible) await looseRow.locator('button').last().click()
+    const nameSpan = page.locator('span').filter({ hasText: /^Loose bed$/ })
+    const looseVisible = await nameSpan.isVisible().catch(() => false)
+    if (looseVisible) await nameSpan.locator('xpath=..').locator('button').last().click()
     record('Loose bed group deleted (orphan polygon is ungrouped)', looseVisible)
     await page.waitForTimeout(200)
     await page.goto(`${BASE}/app/project/proj-1`, { waitUntil: 'networkidle', timeout: 30000 })
