@@ -1091,6 +1091,13 @@ export default function SheetPage() {
       const host = addedAreas.find(a => a.id === activeTurfAreaId && isTurfArea(a))
         || addedAreas.filter(isTurfArea).find(a => inside(p, a.poly))
       if (host) {
+        // Neighbor-lock wins over handle/body hit: the flush seat often sits
+        // on an existing roll edge (and near the rotate handle). Alt/Option
+        // disables snap so the same press can rotate or drag instead.
+        if (turfPreview?.valid && turfPreview.snapped && !e.altKey) {
+          if (placeCurrentTurfPreview()) skipStampClickRef.current = true
+          return
+        }
         const handle = (host.rolls || []).find(r => {
           const h = rollHandlePoint(r, pxPerFt)
           return dist(p, h) < hitPx * 1.4
@@ -1103,16 +1110,6 @@ export default function SheetPage() {
           dragStartRef.current = p
           origDragRef.current = { ...handle, mode: 'rotate' }
           dragAreaIdRef.current = host.id
-          return
-        }
-        // A valid neighbor-lock preview is a stamp, not a drag — otherwise
-        // clicking the flush seat (which sits on the existing roll's edge)
-        // would steal the click and block the count workflow. Alt/Option
-        // disables snap, so the same click can drag instead.
-        if (turfPreview?.valid && turfPreview.snapped && !e.altKey) {
-          // Stamp on press so a leftover skipStampClick (from rotate/move)
-          // cannot swallow the lock click. The following click is ignored.
-          if (placeCurrentTurfPreview()) skipStampClickRef.current = true
           return
         }
         const hit = (host.rolls || []).find(r => pointInRoll(p, r, pxPerFt))
