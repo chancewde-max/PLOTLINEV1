@@ -8,7 +8,10 @@ function record(name, pass, detail) {
 }
 
 async function main() {
-  const browser = await chromium.launch({ executablePath: process.env.PW_CHROME || '/opt/pw-browsers/chromium', headless: true })
+  const browser = await chromium.launch({
+    executablePath: process.env.PW_CHROME || '/usr/local/bin/google-chrome',
+    headless: true,
+  })
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
   const page = await ctx.newPage()
   const consoleErrors = [], pageErrors = []
