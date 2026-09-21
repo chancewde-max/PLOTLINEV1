@@ -146,6 +146,19 @@ async function main() {
   if (await inspector.isVisible().catch(() => false)) {
     const sqftText = await page.locator('[data-testid="area-sqft"]').innerText().catch(() => '')
     record('Inspector shows closed-area sq ft', /\d+\.\d+ sq ft/.test(sqftText) && sqftText !== '0.0 sq ft', sqftText)
+    const cyBefore = await page.locator('[data-testid="area-cy"]').innerText().catch(() => '')
+    record('Inspector CY stays 0.00 until area depth is set', cyBefore === '0.00 cy', cyBefore)
+    await page.getByRole('button', { name: /Quote email/i }).click()
+    await page.waitForTimeout(150)
+    const quoteBeforeDepth = await page.getByTestId('quote-email-body').innerText().catch(() => '')
+    record('Quote scope has no CY until area depth is set',
+      /sq ft/.test(quoteBeforeDepth) && !/ CY/.test(quoteBeforeDepth),
+      quoteBeforeDepth.replace(/\s+/g, ' ').slice(0, 220))
+    await page.keyboard.press('Escape')
+    await page.getByTestId('quote-email-body').waitFor({ state: 'hidden', timeout: 3000 }).catch(async () => {
+      await page.getByRole('button', { name: 'Close dialog' }).click()
+    })
+    await page.waitForTimeout(80)
     await inspector.getByLabel('Custom depth inches').fill('12')
     await page.waitForTimeout(100)
     const cy = await page.locator('[data-testid="area-cy"]').innerText()

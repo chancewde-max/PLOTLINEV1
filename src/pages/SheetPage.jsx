@@ -28,7 +28,7 @@ import { CATS, CAT_COLOR, SHEET_W, SHEET_H, categoryTotals } from '../data/sampl
 import { inside, polyAreaPx, perimPx, centroid, clipPx2, dist, buildAreaPath, buildLinePath, linePathLenPx, circularArcSeg, bbox } from '../workspace/geometry.js'
 import {
   TOPSOIL_OPTIONS, isTurfArea, areaExportNotes, areaDepthOf, areaTopsoilOf,
-  areaTopsoilCustomOf, quoteHeaderFields,
+  areaTopsoilCustomOf, quoteHeaderFields, areaOwnVolumeCy,
 } from '../workspace/areaProps.js'
 import {
   DEFAULT_ROLL_W_FT, DEFAULT_ROLL_L_FT, DEFAULT_ROLL_ROT,
@@ -3942,17 +3942,17 @@ function generateQuoteEmail(project, sheet, allAreas, allLines, allPoints, vendo
   const hdr = quoteHeaderFields(headerSrc, areaGroups || [], {
     depth: areaDepth, topsoil: topsoilType, topsoilCustom,
   })
-  const pageDepthIn = parseFloat(areaDepth) || 0
 
   const areaLines = allAreas.map(a => {
     const sf = sqft(polyAreaPx(a.poly))
     const d = areaDepthOf(a, areaGroups || [])
-    const depthVal = parseFloat(d) || pageDepthIn
+    const depthVal = parseFloat(d) || 0
     const soil = areaTopsoilOf(a, areaGroups || [])
     const soilCustom = areaTopsoilCustomOf(a, areaGroups || [])
     const soilLabel = soil === 'custom' ? (soilCustom || 'custom') : soil !== 'none' ? soil : ''
-    const cy = depthVal > 0 ? ((sf * (depthVal / 12)) / 27).toFixed(1) : null
-    const extra = [depthVal ? `@ ${depthVal}"` : '', soilLabel ? soilLabel : ''].filter(Boolean).join(' · ')
+    const ownCy = areaOwnVolumeCy(sf, a, areaGroups || [])
+    const cy = ownCy > 0 ? ownCy.toFixed(1) : null
+    const extra = [depthVal > 0 ? `@ ${depthVal}"` : '', soilLabel ? soilLabel : ''].filter(Boolean).join(' · ')
     return `  - ${a.name || a.type}: ${fSq(sf)} sq ft${cy ? ` / ${cy} CY` : ''}${extra ? ` ${extra}` : ''}`
   })
   const lineLines = allLines.map(l => `  - ${l.name || l.type}: ${fLn(lnft(linePathLenPx(l.pts, l.arcSegs)))} ln ft`)
@@ -4437,7 +4437,7 @@ function AreaPanel({ areaType, onSetAreaType, addedAreas, sqft, fSq, onClearAdde
                   <span style={{ flex: 1, fontSize: `calc(13px * ${fs})`, color: 'var(--text-strong)', fontWeight: 500 }}>{a.name || cat?.name || a.type}</span>
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)' }}>
                     {fSq(sqft(polyAreaPx(a.poly)))} ft²
-                    {depthIn > 0 && <span style={{ color: 'var(--brand-600)', display: 'block', fontSize: `calc(11px * ${fs})` }}>{((sqft(polyAreaPx(a.poly)) * (depthIn/12))/27).toFixed(1)} CY</span>}
+                    {areaOwnVolumeCy(sqft(polyAreaPx(a.poly)), a) > 0 && <span style={{ color: 'var(--brand-600)', display: 'block', fontSize: `calc(11px * ${fs})` }}>{areaOwnVolumeCy(sqft(polyAreaPx(a.poly)), a).toFixed(1)} CY</span>}
                   </span>
                 </div>
               )
@@ -4748,7 +4748,6 @@ function DefaultPanel({ sheet, allAreas, allPoints, allLines, onActivate, onExpo
 
 // ---- Conditions (always-visible counts/areas) panel ------------------------
 function ConditionsPanel({ countGroups, activeCountGroupId, onSetActiveCountGroup, linearGroups, activeLinearGroupId, onSetActiveLinearGroup, areaGroups, activeAreaGroupId, onSetActiveAreaGroup, addedAreas, addedPoints, addedLines, sqft, fSq, lnft, fLn, areaDepth, topsoilType, topsoilCustom, onNewCount, onNewArea, onNewLinear, onDeleteCountGroup, onDeleteAreaGroup, onDeleteLinearGroup, onReorderCountGroups, onReorderLinearGroups, onReorderAreaGroups, onEditGroup, fs }) {
-  const depthIn = parseFloat(areaDepth) || 0
   const dragIdRef = React.useRef(null)
   const makeDragHandlers = (groups, onReorder) => ({
     onDragStart: (id) => { dragIdRef.current = id },
@@ -4767,6 +4766,10 @@ function ConditionsPanel({ countGroups, activeCountGroupId, onSetActiveCountGrou
   })
   const totalCountItems = signedPointCount(addedPoints)
   const totalAreaSqft = addedAreas.reduce((s, a) => s + sqft(polyAreaPx(a.poly)) * itemSign(a), 0)
+  const totalOwnCy = addedAreas.reduce((s, a) => {
+    if (isTurfArea(a)) return s
+    return s + areaOwnVolumeCy(sqft(polyAreaPx(a.poly)), a, areaGroups) * itemSign(a)
+  }, 0)
   const totalLinearFt = addedLines.reduce((s, l) => s + (l.pts ? linePathLenPx(l.pts, l.arcSegs) / 4 : 0) * itemSign(l), 0)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -4899,7 +4902,7 @@ function ConditionsPanel({ countGroups, activeCountGroupId, onSetActiveCountGrou
           <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 8, background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)' }}>
             {totalCountItems !== 0 && <div style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)' }}><b style={{ color: 'var(--text-strong)' }}>{totalCountItems}</b> total items</div>}
             {totalAreaSqft !== 0 && <div style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)', marginTop: 3 }}><b style={{ color: 'var(--text-strong)' }}>{totalAreaSqft < 0 ? '-' : ''}{fSq(Math.abs(totalAreaSqft))}</b> sq ft total</div>}
-            {depthIn > 0 && totalAreaSqft !== 0 && <div style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--brand-600)', marginTop: 3, fontWeight: 700 }}>{((totalAreaSqft * (depthIn/12))/27).toFixed(1)} CY</div>}
+            {totalOwnCy > 0 && <div style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--brand-600)', marginTop: 3, fontWeight: 700 }}>{totalOwnCy.toFixed(1)} CY</div>}
           </div>
         )}
       </div>

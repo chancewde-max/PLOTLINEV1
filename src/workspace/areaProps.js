@@ -41,6 +41,13 @@ export function areaDepthOf(area, groups = []) {
   return g?.depth != null && String(g.depth) !== '' ? String(g.depth) : ''
 }
 
+/** CY only when this area (or its group) has depth set. Never page-level. */
+export function areaOwnVolumeCy(areaSqFt, area, groups = []) {
+  const d = areaDepthOf(area, groups)
+  if (d == null || String(d).trim() === '') return 0
+  return volumeCy(areaSqFt, d)
+}
+
 export function areaTopsoilOf(area, groups = []) {
   if (area && area.topsoil) return area.topsoil
   const g = area?.groupId ? groups.find(x => x.id === area.groupId) : null

@@ -1,5 +1,5 @@
 // Fast node smoke for turf / volume math (no browser).
-import { volumeCy, formatCy, mixedValue, DEPTH_PRESETS, areaExportNotes, quoteHeaderFields } from '../src/workspace/areaProps.js'
+import { volumeCy, formatCy, mixedValue, DEPTH_PRESETS, areaExportNotes, quoteHeaderFields, areaOwnVolumeCy } from '../src/workspace/areaProps.js'
 import { takeoffMaterialItems } from '../src/data/takeoff.js'
 import {
   rollCorners, rollFitsInArea, turfCoverage, parseRollFt,
@@ -76,6 +76,13 @@ const hdr = quoteHeaderFields(
 check('quote header falls back to inspector depth + topsoil',
   hdr.depth === '12' && /Test mix/.test(hdr.topsoilLabel),
   JSON.stringify(hdr))
+check('page-level header depth does not invent area CY',
+  quoteHeaderFields([{ poly: square }], [], { depth: '8', topsoil: 'none' }).depth === '8'
+    && areaOwnVolumeCy(27, { poly: square }, []) === 0)
+check('no own depth → 0 cy', areaOwnVolumeCy(27, {}, []) === 0)
+check('own depth → cy', formatCy(areaOwnVolumeCy(27, { depth: '12' }, [])) === '1.00 cy')
+const noDepthNotes = areaExportNotes([{ poly: square, topsoil: 'enriched' }], [], (px2) => px2 / (pxPerFt * pxPerFt))
+check('no-depth takeoff notes omit cy', !/cy/i.test(noDepthNotes) && /Enriched/.test(noDepthNotes), noDepthNotes)
 
 const insideRoll = { cx: 50, cy: 50, wFt: 10, lFt: 10, rotation: 0 }
 const outsideRoll = { cx: 95, cy: 50, wFt: 10, lFt: 20, rotation: 0 }
