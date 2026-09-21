@@ -1,5 +1,6 @@
 // Fast node smoke for turf / volume math (no browser).
-import { volumeCy, formatCy, mixedValue, DEPTH_PRESETS, areaExportNotes } from '../src/workspace/areaProps.js'
+import { volumeCy, formatCy, mixedValue, DEPTH_PRESETS, areaExportNotes, quoteHeaderFields } from '../src/workspace/areaProps.js'
+import { takeoffMaterialItems } from '../src/data/takeoff.js'
 import {
   rollCorners, rollFitsInArea, turfCoverage, parseRollFt,
   snapRollToNeighbors, neighborSnapTargets, estimateRollsNeeded, DEFAULT_ROLL_W_FT, ROLL_NEIGHBOR_SNAP_FT,
@@ -27,6 +28,38 @@ const exportNotes = areaExportNotes(
 check('MTO notes include inspector depth + cy + topsoil',
   /Depth: 12"/.test(exportNotes) && /cy/.test(exportNotes) && /Enriched/.test(exportNotes),
   exportNotes)
+const ungroupedTakeoff = takeoffMaterialItems(
+  { sheetIds: ['s1'] },
+  {
+    s1: {
+      pxPerFt: 4,
+      savedAreaGroups: [],
+      savedAreas: [{
+        name: 'Area 1', poly: square, depth: '12', topsoil: 'custom', topsoilCustom: 'Ungrouped mix',
+      }],
+    },
+  },
+)
+check('ungrouped soil appears in canonical takeoff with inspector notes',
+  ungroupedTakeoff.some(it => it.kind === 'area' && it.unit === 'SF'
+    && /Area 1/.test(it.description) && /Depth: 12"/.test(it.description)
+    && /Ungrouped mix/.test(it.description) && it.qty > 0),
+  JSON.stringify(ungroupedTakeoff.map(it => it.description)))
+const turfOnlyTakeoff = takeoffMaterialItems(
+  { sheetIds: ['s1'] },
+  { s1: { pxPerFt: 4, savedAreaGroups: [], savedAreas: [{ name: 'Turf Area 1', type: 'turf', kind: 'turf', poly: square }] } },
+)
+check('ungrouped turf is not a soil takeoff row',
+  !turfOnlyTakeoff.some(it => it.kind === 'area'),
+  JSON.stringify(turfOnlyTakeoff.map(it => it.description)))
+const hdr = quoteHeaderFields(
+  [{ depth: '12', topsoil: 'custom', topsoilCustom: 'Test mix' }],
+  [],
+  { depth: '', topsoil: 'none', topsoilCustom: '' },
+)
+check('quote header falls back to inspector depth + topsoil',
+  hdr.depth === '12' && /Test mix/.test(hdr.topsoilLabel),
+  JSON.stringify(hdr))
 
 const insideRoll = { cx: 50, cy: 50, wFt: 10, lFt: 10, rotation: 0 }
 const outsideRoll = { cx: 95, cy: 50, wFt: 10, lFt: 20, rotation: 0 }

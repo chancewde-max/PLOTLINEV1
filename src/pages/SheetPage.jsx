@@ -28,7 +28,7 @@ import { CATS, CAT_COLOR, SHEET_W, SHEET_H, categoryTotals } from '../data/sampl
 import { inside, polyAreaPx, perimPx, centroid, clipPx2, dist, buildAreaPath, buildLinePath, linePathLenPx, circularArcSeg, bbox } from '../workspace/geometry.js'
 import {
   TOPSOIL_OPTIONS, isTurfArea, areaExportNotes, areaDepthOf, areaTopsoilOf,
-  areaTopsoilCustomOf,
+  areaTopsoilCustomOf, quoteHeaderFields,
 } from '../workspace/areaProps.js'
 import {
   DEFAULT_ROLL_W_FT, DEFAULT_ROLL_L_FT, DEFAULT_ROLL_ROT,
@@ -3709,7 +3709,7 @@ export default function SheetPage() {
         footer={<>
           <Button variant="ghost" onClick={() => setQuoteOpen(false)}>Close</Button>
           <Button variant="primary" onClick={() => {
-            const txt = generateQuoteEmail(project, sheet, allAreas, allLines, allPoints, quoteVendor, sqft, fSq, lnft, fLn, topsoilType, topsoilCustom, areaDepth)
+            const txt = generateQuoteEmail(project, sheet, allAreas, allLines, allPoints, quoteVendor, sqft, fSq, lnft, fLn, topsoilType, topsoilCustom, areaDepth, selectedSoilAreas, areaGroups)
             navigator.clipboard.writeText(txt).then(() => setQuoteCopied(true))
           }}>{quoteCopied ? '✓ Copied!' : 'Copy to clipboard'}</Button>
         </>}>
@@ -3720,8 +3720,8 @@ export default function SheetPage() {
               placeholder="e.g. Green Valley Nursery"
               style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', fontSize: 13, background: 'var(--surface-card)', color: 'var(--text-strong)', boxSizing: 'border-box' }} />
           </div>
-          <div style={{ background: 'var(--surface-sunken)', borderRadius: 'var(--radius-md)', padding: '14px 16px', fontSize: 13, color: 'var(--text-body)', fontFamily: 'monospace', whiteSpace: 'pre-wrap', maxHeight: 340, overflowY: 'auto', lineHeight: 1.6 }}>
-            {generateQuoteEmail(project, sheet, allAreas, allLines, allPoints, quoteVendor, sqft, fSq, lnft, fLn, topsoilType, topsoilCustom, areaDepth)}
+          <div data-testid="quote-email-body" style={{ background: 'var(--surface-sunken)', borderRadius: 'var(--radius-md)', padding: '14px 16px', fontSize: 13, color: 'var(--text-body)', fontFamily: 'monospace', whiteSpace: 'pre-wrap', maxHeight: 340, overflowY: 'auto', lineHeight: 1.6 }}>
+            {generateQuoteEmail(project, sheet, allAreas, allLines, allPoints, quoteVendor, sqft, fSq, lnft, fLn, topsoilType, topsoilCustom, areaDepth, selectedSoilAreas, areaGroups)}
           </div>
         </div>
       </Dialog>
@@ -3924,19 +3924,22 @@ export default function SheetPage() {
 }
 
 // ---- Quote email generator -------------------------------------------------
-function generateQuoteEmail(project, sheet, allAreas, allLines, allPoints, vendor, sqft, fSq, lnft, fLn, topsoilType, topsoilCustom, areaDepth) {
+function generateQuoteEmail(project, sheet, allAreas, allLines, allPoints, vendor, sqft, fSq, lnft, fLn, topsoilType, topsoilCustom, areaDepth, headerAreas, areaGroups) {
   const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
   const addr = project.address || 'address on file'
   const vendorName = vendor || '[Vendor Name]'
-  const topsoilLabel = topsoilType === 'custom' ? topsoilCustom || 'custom topsoil' : topsoilType === 'none' ? null : { enriched: 'Enriched topsoil', sandy_loam: 'Sandy loam', '4way': '4-way mix' }[topsoilType]
-  const depthIn = parseFloat(areaDepth) || 0
+  const headerSrc = (headerAreas && headerAreas.length) ? headerAreas : allAreas
+  const hdr = quoteHeaderFields(headerSrc, areaGroups || [], {
+    depth: areaDepth, topsoil: topsoilType, topsoilCustom,
+  })
+  const pageDepthIn = parseFloat(areaDepth) || 0
 
   const areaLines = allAreas.map(a => {
     const sf = sqft(polyAreaPx(a.poly))
-    const d = areaDepthOf(a)
-    const depthVal = parseFloat(d) || depthIn
-    const soil = areaTopsoilOf(a)
-    const soilCustom = areaTopsoilCustomOf(a)
+    const d = areaDepthOf(a, areaGroups || [])
+    const depthVal = parseFloat(d) || pageDepthIn
+    const soil = areaTopsoilOf(a, areaGroups || [])
+    const soilCustom = areaTopsoilCustomOf(a, areaGroups || [])
     const soilLabel = soil === 'custom' ? (soilCustom || 'custom') : soil !== 'none' ? soil : ''
     const cy = depthVal > 0 ? ((sf * (depthVal / 12)) / 27).toFixed(1) : null
     const extra = [depthVal ? `@ ${depthVal}"` : '', soilLabel ? soilLabel : ''].filter(Boolean).join(' · ')
@@ -3944,6 +3947,9 @@ function generateQuoteEmail(project, sheet, allAreas, allLines, allPoints, vendo
   })
   const lineLines = allLines.map(l => `  - ${l.name || l.type}: ${fLn(lnft(linePathLenPx(l.pts, l.arcSegs)))} ln ft`)
   const ptLines = allPoints.length > 0 ? [`  - ${allPoints.length} item(s): ${allPoints.map(p => p.type).join(', ')}`] : []
+  const depthHeader = !hdr.depth ? ''
+    : hdr.depth === 'Multiple' ? 'Installation depth: Multiple'
+    : `Installation depth: ${hdr.depth} inches`
 
   return `Subject: Quote Request – ${project.name} – ${sheet.name}
 
@@ -3961,8 +3967,8 @@ We are currently estimating the above project and would like to request a quote 
 
 SCOPE OF WORK:
 ${[...areaLines, ...lineLines, ...ptLines].join('\n') || '  (No items recorded)'}
-${topsoilLabel ? `\nTopsoil type requested: ${topsoilLabel}` : ''}
-${depthIn > 0 ? `Installation depth: ${depthIn} inches` : ''}
+${hdr.topsoilLabel ? `\nTopsoil type requested: ${hdr.topsoilLabel}` : ''}
+${depthHeader ? `${depthHeader}` : ''}
 
 Please provide pricing per unit as well as availability. Let us know if you have any questions or need additional information.
 

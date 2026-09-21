@@ -119,7 +119,7 @@ async function main() {
     await page.waitForTimeout(200)
   }
   const paper = page.locator('[class*="paper"]').first()
-  const pb = await paper.boundingBox()
+  let pb = await paper.boundingBox()
   if (pb) {
     const pts = [
       [pb.x + pb.width * 0.25, pb.y + pb.height * 0.25],
@@ -166,6 +166,58 @@ async function main() {
     record('Inspector depth/topsoil flows into MTO notes',
       /Depth: 12"/.test(mtoNotes) && /cy/.test(mtoNotes) && /Test mix/.test(mtoNotes),
       mtoNotes)
+    await page.getByRole('button', { name: /Quote email/i }).click()
+    await page.waitForTimeout(150)
+    const quoteBody = await page.getByTestId('quote-email-body').innerText().catch(() => '')
+    record('Quote header falls back to inspector depth/topsoil',
+      /Installation depth: 12/.test(quoteBody) && /Test mix/.test(quoteBody),
+      quoteBody.replace(/\s+/g, ' ').slice(0, 220))
+    await page.getByRole('button', { name: 'Close' }).click().catch(() => {})
+    await page.waitForTimeout(80)
+  }
+
+  // Ungrouped soil (A-key, no New-area group) must hit takeoff.js Material List
+  if (pb) {
+    await page.locator('button[aria-label="Select"]').click()
+    await page.waitForTimeout(80)
+    await page.keyboard.press('a')
+    await page.waitForTimeout(120)
+    const newAreaDlg = page.getByRole('heading', { name: /New area/i })
+    if (await newAreaDlg.isVisible().catch(() => false)) {
+      await page.getByRole('button', { name: /Cancel/i }).click()
+      await page.waitForTimeout(80)
+    }
+    const ug = [
+      [pb.x + pb.width * 0.08, pb.y + pb.height * 0.08],
+      [pb.x + pb.width * 0.20, pb.y + pb.height * 0.08],
+      [pb.x + pb.width * 0.20, pb.y + pb.height * 0.20],
+      [pb.x + pb.width * 0.08, pb.y + pb.height * 0.20],
+    ]
+    for (const [x, y] of ug) { await page.mouse.click(x, y); await page.waitForTimeout(70) }
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(250)
+    const ugInspector = page.locator('[data-testid="area-inspector"]')
+    if (await ugInspector.isVisible().catch(() => false)) {
+      await ugInspector.getByLabel('Custom depth inches').fill('12')
+      await ugInspector.getByLabel('Topsoil type').selectOption('custom')
+      await ugInspector.getByPlaceholder('Topsoil type').fill('Ungrouped mix')
+      await page.waitForTimeout(500)
+    }
+    await page.goto(`${BASE}/app/project/proj-1`, { waitUntil: 'networkidle', timeout: 30000 })
+    await page.getByText('Essential only').click().catch(() => {})
+    await page.waitForTimeout(200)
+    await page.getByRole('button', { name: /^Pricebook$/ }).click()
+    await page.waitForTimeout(150)
+    await page.getByRole('button', { name: /Material List/i }).click()
+    await page.waitForTimeout(250)
+    const listText = await page.locator('body').innerText()
+    record('Ungrouped soil appears in canonical takeoff Material List',
+      /Ungrouped mix/.test(listText) && /Depth: 12"/.test(listText),
+      listText.includes('Ungrouped mix') ? 'found Ungrouped mix + Depth: 12"' : listText.slice(0, 280))
+    await page.goto(`${BASE}/app/project/proj-1/sheet/sheet-1`, { waitUntil: 'networkidle', timeout: 45000 })
+    await page.getByText('Essential only').click().catch(() => {})
+    await page.waitForTimeout(600)
+    pb = await page.locator('[class*="paper"]').first().boundingBox()
   }
 
   // Turf tool

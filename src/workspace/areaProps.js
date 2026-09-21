@@ -91,3 +91,25 @@ export function areaExportNotes(areas, groups = [], sqftFn) {
   }
   return parts.join('; ')
 }
+
+/**
+ * Page-level quote header fields: explicit page depth/topsoil win; otherwise
+ * fall back to inspector values on the given areas (selected, else all soil).
+ */
+export function quoteHeaderFields(areas, groups = [], page = {}) {
+  const list = (areas || []).filter(a => !isTurfArea(a))
+  const depthMix = mixedValue(list.map(a => areaDepthOf(a, groups)))
+  const soilMix = mixedValue(list.map(a => areaTopsoilOf(a, groups)))
+  const customMix = mixedValue(list.map(a => areaTopsoilCustomOf(a, groups)))
+  const pageDepth = page.depth != null && String(page.depth).trim() !== '' ? String(page.depth) : ''
+  const depth = pageDepth || (depthMix.mixed ? 'Multiple' : (depthMix.value || ''))
+  let topsoilLabel = ''
+  if (page.topsoil && page.topsoil !== 'none') {
+    topsoilLabel = page.topsoil === 'custom'
+      ? (page.topsoilCustom || 'Custom')
+      : (TOPSOIL_OPTIONS.find(x => x.value === page.topsoil)?.label || page.topsoil)
+  } else if (list.length) {
+    topsoilLabel = soilMix.mixed ? 'Multiple' : topsoilExportLabel(soilMix.value, customMix.value)
+  }
+  return { depth, topsoilLabel }
+}
