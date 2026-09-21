@@ -10,7 +10,6 @@ function segsCross(p1, p2, p3, p4) {
 export const DEFAULT_ROLL_W_FT = 15
 export const DEFAULT_ROLL_L_FT = 100
 export const DEFAULT_ROLL_ROT = 0
-export const ROLL_SNAP_DEG = 15
 /** World-space edge gap (ft) that locks a stamp flush to a neighbor. */
 export const ROLL_NEIGHBOR_SNAP_FT = 0.5
 
@@ -25,11 +24,6 @@ export function parseRollFt(raw, fallback) {
   const n = parseFloat(raw)
   if (!Number.isFinite(n) || n <= 0) return fallback
   return n
-}
-
-export function snapAngle(deg, step = ROLL_SNAP_DEG) {
-  if (!Number.isFinite(deg)) return 0
-  return Math.round(deg / step) * step
 }
 
 function axisFromDeg(deg) {
@@ -66,6 +60,7 @@ export function neighborSnapTargets(roll, neighbor, pxPerFt) {
  * Lock `roll` flush to a neighbor when its edge is within ~0.5 ft world
  * of that neighbor's edge. Center distance to the flush seat equals the
  * edge gap for parallel rolls. Does not change rotation.
+ * Translation only — does not rotate the active roll to match the neighbor.
  * Pass `{ disable: true }` for Alt/Option override.
  */
 export function snapRollToNeighbors(roll, neighbors, pxPerFt, opts = {}) {

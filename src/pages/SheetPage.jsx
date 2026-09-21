@@ -29,7 +29,7 @@ import { inside, polyAreaPx, perimPx, centroid, clipPx2, dist, buildAreaPath, bu
 import { TOPSOIL_OPTIONS, isTurfArea } from '../workspace/areaProps.js'
 import {
   DEFAULT_ROLL_W_FT, DEFAULT_ROLL_L_FT, DEFAULT_ROLL_ROT,
-  parseRollFt, snapAngle, rollCorners, rollHandlePoint, rollFitsInArea, pointInRoll,
+  parseRollFt, rollCorners, rollHandlePoint, rollFitsInArea, pointInRoll,
   turfCoverage, snapRollToNeighbors, objectBounds, unionBounds,
 } from '../workspace/turf.js'
 import {
@@ -1266,7 +1266,7 @@ export default function SheetPage() {
     if ((activeTool === 'area' || (activeTool === 'turf' && turfSubmode === 'draw')) && (areaVerts.length > 0 || pendingArcThrough)) setAreaCursor(p)
     if (activeTool === 'linear' && (linearVerts.length > 0 || pendingArcThrough)) setLinearCursor(p)
     if (activeTool === 'turf' && turfSubmode === 'stamp' && !isDraggingRef.current) {
-      const rot = e.shiftKey ? snapAngle(parseFloat(turfRollRot) || 0) : (parseFloat(turfRollRot) || 0)
+      const rot = parseFloat(turfRollRot) || 0
       const rawPreview = {
         cx: rawP.x, cy: rawP.y,
         wFt: parseRollFt(turfRollW, DEFAULT_ROLL_W_FT),
@@ -1342,8 +1342,8 @@ export default function SheetPage() {
         const host = addedAreas.find(a => a.id === dragAreaIdRef.current)
         if (orig?.mode === 'rotate') {
           const ang = Math.atan2(p.y - orig.cy, p.x - orig.cx) * 180 / Math.PI
-          const rot = e.shiftKey ? snapAngle(ang) : ang
-          setTurfRollRot(String(Math.round(rot)))
+          const rot = ang
+          setTurfRollRot(String(rot))
           setAddedAreas(prev => prev.map(a => a.id !== dragAreaIdRef.current ? a : {
             ...a,
             rolls: (a.rolls || []).map(r => r.id === selectedId ? { ...r, rotation: rot } : r),
@@ -2531,8 +2531,8 @@ export default function SheetPage() {
                   : <><Sprout size={14} /><span>Keep clicking · double-click or <kbd>Enter</kbd> to close · <kbd>Esc</kbd> cancel</span></>)
                 : <><Sprout size={14} /><span>{turfHint || (activeTurfArea
                   ? (turfPreview?.snapped
-                    ? 'Snapped flush · click to lock · Alt/Option disables snap · Shift snaps 15°'
-                    : 'Hover to preview · snap flush within 0.5 ft · Alt/Option disables snap · Shift snaps 15°')
+                    ? 'Snapped flush · click to lock · Alt/Option disables snap · drag freely to any angle'
+                    : 'Hover to preview · snap flush within 0.5 ft · Alt/Option disables snap · free rotation')
                   : 'Select or draw a turf area first')}</span></>
             ) : activeTool === 'pan' ? (
               <><Hand size={14} /><span>Drag to pan · or hold <kbd>Space</kbd> · scroll to zoom</span></>

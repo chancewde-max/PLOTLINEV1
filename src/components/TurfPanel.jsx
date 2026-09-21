@@ -57,7 +57,7 @@ export default function TurfPanel({
           {hint || (submode === 'draw'
             ? 'Click vertices · double-click or Enter to close · Esc cancel'
             : hasActiveArea
-              ? 'Hover to preview · snap flush within 0.5 ft · Alt/Option disables snap · Shift snaps 15°'
+              ? 'Hover to preview · snap flush within 0.5 ft · Alt/Option disables snap · drag to any angle'
               : 'Select or draw a turf area first')}
         </p>
       </div>
@@ -77,7 +77,7 @@ export default function TurfPanel({
               value={val}
               onChange={e => set(e.target.value)}
               min={unit === '°' ? undefined : 0.1}
-              step={unit === '°' ? 1 : 0.1}
+              step={unit === '°' ? 'any' : 0.1}
               style={{ flex: 1, padding: '5px 8px', border: '1px solid var(--border-default)', borderRadius: 6, fontSize: `calc(13px * ${fs})`, background: 'var(--surface-card)', color: 'var(--text-strong)' }}
             />
             <span style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)', minWidth: 18 }}>{unit}</span>

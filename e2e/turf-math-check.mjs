@@ -1,8 +1,8 @@
 // Fast node smoke for turf / volume math (no browser).
 import { volumeCy, formatCy, mixedValue, DEPTH_PRESETS } from '../src/workspace/areaProps.js'
 import {
-  rollCorners, rollFitsInArea, turfCoverage, snapAngle, parseRollFt,
-  snapRollToNeighbors, estimateRollsNeeded, DEFAULT_ROLL_W_FT, ROLL_NEIGHBOR_SNAP_FT,
+  rollCorners, rollFitsInArea, turfCoverage, parseRollFt,
+  snapRollToNeighbors, neighborSnapTargets, estimateRollsNeeded, DEFAULT_ROLL_W_FT, ROLL_NEIGHBOR_SNAP_FT,
 } from '../src/workspace/turf.js'
 
 const square = [
@@ -19,8 +19,6 @@ function check(name, cond, detail) {
 check('No invented depth presets', DEPTH_PRESETS.length === 0, String(DEPTH_PRESETS))
 check('12in over 27 sq ft = 1.00 cy', formatCy(volumeCy(27, 12)) === '1.00 cy', formatCy(volumeCy(27, 12)))
 check('mixedValue detects Multiple', mixedValue(['4', '6']).mixed === true)
-check('snap 22 → 15', snapAngle(22) === 15)
-check('snap 8 → 15', snapAngle(8) === 15)
 
 const insideRoll = { cx: 50, cy: 50, wFt: 10, lFt: 10, rotation: 0 }
 const outsideRoll = { cx: 95, cy: 50, wFt: 10, lFt: 20, rotation: 0 }
@@ -54,6 +52,13 @@ check('edge beyond 0.5 ft does not snap', snapRollToNeighbors(justOut, [placed],
 const far = { id: 'c', cx: 40 + 40 * pxPerFt, cy: 50, wFt: 10, lFt: 10, rotation: 0 }
 check('far roll does not snap', snapRollToNeighbors(far, [placed], pxPerFt) === null)
 check('Alt/Option disable skips snap', snapRollToNeighbors(near, [placed], pxPerFt, { disable: true }) === null)
+
+const angledBase = { id: 'e', cx: 0, cy: 0, wFt: 10, lFt: 10, rotation: 33.3 }
+const seat = neighborSnapTargets(angledBase, placed, pxPerFt)[0]
+const angled = { ...angledBase, cx: seat.cx, cy: seat.cy }
+const angledLock = snapRollToNeighbors(angled, [placed], pxPerFt)
+check('neighbor snap does not change rotation', !!(angledLock && angledLock.rotation === 33.3),
+  angledLock ? String(angledLock.rotation) : 'null')
 
 check('gaps 2500 / 1500 sq ft roll = 2 needed', estimateRollsNeeded(2500, 15, 100) === 2)
 check('no gaps = 0 needed', estimateRollsNeeded(0, 15, 100) === 0)
