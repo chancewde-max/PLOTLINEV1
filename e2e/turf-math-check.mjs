@@ -69,7 +69,7 @@ const conflict = snapRollToNeighbors(
   [n0, n45],
   pxPerFt,
 )
-check('Chance confirmed: two-angle conflict uses nearest neighbor', !!(conflict && conflict.snapTo === 'n0' && conflict.rotation === 0),
+check('PENDING CLIENT: two-angle conflict uses nearest neighbor', !!(conflict && conflict.snapTo === 'n0' && conflict.rotation === 0),
   conflict ? `${conflict.snapTo}/${conflict.rotation}` : 'null')
 
 const a45 = { id: 'a45', cx: 240, cy: 240, wFt: 10, lFt: 10, rotation: 45 }
@@ -90,7 +90,7 @@ check('chain B→C inherits 45°', !!(lockC && lockC.rotation === 45), lockC ? S
 
 const moving0 = { id: 'move', cx: seat37.cx, cy: seat37.cy, wFt: 10, lFt: 10, rotation: 0 }
 const moveLock = snapRollToNeighbors(moving0, [a37], pxPerFt)
-check('move into snap range inherits neighbor angle', !!(moveLock && moveLock.rotation === 37 && Math.abs(moveLock.cx - seat37.cx) < 0.01),
+check('PENDING CLIENT: move into snap range inherits neighbor angle', !!(moveLock && moveLock.rotation === 37 && Math.abs(moveLock.cx - seat37.cx) < 0.01),
   moveLock ? `${moveLock.rotation}@${moveLock.cx.toFixed(2)}` : 'null')
 
 check('gaps 2500 / 1500 sq ft roll = 2 needed', estimateRollsNeeded(2500, 15, 100) === 2)

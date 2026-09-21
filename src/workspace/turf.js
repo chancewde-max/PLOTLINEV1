@@ -55,16 +55,20 @@ export function neighborSnapTargets(roll, neighbor, pxPerFt) {
 }
 
 /**
- * When a stamp is within ~0.5 ft of a flush seat, lock it edge-to-edge
- * AND adopt that neighbor's current rotation (required — translate-only
- * flush is not acceptable). Applies on first place and when moving an
- * existing roll into snap range. Free continuous rotation when no
- * neighbor is in range or when `{ disable: true }` (Alt/Option).
- * Rotate-after-snap is not sticky: this helper is not applied during
- * rotate, so flush may break until the user moves back into range.
+ * FINAL client rule (non-negotiable) — adjacent PLACE:
+ * inherit the neighbor's current rotation AND snap flush. Chain along
+ * the placement sequence (A 45° → B against A = 45° → C against B = 45°).
+ * Translate-only flush without matching angle is wrong. Explicit rotate
+ * is the only intentional angle change. `{ disable: true }` (Alt/Option)
+ * turns off snap and inheritance. Free continuous rotation when no
+ * neighbor is in range.
  *
- * Chance confirmed: two in-range neighbors at different angles — nearest
- * single neighbor by seat/edge distance wins.
+ * PENDING CLIENT (scaffolding only — not product law):
+ * 1) Two in-range neighbors at different angles → nearest single neighbor
+ *    by flush-seat / edge distance. Do not invent other conflict rules.
+ * 2) Callers may also run this on move-into-contact (place + move).
+ * 3) This helper is not applied during rotate, so post-snap free-rotate
+ *    may break flush until the user re-snaps.
  */
 export function snapRollToNeighbors(roll, neighbors, pxPerFt, opts = {}) {
   if (opts.disable || !roll || !neighbors?.length) return null

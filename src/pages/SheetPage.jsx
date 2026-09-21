@@ -1364,8 +1364,8 @@ export default function SheetPage() {
         const orig = origDragRef.current
         const host = addedAreas.find(a => a.id === dragAreaIdRef.current)
         if (orig?.mode === 'rotate') {
-          // Free continuous rotate — do not re-snap. Flush may break until the
-          // user moves the roll back into a neighbor seat (no sticky angle-lock).
+          // FINAL: explicit rotate is the only intentional angle change.
+          // PENDING CLIENT: post-snap free-rotate may break flush until re-snap.
           const ang = Math.atan2(p.y - orig.cy, p.x - orig.cx) * 180 / Math.PI
           const rot = ang
           setTurfRollRot(String(rot))
@@ -1375,6 +1375,7 @@ export default function SheetPage() {
           }))
         } else {
           const rawNext = { ...orig, cx: orig.cx + dx, cy: orig.cy + dy }
+          // PENDING CLIENT: inherit + flush on move-into-contact (not only first place).
           const snapped = host
             ? snapRollToNeighbors(rawNext, host.rolls || [], pxPerFt, { excludeId: selectedId, disable: !!e.altKey })
             : null
