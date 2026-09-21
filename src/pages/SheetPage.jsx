@@ -1086,8 +1086,9 @@ export default function SheetPage() {
         }
         // A valid neighbor-lock preview is a stamp, not a drag — otherwise
         // clicking the flush seat (which sits on the existing roll's edge)
-        // would steal the click and block the count workflow.
-        if (turfPreview?.valid && turfPreview.snapped) return
+        // would steal the click and block the count workflow. Alt/Option
+        // disables snap, so the same click can drag instead.
+        if (turfPreview?.valid && turfPreview.snapped && !e.altKey) return
         const hit = (host.rolls || []).find(r => pointInRoll(p, r, pxPerFt))
         if (hit) {
           pushUndo()
@@ -1275,7 +1276,7 @@ export default function SheetPage() {
       const host = addedAreas.find(a => a.id === activeTurfAreaId && isTurfArea(a))
         || addedAreas.filter(isTurfArea).find(a => inside(rawP, a.poly))
       const neighbors = host?.rolls || []
-      const snapped = snapRollToNeighbors(rawPreview, neighbors, pxPerFt)
+      const snapped = snapRollToNeighbors(rawPreview, neighbors, pxPerFt, { disable: !!e.altKey })
       const preview = (snapped && host && rollFitsInArea(snapped, host.poly, pxPerFt)) ? snapped : rawPreview
       const valid = !!(host && rollFitsInArea(preview, host.poly, pxPerFt))
       setTurfPreview({ ...preview, valid, hostId: host?.id || null })
@@ -1350,7 +1351,7 @@ export default function SheetPage() {
         } else {
           const rawNext = { ...orig, cx: orig.cx + dx, cy: orig.cy + dy }
           const snapped = host
-            ? snapRollToNeighbors(rawNext, host.rolls || [], pxPerFt, { excludeId: selectedId })
+            ? snapRollToNeighbors(rawNext, host.rolls || [], pxPerFt, { excludeId: selectedId, disable: !!e.altKey })
             : null
           const next = (snapped && host && rollFitsInArea(snapped, host.poly, pxPerFt)) ? snapped : rawNext
           const fits = host ? rollFitsInArea(next, host.poly, pxPerFt) : false
@@ -2530,8 +2531,8 @@ export default function SheetPage() {
                   : <><Sprout size={14} /><span>Keep clicking · double-click or <kbd>Enter</kbd> to close · <kbd>Esc</kbd> cancel</span></>)
                 : <><Sprout size={14} /><span>{turfHint || (activeTurfArea
                   ? (turfPreview?.snapped
-                    ? 'Snapped to neighbor · click to lock · Shift snaps 15°'
-                    : 'Hover to preview · snap locks to a neighbor · click to stamp · Shift snaps 15° · R+drag to rotate')
+                    ? 'Snapped flush · click to lock · Alt/Option disables snap · Shift snaps 15°'
+                    : 'Hover to preview · snap flush within 0.5 ft · Alt/Option disables snap · Shift snaps 15°')
                   : 'Select or draw a turf area first')}</span></>
             ) : activeTool === 'pan' ? (
               <><Hand size={14} /><span>Drag to pan · or hold <kbd>Space</kbd> · scroll to zoom</span></>

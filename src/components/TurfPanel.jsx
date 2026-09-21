@@ -57,7 +57,7 @@ export default function TurfPanel({
           {hint || (submode === 'draw'
             ? 'Click vertices · double-click or Enter to close · Esc cancel'
             : hasActiveArea
-              ? 'Hover to preview · snap locks to a neighbor · click to stamp · Shift snaps 15°'
+              ? 'Hover to preview · snap flush within 0.5 ft · Alt/Option disables snap · Shift snaps 15°'
               : 'Select or draw a turf area first')}
         </p>
       </div>
@@ -89,21 +89,23 @@ export default function TurfPanel({
       </div>
 
       <div style={{ padding: '12px 16px', flex: 1, overflow: 'auto' }}>
-        <div style={{ fontSize: `calc(10px * ${fs})`, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-subtle)', marginBottom: 8 }}>Count &amp; estimate</div>
-        <div data-testid="turf-roll-count" style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
-          <span style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)', fontWeight: 600 }}>Rolls placed</span>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(28px * ${fs})`, fontWeight: 800, color: 'var(--text-strong)', lineHeight: 1 }}>{cov.rollsPlaced}</span>
-        </div>
-        {hasActiveArea && stillNeeded > 0 && (
-          <div data-testid="turf-rolls-needed" style={{ marginBottom: 10, padding: '8px 10px', borderRadius: 8, background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)', fontSize: `calc(12px * ${fs})`, color: 'var(--text-body)', fontWeight: 600 }}>
-            ~{stillNeeded} more {stillNeeded === 1 ? 'roll' : 'rolls'} to cover remaining gaps
-          </div>
-        )}
-        {row('Roll size', `${wFt} × ${lFt} ft (${rollSqFt.toFixed(0)} sq ft)`)}
+        <div style={{ fontSize: `calc(10px * ${fs})`, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-subtle)', marginBottom: 8 }}>Coverage</div>
         {row('Area sq ft', cov.areaSqFt.toFixed(1))}
+        <div data-testid="turf-roll-count" style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '7px 0', borderBottom: '1px solid var(--border-subtle)', fontSize: `calc(12px * ${fs})` }}>
+          <span style={{ color: 'var(--text-muted)' }}>Rolls placed</span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: `calc(16px * ${fs})`, color: 'var(--text-strong)', lineHeight: 1 }}>{cov.rollsPlaced}</span>
+        </div>
         {row('Covered sq ft', cov.coveredSqFt.toFixed(1))}
         {row('Coverage %', `${cov.coveragePct.toFixed(1)}%`)}
         {row('Gaps', `${cov.gapsSqFt.toFixed(1)} sq ft`)}
+        <div style={{ padding: '7px 0', fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)' }}>
+          Roll size {wFt} × {lFt} ft ({rollSqFt.toFixed(0)} sq ft)
+        </div>
+        {hasActiveArea && stillNeeded > 0 && (
+          <div data-testid="turf-rolls-needed" style={{ marginTop: 4, padding: '8px 10px', borderRadius: 8, background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)', fontSize: `calc(12px * ${fs})`, color: 'var(--text-body)', fontWeight: 600 }}>
+            ~{stillNeeded} more {stillNeeded === 1 ? 'roll' : 'rolls'} to cover remaining gaps
+          </div>
+        )}
         {cov.hasOverlap && (
           <div data-testid="turf-overlap-warn" style={{ marginTop: 10, padding: '8px 10px', borderRadius: 8, background: '#fff7ed', border: '1px solid #fdba74', color: '#9a3412', fontSize: `calc(12px * ${fs})`, fontWeight: 600 }}>
             Overlapping rolls — counted once for coverage

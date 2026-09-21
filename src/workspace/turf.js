@@ -11,8 +11,14 @@ export const DEFAULT_ROLL_W_FT = 15
 export const DEFAULT_ROLL_L_FT = 100
 export const DEFAULT_ROLL_ROT = 0
 export const ROLL_SNAP_DEG = 15
-/** How close (ft) a roll must be to a flush neighbor seat before it locks. */
-export const ROLL_NEIGHBOR_SNAP_FT = 1.5
+/** World-space edge gap (ft) that locks a stamp flush to a neighbor. */
+export const ROLL_NEIGHBOR_SNAP_FT = 0.5
+
+export function neighborSnapThresholdPx(pxPerFt) {
+  const n = Number(pxPerFt)
+  if (!Number.isFinite(n) || n <= 0) return 0
+  return ROLL_NEIGHBOR_SNAP_FT * n
+}
 
 /** Any positive finite feet — 15 ft is a default, not a cap. */
 export function parseRollFt(raw, fallback) {
@@ -48,30 +54,30 @@ export function neighborSnapTargets(roll, neighbor, pxPerFt) {
   const rHL = halfExtentOnAxis(roll, uy, pxPerFt)
   const gx = nHW + rHW
   const gy = nHL + rHL
-  const slop = Math.max(6, pxPerFt * 0.35)
   return [
-    { cx: neighbor.cx + ux.x * gx, cy: neighbor.cy + ux.y * gx, thresh: rHW + slop },
-    { cx: neighbor.cx - ux.x * gx, cy: neighbor.cy - ux.y * gx, thresh: rHW + slop },
-    { cx: neighbor.cx + uy.x * gy, cy: neighbor.cy + uy.y * gy, thresh: rHL + slop },
-    { cx: neighbor.cx - uy.x * gy, cy: neighbor.cy - uy.y * gy, thresh: rHL + slop },
+    { cx: neighbor.cx + ux.x * gx, cy: neighbor.cy + ux.y * gx },
+    { cx: neighbor.cx - ux.x * gx, cy: neighbor.cy - ux.y * gx },
+    { cx: neighbor.cx + uy.x * gy, cy: neighbor.cy + uy.y * gy },
+    { cx: neighbor.cx - uy.x * gy, cy: neighbor.cy - uy.y * gy },
   ]
 }
 
 /**
- * If `roll` is close to sitting flush against a neighbor, lock its center
- * to that seat. Does not change rotation (free + Shift 15° stays as-is).
- * Threshold is ~half the moving roll so hovering the neighbor's edge locks,
- * but hovering its center does not (that stays a drag).
+ * Lock `roll` flush to a neighbor when its edge is within ~0.5 ft world
+ * of that neighbor's edge. Center distance to the flush seat equals the
+ * edge gap for parallel rolls. Does not change rotation.
+ * Pass `{ disable: true }` for Alt/Option override.
  */
 export function snapRollToNeighbors(roll, neighbors, pxPerFt, opts = {}) {
-  if (!roll || !neighbors?.length) return null
+  if (opts.disable || !roll || !neighbors?.length) return null
   const excludeId = opts.excludeId
+  const limit = opts.thresholdPx ?? neighborSnapThresholdPx(pxPerFt)
+  if (!(limit >= 0)) return null
   let best = null
   let bestDist = Infinity
   for (const n of neighbors) {
     if (!n || n.id === excludeId || n.id === roll.id) continue
     for (const pos of neighborSnapTargets(roll, n, pxPerFt)) {
-      const limit = opts.thresholdPx ?? pos.thresh
       const d = Math.hypot(pos.cx - roll.cx, pos.cy - roll.cy)
       if (d <= limit && d < bestDist) {
         bestDist = d

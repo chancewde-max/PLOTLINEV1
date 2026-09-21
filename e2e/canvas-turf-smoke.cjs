@@ -165,7 +165,10 @@ async function main() {
     record('Coverage panel shows rolls / coverage fields',
       /Area sq ft/.test(cov) && /Rolls placed/.test(cov) && /Coverage %/.test(cov) && /Gaps/.test(cov),
       cov.slice(0, 180))
-    record('Count-first estimate copy present', /Count & estimate|more roll/i.test(cov) && /8 × 12 ft/.test(cov), cov.slice(0, 220))
+    record('Core coverage metrics present',
+      /Area sq ft/.test(cov) && /Rolls placed/.test(cov) && /Covered sq ft/.test(cov) && /Coverage %/.test(cov) && /Gaps/.test(cov),
+      cov.slice(0, 220))
+    record('Free-form roll size shown', /8 × 12 ft/.test(cov), cov.slice(0, 220))
   }
 
   record('No console/page errors', consoleErrors.length === 0 && pageErrors.length === 0,
