@@ -1,5 +1,6 @@
-// Area inspector helpers. Depth presets are product-owned; none exist in
-// application code, so Custom-only is the V1 contract.
+// Soil Area inspector helpers (depth → cy + topsoil). In V1 for soil takeoff.
+// Depth presets are product-owned; none exist in application code — Custom
+// only. Do not invent inch lists. Turf rolls stay free L×W (no thickness).
 
 export const TOPSOIL_OPTIONS = [
   { value: 'enriched', label: 'Enriched' },

@@ -55,22 +55,20 @@ export function neighborSnapTargets(roll, neighbor, pxPerFt) {
 }
 
 /**
- * FINAL client rule (non-negotiable) — adjacent PLACE:
- * inherit the neighbor's current rotation AND snap flush. Chain along
- * the placement sequence (A 45° → B against A = 45° → C against B = 45°).
- * Translate-only flush without matching angle is wrong. Explicit rotate
- * is the only intentional angle change. `{ disable: true }` (Alt/Option)
- * turns off snap and inheritance. Free continuous rotation when no
- * neighbor is in range.
+ * FINAL snap contract (Chance confirmed):
+ * Adjacent place/move: inherit the neighbor's current rotation AND snap
+ * flush. Chain A→B→C. Translate-only flush without matching angle is
+ * wrong. Explicit rotate is the only intentional angle change.
+ * `{ disable: true }` (Alt/Option) turns off snap and inheritance.
+ * Free continuous rotation when no neighbor is in range (no degree snaps).
  *
- * Working defaults (Agency Manager: implement unless Chance overrides;
- * still PENDING CLIENT confirm — not product law):
+ * Confirmed defaults:
  * 1) Two in-range neighbors at different angles → nearest single neighbor
- *    by flush-seat / edge distance. `snapTo` is that winner (for hover
- *    highlight). Do not invent other conflict rules.
- * 2) Callers also run this on move-into-contact (place + move).
+ *    by flush-seat / edge distance. `snapTo` is that winner (hover
+ *    highlight). No other conflict rules.
+ * 2) Callers run this on first place AND move-into-contact.
  * 3) This helper is not applied during rotate, so post-snap free-rotate
- *    may break flush until the user re-snaps.
+ *    may break flush until the user re-snaps — acceptable.
  */
 export function snapRollToNeighbors(roll, neighbors, pxPerFt, opts = {}) {
   if (opts.disable || !roll || !neighbors?.length) return null

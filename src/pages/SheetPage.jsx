@@ -786,7 +786,10 @@ export default function SheetPage() {
         }
       }
       if (key === hk.area) {
-        // If drawing area or linear: toggle arc mode; otherwise switch to area tool
+        // A while placing: existing path model is circular-arc through-point
+        // (P0 → T → P1), not cubic bezier (P0, C1, C2, P1). Notion §5.1 cubic
+        // construction needs a new segment model + diamond-handle editing —
+        // do not invent that here. Toggle circular-arc mode only.
         if ((activeTool === 'area' && areaVerts.length > 0) ||
             (activeTool === 'turf' && turfSubmode === 'draw' && areaVerts.length > 0) ||
             (activeTool === 'linear' && linearVerts.length > 0)) {
@@ -1375,7 +1378,7 @@ export default function SheetPage() {
         const host = addedAreas.find(a => a.id === dragAreaIdRef.current)
         if (orig?.mode === 'rotate') {
           // FINAL: explicit rotate is the only intentional angle change.
-          // Working default (PENDING CLIENT confirm): post-snap rotate may break flush.
+          // Post-snap rotate may break flush until re-snap (Chance confirmed).
           setTurfSnapTo(null)
           const ang = Math.atan2(p.y - orig.cy, p.x - orig.cx) * 180 / Math.PI
           const rot = ang
@@ -1386,7 +1389,7 @@ export default function SheetPage() {
           }))
         } else {
           const rawNext = { ...orig, cx: orig.cx + dx, cy: orig.cy + dy }
-          // Working default (PENDING CLIENT confirm): inherit + flush on move-into-contact.
+          // FINAL: inherit + flush when moving an existing roll into snap range.
           const snapped = host
             ? snapRollToNeighbors(rawNext, host.rolls || [], pxPerFt, { excludeId: selectedId, disable: !!e.altKey })
             : null
