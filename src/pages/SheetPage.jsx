@@ -719,24 +719,34 @@ export default function SheetPage() {
     }
   }, [])
 
-  // Debounce drawing saves — batch all 5 fields into one write 400ms after last change
+  // Debounce drawing saves — batch all 5 fields into one write 400ms after last
+  // change. Flush the pending payload on effect cleanup so navigating away
+  // (Material List / takeoff) does not drop inspector depth/topsoil.
   const saveTimerRef = useRef(null)
   useEffect(() => {
     if (!sheetId) return
+    const payload = {
+      savedCountGroups: countGroups,
+      savedLinearGroups: linearGroups,
+      savedAreaGroups: areaGroups,
+      savedAreas: addedAreas,
+      savedLines: addedLines,
+      savedTextAnnotations: textAnnotations,
+      pxPerFt,
+      calib,
+    }
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(() => {
-      updateSheet(sheetId, {
-        savedCountGroups: countGroups,
-        savedLinearGroups: linearGroups,
-        savedAreaGroups: areaGroups,
-        savedAreas: addedAreas,
-        savedLines: addedLines,
-        savedTextAnnotations: textAnnotations,
-        pxPerFt,
-        calib,
-      })
+      updateSheet(sheetId, payload)
+      saveTimerRef.current = null
     }, 400)
-    return () => clearTimeout(saveTimerRef.current)
+    return () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current)
+        saveTimerRef.current = null
+        updateSheet(sheetId, payload)
+      }
+    }
   }, [sheetId, countGroups, linearGroups, areaGroups, addedAreas, addedLines, textAnnotations, pxPerFt, calib])
 
   // Save active region poly to sheet whenever regionClosed changes (skip null to avoid Escape wiping saved regions)

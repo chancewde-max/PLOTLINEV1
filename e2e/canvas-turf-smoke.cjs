@@ -184,12 +184,14 @@ async function main() {
     await page.locator('button[aria-label="Select"]').click()
     await page.waitForTimeout(80)
     await page.keyboard.press('a')
-    await page.waitForTimeout(120)
     const newAreaDlg = page.getByRole('heading', { name: /New area/i })
+    await newAreaDlg.waitFor({ timeout: 4000 }).catch(() => {})
     if (await newAreaDlg.isVisible().catch(() => false)) {
-      await page.getByRole('button', { name: /Cancel/i }).click()
-      await page.waitForTimeout(80)
+      await page.getByRole('button', { name: /^Cancel$/ }).click()
+      await page.waitForTimeout(100)
     }
+    const ugTool = await page.locator('[data-testid="canvas-hint"]').getAttribute('data-active-tool')
+    record('A after cancel stays on area tool without a group', ugTool === 'area', `tool=${ugTool}`)
     const ug = [
       [pb.x + pb.width * 0.08, pb.y + pb.height * 0.08],
       [pb.x + pb.width * 0.20, pb.y + pb.height * 0.08],
@@ -198,14 +200,18 @@ async function main() {
     ]
     for (const [x, y] of ug) { await page.mouse.click(x, y); await page.waitForTimeout(70) }
     await page.keyboard.press('Enter')
-    await page.waitForTimeout(250)
+    await page.waitForTimeout(300)
     const ugInspector = page.locator('[data-testid="area-inspector"]')
-    if (await ugInspector.isVisible().catch(() => false)) {
+    const ugInspectorOn = await ugInspector.isVisible().catch(() => false)
+    record('Ungrouped close shows inspector', ugInspectorOn)
+    if (ugInspectorOn) {
       await ugInspector.getByLabel('Custom depth inches').fill('12')
       await ugInspector.getByLabel('Topsoil type').selectOption('custom')
       await ugInspector.getByPlaceholder('Topsoil type').fill('Ungrouped mix')
-      await page.waitForTimeout(500)
+      await page.waitForTimeout(200)
     }
+    await page.locator('button[aria-label="Select"]').click().catch(() => {})
+    await page.waitForTimeout(200)
     await page.goto(`${BASE}/app/project/proj-1`, { waitUntil: 'networkidle', timeout: 30000 })
     await page.getByText('Essential only').click().catch(() => {})
     await page.waitForTimeout(200)
@@ -216,7 +222,7 @@ async function main() {
     const listText = await page.locator('body').innerText()
     record('Ungrouped soil appears in canonical takeoff Material List',
       /Ungrouped mix/.test(listText) && /Depth: 12"/.test(listText),
-      listText.includes('Ungrouped mix') ? 'found Ungrouped mix + Depth: 12"' : listText.slice(0, 280))
+      listText.includes('Ungrouped mix') ? 'found Ungrouped mix + Depth: 12"' : listText.replace(/\s+/g, ' ').slice(0, 400))
     await page.goto(`${BASE}/app/project/proj-1/sheet/sheet-1`, { waitUntil: 'networkidle', timeout: 45000 })
     await page.getByText('Essential only').click().catch(() => {})
     await page.waitForTimeout(600)
