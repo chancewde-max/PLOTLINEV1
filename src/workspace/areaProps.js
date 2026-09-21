@@ -1,10 +1,6 @@
-// Soil Area helpers. Chance/client: depth-inch PRESETS are DROPPED from
-// PlotlineV1 — do not add a preset list. Turf rolls are free L×W only
-// (no thickness/depth).
-//
-// TODO(HOLD): soil Area depth→cy + topsoil dropdown are product-unclear
-// (Notion §6 still lists them). Already started in AreaInspector.jsx —
-// leave in place until Agency Manager clarifies. Do not invent.
+// Soil helpers. Scope lock: NO depth-inch presets, NO roll thickness,
+// NO soil depth→cy / topsoil inspector UI until Chance reinstates.
+// Helpers kept; AreaInspector.jsx stripped. Turf is free L×W only.
 
 export const TOPSOIL_OPTIONS = [
   { value: 'enriched', label: 'Enriched' },
