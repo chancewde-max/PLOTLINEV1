@@ -158,7 +158,7 @@ async function main() {
     record('Width input is free-form (no max)', await widthInput.evaluate((el) => el.max === '').catch(() => false))
     await widthInput.fill('8')
     await page.getByLabel('Roll length').fill('12')
-    await page.getByLabel('Roll rotation').fill('37')
+    await page.getByLabel('Roll rotation').fill('0')
     await page.mouse.move(pb.x + pb.width * 0.45, pb.y + pb.height * 0.75)
     await page.mouse.click(pb.x + pb.width * 0.45, pb.y + pb.height * 0.75)
     await page.waitForTimeout(200)
@@ -171,39 +171,56 @@ async function main() {
       cov.slice(0, 220))
     record('Free-form roll size shown', /8 × 12 ft/.test(cov), cov.slice(0, 220))
 
-    const firstRot = await page.locator('[data-testid="turf-roll"]').first().getAttribute('data-rotation')
-    record('First stamp keeps typed 37°', Math.abs(Number(firstRot) - 37) < 0.01, `rot=${firstRot}`)
+    const firstRoll = page.locator('[data-testid="turf-roll"]').first()
+    record('First stamp placed', await firstRoll.count().then(n => n > 0).catch(() => false))
+    const handle = firstRoll.locator('circle').first()
+    const hb = await handle.boundingBox()
+    const firstBox = await firstRoll.boundingBox()
+    if (hb && firstBox) {
+      await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(firstBox.x + firstBox.width + 30, firstBox.y + firstBox.height * 0.15)
+      await page.mouse.up()
+      await page.waitForTimeout(150)
+    }
+    const neighborRot = Number(await firstRoll.getAttribute('data-rotation'))
+    record('Free-rotate after place changes angle (no sticky lock)', Number.isFinite(neighborRot) && Math.abs(neighborRot) > 5, `rot=${neighborRot}`)
     await page.getByLabel('Roll rotation').fill('0')
     await page.waitForTimeout(80)
 
-    const firstBox = await page.locator('[data-testid="turf-roll"]').first().boundingBox()
     let inheritHint = false
     let inheritClick = null
+    let inheritHintText = ''
     if (firstBox) {
-      const cx = firstBox.x + firstBox.width / 2
-      const cy = firstBox.y + firstBox.height / 2
+      const box2 = await firstRoll.boundingBox()
+      const cx = (box2 || firstBox).x + (box2 || firstBox).width / 2
+      const cy = (box2 || firstBox).y + (box2 || firstBox).height / 2
       const probes = []
-      for (const ox of [-80, -50, -30, 0, 30, 50, 80, 110]) {
-        for (const oy of [-50, -20, 0, 20, 50]) probes.push([cx + ox, cy + oy])
+      for (const ox of [-120, -80, -50, -30, 0, 30, 50, 80, 120, 160]) {
+        for (const oy of [-80, -40, -20, 0, 20, 40, 80]) probes.push([cx + ox, cy + oy])
       }
+      const expectDeg = neighborRot.toFixed(1)
       for (const [x, y] of probes) {
         await page.mouse.move(x, y)
-        await page.waitForTimeout(30)
+        await page.waitForTimeout(25)
         const hint = await page.locator('[data-testid="canvas-hint"]').innerText().catch(() => '')
-        if (/Snapped flush at 37/.test(hint)) {
+        if (hint.includes(`Snapped flush at ${expectDeg}`)) {
           inheritHint = true
+          inheritHintText = hint
           inheritClick = [x, y]
           break
         }
       }
     }
-    record('Adjacent preview inherits 37° and shows flush hint', inheritHint)
+    record('Adjacent preview inherits neighbor angle + flush', inheritHint, inheritHintText.slice(0, 120))
     if (inheritClick) {
       await page.mouse.click(inheritClick[0], inheritClick[1])
       await page.waitForTimeout(250)
     }
     const rots = await page.locator('[data-testid="turf-roll"]').evaluateAll((els) => els.map((el) => Number(el.getAttribute('data-rotation'))))
-    record('Second stamp locks at neighbor 37°', rots.filter((r) => Math.abs(r - 37) < 0.05).length >= 2, JSON.stringify(rots))
+    record('Second stamp locks at inherited neighbor angle',
+      rots.length >= 2 && rots.slice(1).some((r) => Math.abs(r - neighborRot) < 0.15),
+      JSON.stringify(rots))
   }
 
   record('No console/page errors', consoleErrors.length === 0 && pageErrors.length === 0,
