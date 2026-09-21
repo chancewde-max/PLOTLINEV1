@@ -531,6 +531,19 @@ export default function SheetPage() {
     }
   }
 
+  // HUD +/- steps zoom without a cursor point. Keep zoomTargetRef (and the
+  // in-flight current) in sync so the next wheel/pinch does not jump back.
+  const nudgeZoom = (delta) => {
+    if (zoomRafRef.current) {
+      cancelAnimationFrame(zoomRafRef.current)
+      zoomRafRef.current = null
+    }
+    const next = Math.max(25, Math.min(6400, zoomTargetRef.current + delta))
+    zoomTargetRef.current = next
+    zoomCurrentRef.current = next
+    setZoom(next)
+  }
+
   useEffect(() => {
     const el = canvasRef.current
     if (!el) return
@@ -2228,9 +2241,9 @@ export default function SheetPage() {
         </div>
         <div className={s.topRight}>
           <div className={s.zoomCtrl}>
-            <button className={s.zoomBtn} onClick={() => setZoom(z => Math.max(25, z - 25))}><Minus size={14} /></button>
+            <button className={s.zoomBtn} aria-label="Zoom out" onClick={() => nudgeZoom(-25)}><Minus size={14} /></button>
             <span className={s.zoomVal}>{Math.round(zoom)}%</span>
-            <button className={s.zoomBtn} onClick={() => setZoom(z => Math.min(6400, z + 25))}><Plus size={14} /></button>
+            <button className={s.zoomBtn} aria-label="Zoom in" onClick={() => nudgeZoom(25)}><Plus size={14} /></button>
           </div>
           <Badge variant="success" dot>Synced</Badge>
           <button className={s.iconBtn} data-on={settings} onClick={() => setSettings(v => !v)} aria-label="Display settings">
@@ -3233,9 +3246,9 @@ export default function SheetPage() {
           </div>
 
           <div className={s.zoomPanel} data-testid="zoom-hud">
-            <button className={s.zoomPanBtn} onClick={() => setZoom(z => Math.max(25, z - 25))}><Minus size={14} /></button>
+            <button className={s.zoomPanBtn} aria-label="Zoom out" onClick={() => nudgeZoom(-25)}><Minus size={14} /></button>
             <span className={s.zoomPanVal}>{Math.round(zoom)}%</span>
-            <button className={s.zoomPanBtn} onClick={() => setZoom(z => Math.min(6400, z + 25))}><Plus size={14} /></button>
+            <button className={s.zoomPanBtn} aria-label="Zoom in" onClick={() => nudgeZoom(25)}><Plus size={14} /></button>
           </div>
 
           {ctxMenu && (

@@ -91,6 +91,24 @@ async function main() {
   record('Wheel zoom changes HUD', before.z !== after.z, `${before.z} → ${after.z}`)
   record('Zoom-to-cursor keeps paper center near cursor (not recentered)', dx < 80 && dy < 80, `dx=${dx.toFixed(1)} dy=${dy.toFixed(1)}`)
 
+  // HUD +/- must update zoomTargetRef (same source as wheel/pinch)
+  const hud = page.locator('[data-testid="zoom-hud"]')
+  const parseHud = async () => parseInt(String(await hud.innerText()).replace(/[^\d]/g, ''), 10) || 0
+  for (let i = 0; i < 12; i++) await hud.getByLabel('Zoom out').click()
+  await page.waitForTimeout(80)
+  const atMin = await parseHud()
+  await hud.getByLabel('Zoom in').click()
+  await page.waitForTimeout(80)
+  const afterHudPlus = await parseHud()
+  record('HUD + steps zoom from min', afterHudPlus === 50 && atMin === 25, `min=${atMin} plus=${afterHudPlus}`)
+  await page.mouse.move(before.x, before.y)
+  await page.mouse.wheel(0, -400)
+  await page.waitForTimeout(400)
+  const afterHudWheel = await parseHud()
+  record('Wheel after HUD + continues from HUD zoom (not stale target)',
+    afterHudWheel > 55 && afterHudWheel < 130,
+    `hud=${afterHudPlus} wheel=${afterHudWheel}`)
+
   // Draw a soil area, inspect depth/cy + topsoil
   await page.locator('button[aria-label="Area"]').click()
   await page.waitForTimeout(200)
