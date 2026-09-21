@@ -1,5 +1,6 @@
 import React from 'react'
 import { Sprout } from 'lucide-react'
+import { DEFAULT_ROLL_W_FT, DEFAULT_ROLL_L_FT, parseRollFt, estimateRollsNeeded } from '../workspace/turf.js'
 
 export default function TurfPanel({
   submode,
@@ -16,6 +17,10 @@ export default function TurfPanel({
   fs = 1,
 }) {
   const cov = coverage || { areaSqFt: 0, rollsPlaced: 0, coveredSqFt: 0, coveragePct: 0, gapsSqFt: 0, hasOverlap: false }
+  const wFt = parseRollFt(rollW, DEFAULT_ROLL_W_FT)
+  const lFt = parseRollFt(rollL, DEFAULT_ROLL_L_FT)
+  const rollSqFt = wFt * lFt
+  const stillNeeded = estimateRollsNeeded(cov.gapsSqFt, wFt, lFt)
   const row = (label, value, warn) => (
     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '5px 0', borderBottom: '1px solid var(--border-subtle)', fontSize: `calc(12px * ${fs})` }}>
       <span style={{ color: 'var(--text-muted)' }}>{label}</span>
@@ -52,13 +57,13 @@ export default function TurfPanel({
           {hint || (submode === 'draw'
             ? 'Click vertices · double-click or Enter to close · Esc cancel'
             : hasActiveArea
-              ? 'Hover to preview · click to stamp inside the turf area · Shift snaps 15°'
+              ? 'Hover to preview · snap locks to a neighbor · click to stamp · Shift snaps 15°'
               : 'Select or draw a turf area first')}
         </p>
       </div>
 
       <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <div style={{ fontSize: `calc(10px * ${fs})`, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-subtle)' }}>Roll defaults</div>
+        <div style={{ fontSize: `calc(10px * ${fs})`, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-subtle)' }}>Roll size</div>
         {[
           ['Width', rollW, onRollW, 'ft'],
           ['Length', rollL, onRollL, 'ft'],
@@ -71,18 +76,31 @@ export default function TurfPanel({
               aria-label={`Roll ${label.toLowerCase()}`}
               value={val}
               onChange={e => set(e.target.value)}
-              step={unit === '°' ? 1 : 0.5}
+              min={unit === '°' ? undefined : 0.1}
+              step={unit === '°' ? 1 : 0.1}
               style={{ flex: 1, padding: '5px 8px', border: '1px solid var(--border-default)', borderRadius: 6, fontSize: `calc(13px * ${fs})`, background: 'var(--surface-card)', color: 'var(--text-strong)' }}
             />
             <span style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)', minWidth: 18 }}>{unit}</span>
           </div>
         ))}
+        <p style={{ margin: 0, fontSize: `calc(11px * ${fs})`, color: 'var(--text-subtle)', lineHeight: 1.4 }}>
+          {DEFAULT_ROLL_W_FT}×{DEFAULT_ROLL_L_FT} ft is a starting default — width and length are both free-form.
+        </p>
       </div>
 
       <div style={{ padding: '12px 16px', flex: 1, overflow: 'auto' }}>
-        <div style={{ fontSize: `calc(10px * ${fs})`, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-subtle)', marginBottom: 8 }}>Coverage</div>
+        <div style={{ fontSize: `calc(10px * ${fs})`, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-subtle)', marginBottom: 8 }}>Count &amp; estimate</div>
+        <div data-testid="turf-roll-count" style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
+          <span style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)', fontWeight: 600 }}>Rolls placed</span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(28px * ${fs})`, fontWeight: 800, color: 'var(--text-strong)', lineHeight: 1 }}>{cov.rollsPlaced}</span>
+        </div>
+        {hasActiveArea && stillNeeded > 0 && (
+          <div data-testid="turf-rolls-needed" style={{ marginBottom: 10, padding: '8px 10px', borderRadius: 8, background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)', fontSize: `calc(12px * ${fs})`, color: 'var(--text-body)', fontWeight: 600 }}>
+            ~{stillNeeded} more {stillNeeded === 1 ? 'roll' : 'rolls'} to cover remaining gaps
+          </div>
+        )}
+        {row('Roll size', `${wFt} × ${lFt} ft (${rollSqFt.toFixed(0)} sq ft)`)}
         {row('Area sq ft', cov.areaSqFt.toFixed(1))}
-        {row('Rolls placed', String(cov.rollsPlaced))}
         {row('Covered sq ft', cov.coveredSqFt.toFixed(1))}
         {row('Coverage %', `${cov.coveragePct.toFixed(1)}%`)}
         {row('Gaps', `${cov.gapsSqFt.toFixed(1)} sq ft`)}

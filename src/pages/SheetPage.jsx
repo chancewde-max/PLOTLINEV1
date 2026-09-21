@@ -29,8 +29,8 @@ import { inside, polyAreaPx, perimPx, centroid, clipPx2, dist, buildAreaPath, bu
 import { TOPSOIL_OPTIONS, isTurfArea } from '../workspace/areaProps.js'
 import {
   DEFAULT_ROLL_W_FT, DEFAULT_ROLL_L_FT, DEFAULT_ROLL_ROT,
-  snapAngle, rollCorners, rollHandlePoint, rollFitsInArea, pointInRoll, turfCoverage,
-  objectBounds, unionBounds,
+  parseRollFt, snapAngle, rollCorners, rollHandlePoint, rollFitsInArea, pointInRoll,
+  turfCoverage, snapRollToNeighbors, objectBounds, unionBounds,
 } from '../workspace/turf.js'
 import {
   PANEL_MIN_PX, DEFAULT_LEFT_PANEL_W, DEFAULT_RIGHT_PANEL_W,
@@ -1262,14 +1262,17 @@ export default function SheetPage() {
     if (activeTool === 'linear' && (linearVerts.length > 0 || pendingArcThrough)) setLinearCursor(p)
     if (activeTool === 'turf' && turfSubmode === 'stamp' && !isDraggingRef.current) {
       const rot = e.shiftKey ? snapAngle(parseFloat(turfRollRot) || 0) : (parseFloat(turfRollRot) || 0)
-      const preview = {
+      const rawPreview = {
         cx: rawP.x, cy: rawP.y,
-        wFt: parseFloat(turfRollW) || DEFAULT_ROLL_W_FT,
-        lFt: parseFloat(turfRollL) || DEFAULT_ROLL_L_FT,
+        wFt: parseRollFt(turfRollW, DEFAULT_ROLL_W_FT),
+        lFt: parseRollFt(turfRollL, DEFAULT_ROLL_L_FT),
         rotation: rot,
       }
       const host = addedAreas.find(a => a.id === activeTurfAreaId && isTurfArea(a))
         || addedAreas.filter(isTurfArea).find(a => inside(rawP, a.poly))
+      const neighbors = host?.rolls || []
+      const snapped = snapRollToNeighbors(rawPreview, neighbors, pxPerFt)
+      const preview = (snapped && host && rollFitsInArea(snapped, host.poly, pxPerFt)) ? snapped : rawPreview
       const valid = !!(host && rollFitsInArea(preview, host.poly, pxPerFt))
       setTurfPreview({ ...preview, valid, hostId: host?.id || null })
     }
@@ -1341,7 +1344,11 @@ export default function SheetPage() {
             rolls: (a.rolls || []).map(r => r.id === selectedId ? { ...r, rotation: rot } : r),
           }))
         } else {
-          const next = { ...orig, cx: orig.cx + dx, cy: orig.cy + dy }
+          const rawNext = { ...orig, cx: orig.cx + dx, cy: orig.cy + dy }
+          const snapped = host
+            ? snapRollToNeighbors(rawNext, host.rolls || [], pxPerFt, { excludeId: selectedId })
+            : null
+          const next = (snapped && host && rollFitsInArea(snapped, host.poly, pxPerFt)) ? snapped : rawNext
           const fits = host ? rollFitsInArea(next, host.poly, pxPerFt) : false
           if (fits) {
             setAddedAreas(prev => prev.map(a => a.id !== dragAreaIdRef.current ? a : {
@@ -2517,7 +2524,11 @@ export default function SheetPage() {
                 ? (areaVerts.length === 0
                   ? <><Sprout size={14} /><span><b>Draw turf area</b> — click vertices · double-click or <kbd>Enter</kbd> to close</span></>
                   : <><Sprout size={14} /><span>Keep clicking · double-click or <kbd>Enter</kbd> to close · <kbd>Esc</kbd> cancel</span></>)
-                : <><Sprout size={14} /><span>{turfHint || (activeTurfArea ? 'Hover to preview · click to stamp · Shift snaps 15° · R+drag to rotate' : 'Select or draw a turf area first')}</span></>
+                : <><Sprout size={14} /><span>{turfHint || (activeTurfArea
+                  ? (turfPreview?.snapped
+                    ? 'Snapped to neighbor · click to lock · Shift snaps 15°'
+                    : 'Hover to preview · snap locks to a neighbor · click to stamp · Shift snaps 15° · R+drag to rotate')
+                  : 'Select or draw a turf area first')}</span></>
             ) : activeTool === 'pan' ? (
               <><Hand size={14} /><span>Drag to pan · or hold <kbd>Space</kbd> · scroll to zoom</span></>
             ) : spacePan ? (
@@ -3007,11 +3018,12 @@ export default function SheetPage() {
                 {activeTool === 'turf' && turfSubmode === 'stamp' && turfPreview && (() => {
                   const pts = rollCorners(turfPreview, pxPerFt).map(p => `${p.x},${p.y}`).join(' ')
                   const ok = turfPreview.valid
+                  const locked = ok && turfPreview.snapped
                   return (
                     <polygon points={pts}
-                      fill={ok ? '#15803d' : '#dc2626'} fillOpacity={0.18}
-                      stroke={ok ? '#15803d' : '#dc2626'} strokeWidth={2 * u}
-                      strokeDasharray={`${5 * u} ${3 * u}`} pointerEvents="none" />
+                      fill={ok ? '#15803d' : '#dc2626'} fillOpacity={locked ? 0.32 : 0.18}
+                      stroke={ok ? '#15803d' : '#dc2626'} strokeWidth={(locked ? 2.6 : 2) * u}
+                      strokeDasharray={locked ? undefined : `${5 * u} ${3 * u}`} pointerEvents="none" />
                   )
                 })()}
 

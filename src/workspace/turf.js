@@ -11,10 +11,79 @@ export const DEFAULT_ROLL_W_FT = 15
 export const DEFAULT_ROLL_L_FT = 100
 export const DEFAULT_ROLL_ROT = 0
 export const ROLL_SNAP_DEG = 15
+/** How close (ft) a roll must be to a flush neighbor seat before it locks. */
+export const ROLL_NEIGHBOR_SNAP_FT = 1.5
+
+/** Any positive finite feet — 15 ft is a default, not a cap. */
+export function parseRollFt(raw, fallback) {
+  const n = parseFloat(raw)
+  if (!Number.isFinite(n) || n <= 0) return fallback
+  return n
+}
 
 export function snapAngle(deg, step = ROLL_SNAP_DEG) {
   if (!Number.isFinite(deg)) return 0
   return Math.round(deg / step) * step
+}
+
+function axisFromDeg(deg) {
+  const r = ((Number(deg) || 0) * Math.PI) / 180
+  return {
+    ux: { x: Math.cos(r), y: Math.sin(r) },
+    uy: { x: -Math.sin(r), y: Math.cos(r) },
+  }
+}
+
+function halfExtentOnAxis(roll, axis, pxPerFt) {
+  const corners = rollCorners({ ...roll, cx: 0, cy: 0 }, pxPerFt)
+  return Math.max(...corners.map(p => Math.abs(p.x * axis.x + p.y * axis.y)))
+}
+
+/** Four flush seats around a neighbor (side-by-side and end-to-end). Rotation is unchanged. */
+export function neighborSnapTargets(roll, neighbor, pxPerFt) {
+  const { ux, uy } = axisFromDeg(neighbor.rotation)
+  const nHW = (parseRollFt(neighbor.wFt, 0) * pxPerFt) / 2
+  const nHL = (parseRollFt(neighbor.lFt, 0) * pxPerFt) / 2
+  const rHW = halfExtentOnAxis(roll, ux, pxPerFt)
+  const rHL = halfExtentOnAxis(roll, uy, pxPerFt)
+  const gx = nHW + rHW
+  const gy = nHL + rHL
+  return [
+    { cx: neighbor.cx + ux.x * gx, cy: neighbor.cy + ux.y * gx },
+    { cx: neighbor.cx - ux.x * gx, cy: neighbor.cy - ux.y * gx },
+    { cx: neighbor.cx + uy.x * gy, cy: neighbor.cy + uy.y * gy },
+    { cx: neighbor.cx - uy.x * gy, cy: neighbor.cy - uy.y * gy },
+  ]
+}
+
+/**
+ * If `roll` is close to sitting flush against a neighbor, lock its center
+ * to that seat. Does not change rotation (free + Shift 15° stays as-is).
+ */
+export function snapRollToNeighbors(roll, neighbors, pxPerFt, opts = {}) {
+  if (!roll || !neighbors?.length) return null
+  const thresh = opts.thresholdPx ?? Math.max(8, pxPerFt * ROLL_NEIGHBOR_SNAP_FT)
+  const excludeId = opts.excludeId
+  let best = null
+  let bestDist = thresh
+  for (const n of neighbors) {
+    if (!n || n.id === excludeId || n.id === roll.id) continue
+    for (const pos of neighborSnapTargets(roll, n, pxPerFt)) {
+      const d = Math.hypot(pos.cx - roll.cx, pos.cy - roll.cy)
+      if (d <= bestDist) {
+        bestDist = d
+        best = { ...roll, cx: pos.cx, cy: pos.cy, snapped: true, snapTo: n.id }
+      }
+    }
+  }
+  return best
+}
+
+export function estimateRollsNeeded(gapsSqFt, wFt, lFt) {
+  const a = parseRollFt(wFt, 0) * parseRollFt(lFt, 0)
+  const g = Number(gapsSqFt)
+  if (!(a > 0) || !Number.isFinite(g) || g <= 0) return 0
+  return Math.ceil(g / a)
 }
 
 export function rollCorners(roll, pxPerFt) {

@@ -152,6 +152,10 @@ async function main() {
     await page.waitForTimeout(250)
     record('After close, stamp mode is hinted', await page.getByText(/Stamp rolls/i).first().isVisible().catch(() => false))
     await page.getByRole('tab', { name: 'Stamp rolls' }).click().catch(() => {})
+    const widthInput = page.getByLabel('Roll width')
+    record('Width input is free-form (no max)', await widthInput.evaluate((el) => el.max === '').catch(() => false))
+    await widthInput.fill('8')
+    await page.getByLabel('Roll length').fill('12')
     await page.mouse.move(pb.x + pb.width * 0.45, pb.y + pb.height * 0.75)
     await page.mouse.click(pb.x + pb.width * 0.45, pb.y + pb.height * 0.75)
     await page.waitForTimeout(200)
@@ -159,6 +163,7 @@ async function main() {
     record('Coverage panel shows rolls / coverage fields',
       /Area sq ft/.test(cov) && /Rolls placed/.test(cov) && /Coverage %/.test(cov) && /Gaps/.test(cov),
       cov.slice(0, 180))
+    record('Count-first estimate copy present', /Count & estimate|more roll/i.test(cov) && /8 × 12 ft/.test(cov), cov.slice(0, 220))
   }
 
   record('No console/page errors', consoleErrors.length === 0 && pageErrors.length === 0,
