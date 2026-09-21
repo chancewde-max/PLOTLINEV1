@@ -156,6 +156,16 @@ async function main() {
       await page.getByRole('tab', { name: 'Stamp rolls' }).getAttribute('aria-selected').then(v => v === 'true').catch(() => false)
       || await page.getByText(/Stamp rolls/i).first().isVisible().catch(() => false))
     await page.getByRole('tab', { name: 'Stamp rolls' }).click().catch(() => {})
+    // R in stamp = rotate hold, must not switch to Region (hk.region defaults to R)
+    await page.locator('[data-testid="turf-panel"]').click()
+    await page.waitForTimeout(80)
+    await page.keyboard.down('r')
+    await page.waitForTimeout(80)
+    const stampTool = await page.locator('[data-testid="canvas-hint"]').getAttribute('data-active-tool')
+    const stampMode = await page.locator('[data-testid="canvas-hint"]').getAttribute('data-turf-submode')
+    record('R in turf stamp does not steal Region tool', stampTool === 'turf' && stampMode === 'stamp',
+      `tool=${stampTool} submode=${stampMode}`)
+    await page.keyboard.up('r')
     const widthInput = page.getByLabel('Roll width')
     record('Width input is free-form (no max)', await widthInput.evaluate((el) => el.max === '').catch(() => false))
     await widthInput.fill('8')
@@ -285,8 +295,64 @@ async function main() {
     record('Second stamp locks at inherited neighbor angle',
       rots.length >= 2 && rots.slice(1).some((r) => Math.abs(r - neighborRot) < 0.15),
       JSON.stringify(rots))
+
+    // Hold-R rotate on the roll body while still in stamp (must stay on turf)
+    const rollBox = await firstRoll.boundingBox()
+    if (rollBox) {
+      const beforeRot = Number(await firstRoll.getAttribute('data-rotation'))
+      await page.locator('[data-testid="turf-panel"]').click()
+      await page.waitForTimeout(60)
+      await page.keyboard.down('r')
+      await page.mouse.move(rollBox.x + rollBox.width * 0.45, rollBox.y + rollBox.height * 0.45)
+      await page.mouse.down()
+      await page.mouse.move(rollBox.x + rollBox.width + 40, rollBox.y + 10)
+      await page.mouse.up()
+      await page.keyboard.up('r')
+      await page.waitForTimeout(120)
+      const afterRot = Number(await firstRoll.getAttribute('data-rotation'))
+      const stillTurf = await page.locator('[data-testid="canvas-hint"]').getAttribute('data-active-tool')
+      record('Hold-R rotates stamp without leaving turf',
+        stillTurf === 'turf' && Number.isFinite(afterRot) && Math.abs(afterRot - beforeRot) > 2,
+        `tool=${stillTurf} ${beforeRot}→${afterRot}`)
     }
+    }
+
+    // Persist circular-arc segs on turf close (same as soil finishArea)
+    await page.getByRole('tab', { name: 'Draw area' }).click()
+    await page.waitForTimeout(120)
+    const arcPts = [
+      [pb.x + pb.width * 0.22, pb.y + pb.height * 0.18],
+      [pb.x + pb.width * 0.38, pb.y + pb.height * 0.12],
+      [pb.x + pb.width * 0.48, pb.y + pb.height * 0.28],
+      [pb.x + pb.width * 0.22, pb.y + pb.height * 0.32],
+    ]
+    await page.mouse.click(arcPts[0][0], arcPts[0][1])
+    await page.waitForTimeout(80)
+    await page.keyboard.press('a')
+    await page.waitForTimeout(60)
+    await page.mouse.click(arcPts[1][0], arcPts[1][1])
+    await page.waitForTimeout(80)
+    await page.mouse.click(arcPts[2][0], arcPts[2][1])
+    await page.waitForTimeout(80)
+    await page.mouse.click(arcPts[3][0], arcPts[3][1])
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(250)
+    const arcCounts = await page.locator('[data-testid="turf-area"]').evaluateAll((els) =>
+      els.map((el) => Number(el.getAttribute('data-arc-count') || 0)))
+    record('Turf close persists circular-arc segments', arcCounts.some((n) => n > 0),
+      JSON.stringify(arcCounts))
   }
+
+  // Outside stamp, R still opens Region (deselect roll first — selected roll also holds R)
+  await page.locator('button[aria-label="Select"]').click()
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(80)
+  await page.mouse.click(pb ? pb.x + 16 : 200, pb ? pb.y + 16 : 200)
+  await page.waitForTimeout(80)
+  await page.keyboard.press('r')
+  await page.waitForTimeout(80)
+  const regionTool = await page.locator('[data-testid="canvas-hint"]').getAttribute('data-active-tool')
+  record('R outside stamp still selects Region tool', regionTool === 'region', `tool=${regionTool}`)
 
   record('No console/page errors', consoleErrors.length === 0 && pageErrors.length === 0,
     `console=${consoleErrors.length} page=${pageErrors.length} ${consoleErrors[0] || pageErrors[0] || ''}`)

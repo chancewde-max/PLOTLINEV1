@@ -655,15 +655,6 @@ export default function SheetPage() {
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
-  useEffect(() => {
-    const onResize = () => {
-      const vw = viewportWidth()
-      setLeftPanelW(w => clampPanelWidth(w, vw))
-      setRightPanelW(w => clampPanelWidth(w, vw))
-    }
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [])
 
   const startPanelResize = (side, clientX, startW) => {
     const move = (ev) => {
@@ -747,7 +738,11 @@ export default function SheetPage() {
       const hk = hotkeys
       if (key === hk.select) setActiveTool('select')
       if (key === hk.pan) setActiveTool('pan')
-      if (key === hk.region) setActiveTool('region')
+      // R is hold-to-rotate in turf stamp (and when a roll is selected).
+      // Do not steal Region tool in those cases — hk.region defaults to R.
+      const turfStampRotate = activeTool === 'turf' && turfSubmode === 'stamp'
+      const rollRotateHold = selectedKind === 'roll' || turfStampRotate
+      if (key === hk.region && !rollRotateHold) setActiveTool('region')
       if (key === hk.measure) setActiveTool('measure')
       if (key === hk.text) setActiveTool('text')
       if (key === hk.linear) {
@@ -760,7 +755,7 @@ export default function SheetPage() {
         openNewDlg('area')
       }
       if (key === (hk.turf || 'U')) setActiveTool('turf')
-      if (key === 'R' && (selectedKind === 'roll' || (activeTool === 'turf' && turfSubmode === 'stamp'))) {
+      if (key === 'R' && rollRotateHold) {
         rHeldRef.current = true
       }
       if (key === hk.snap) { e.preventDefault(); setSnapEnabled(v => !v) }
@@ -984,6 +979,7 @@ export default function SheetPage() {
 
   const finishTurfArea = () => {
     if (areaVerts.length < 3) return
+    const capturedArcSegs = { ...arcSegsRef.current }
     const capturedVerts = [...areaVerts]
     turfNumRef.current += 1
     const id = `ua-${Date.now()}`
@@ -996,6 +992,7 @@ export default function SheetPage() {
       name: `Turf Area ${turfNumRef.current}`,
       color: '#15803d',
       poly: capturedVerts,
+      arcSegs: capturedArcSegs,
       rolls: [],
     }])
     setAreaVerts([]); setAreaCursor(null)
@@ -2511,7 +2508,7 @@ export default function SheetPage() {
           onTouchMove={onTouchMove}
           onTouchEnd={onTouchEnd}
           onTouchCancel={onTouchEnd}>
-          <div className={s.hint} data-testid="canvas-hint">
+          <div className={s.hint} data-testid="canvas-hint" data-active-tool={activeTool} data-turf-submode={activeTool === 'turf' ? turfSubmode : ''}>
             {activeTool === 'scale' ? (
               scalePts.length === 0
                 ? <><Ruler size={14} /><span><b>Set scale</b> — click the first end of a known distance</span></>
@@ -2723,10 +2720,14 @@ export default function SheetPage() {
                   const shape = hasArcs
                     ? <path d={buildAreaPath(a.poly, a.arcSegs)} {...sharedProps} />
                     : <polygon points={a.poly.map(p => `${p.x},${p.y}`).join(' ')} {...sharedProps} />
-                  if (!a.deduct) return <g key={a.id}>{shape}</g>
+                  const areaTest = {
+                    'data-testid': turf ? 'turf-area' : 'soil-area',
+                    'data-arc-count': String(hasArcs ? Object.keys(a.arcSegs).length : 0),
+                  }
+                  if (!a.deduct) return <g key={a.id} {...areaTest}>{shape}</g>
                   const c = centroid(a.poly)
                   return (
-                    <g key={a.id}>
+                    <g key={a.id} {...areaTest}>
                       {shape}
                       <text x={c.x} y={c.y} textAnchor="middle" dominantBaseline="central"
                         fontSize={16 * u} fontWeight="800" fill="#dc2626" pointerEvents="none">−</text>
