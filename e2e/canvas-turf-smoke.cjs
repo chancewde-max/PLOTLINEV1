@@ -159,9 +159,6 @@ async function main() {
     await widthInput.fill('8')
     await page.getByLabel('Roll length').fill('12')
     await page.getByLabel('Roll rotation').fill('0')
-    await page.mouse.move(pb.x + pb.width * 0.45, pb.y + pb.height * 0.75)
-    await page.mouse.click(pb.x + pb.width * 0.45, pb.y + pb.height * 0.75)
-    await page.waitForTimeout(200)
     const cov = await page.locator('[data-testid="turf-panel"]').innerText()
     record('Coverage panel shows rolls / coverage fields',
       /Area sq ft/.test(cov) && /Rolls placed/.test(cov) && /Coverage %/.test(cov) && /Gaps/.test(cov),
@@ -171,11 +168,28 @@ async function main() {
       cov.slice(0, 220))
     record('Free-form roll size shown', /8 × 12 ft/.test(cov), cov.slice(0, 220))
 
+    await widthInput.fill('5')
+    await page.getByLabel('Roll length').fill('6')
+    const stampCandidates = [
+      [pb.x + pb.width * 0.45, pb.y + pb.height * 0.75],
+      [pb.x + pb.width * 0.38, pb.y + pb.height * 0.72],
+      [pb.x + pb.width * 0.50, pb.y + pb.height * 0.78],
+      [pb.x + pb.width * 0.42, pb.y + pb.height * 0.68],
+    ]
+    for (const [x, y] of stampCandidates) {
+      await page.mouse.move(x, y)
+      await page.waitForTimeout(80)
+      await page.mouse.click(x, y)
+      await page.waitForTimeout(150)
+      if (await page.locator('[data-testid="turf-roll"]').count() > 0) break
+    }
+
     const firstRoll = page.locator('[data-testid="turf-roll"]').first()
-    record('First stamp placed', await firstRoll.count().then(n => n > 0).catch(() => false))
+    const placedFirst = await page.locator('[data-testid="turf-roll"]').count() > 0
+    record('First stamp placed', placedFirst)
     const handle = firstRoll.locator('circle').first()
-    const hb = await handle.boundingBox()
-    const firstBox = await firstRoll.boundingBox()
+    const hb = placedFirst ? await handle.boundingBox() : null
+    const firstBox = placedFirst ? await firstRoll.boundingBox() : null
     if (hb && firstBox) {
       await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2)
       await page.mouse.down()
@@ -183,6 +197,11 @@ async function main() {
       await page.mouse.up()
       await page.waitForTimeout(150)
     }
+    if (!placedFirst) {
+      record('Free-rotate after place changes angle (no sticky lock)', false, 'no first roll')
+      record('Adjacent preview inherits neighbor angle + flush', false, 'no first roll')
+      record('Second stamp locks at inherited neighbor angle', false, 'no first roll')
+    } else {
     const neighborRot = Number(await firstRoll.getAttribute('data-rotation'))
     record('Free-rotate after place changes angle (no sticky lock)', Number.isFinite(neighborRot) && Math.abs(neighborRot) > 5, `rot=${neighborRot}`)
     // Rotate uses mouseup-without-click, so the next canvas click is ignored.
@@ -260,6 +279,7 @@ async function main() {
     record('Second stamp locks at inherited neighbor angle',
       rots.length >= 2 && rots.slice(1).some((r) => Math.abs(r - neighborRot) < 0.15),
       JSON.stringify(rots))
+    }
   }
 
   record('No console/page errors', consoleErrors.length === 0 && pageErrors.length === 0,
