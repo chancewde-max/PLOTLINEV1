@@ -185,6 +185,9 @@ async function main() {
     }
     const neighborRot = Number(await firstRoll.getAttribute('data-rotation'))
     record('Free-rotate after place changes angle (no sticky lock)', Number.isFinite(neighborRot) && Math.abs(neighborRot) > 5, `rot=${neighborRot}`)
+    // Rotate uses mouseup-without-click, so the next canvas click is ignored.
+    await page.mouse.click(pb.x + 8, pb.y + 8)
+    await page.waitForTimeout(80)
     await page.getByLabel('Roll rotation').fill('0')
     await page.waitForTimeout(80)
 
@@ -233,9 +236,24 @@ async function main() {
     record('Adjacent preview inherits neighbor angle + flush', inheritHint,
       inheritHintText.slice(0, 140) || `seats=${seats.length} neighbor=${neighborRot}`)
     if (inheritClick) {
-      await page.mouse.click(inheritClick[0], inheritClick[1])
-      await page.waitForTimeout(80)
-      await page.mouse.click(inheritClick[0], inheritClick[1])
+      const lockPt = await page.evaluate(() => {
+        const poly = document.querySelector('[data-testid="turf-roll-preview"]')
+        const svg = poly?.ownerSVGElement
+        if (!poly || !svg) return null
+        const pts = poly.getAttribute('points').trim().split(/\s+/).map((pair) => {
+          const [x, y] = pair.split(',').map(Number)
+          return { x, y }
+        })
+        const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length
+        const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length
+        const pt = svg.createSVGPoint()
+        pt.x = cx
+        pt.y = cy
+        const s = pt.matrixTransform(poly.getScreenCTM())
+        return { x: s.x, y: s.y }
+      })
+      const target = lockPt || { x: inheritClick[0], y: inheritClick[1] }
+      await page.mouse.click(target.x, target.y)
       await page.waitForTimeout(250)
     }
     const rots = await page.locator('[data-testid="turf-roll"]').evaluateAll((els) => els.map((el) => Number(el.getAttribute('data-rotation'))))
