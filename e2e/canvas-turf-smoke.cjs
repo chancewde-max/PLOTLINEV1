@@ -179,19 +179,15 @@ async function main() {
     await page.waitForTimeout(80)
   }
 
-  // Ungrouped soil (A-key, no New-area group) must hit takeoff.js Material List
+  // Ungrouped soil: new condition, inspector fields, then delete the group so
+  // the polygon is orphaned — takeoff.js treats that as ungrouped with the
+  // same description + Notes suffix as grouped rows.
   if (pb) {
-    await page.locator('button[aria-label="Select"]').click()
-    await page.waitForTimeout(80)
-    await page.keyboard.press('a')
-    const newAreaDlg = page.getByRole('heading', { name: /New area/i })
-    await newAreaDlg.waitFor({ timeout: 4000 }).catch(() => {})
-    if (await newAreaDlg.isVisible().catch(() => false)) {
-      await page.getByRole('button', { name: /^Cancel$/ }).click()
-      await page.waitForTimeout(100)
-    }
-    const ugTool = await page.locator('[data-testid="canvas-hint"]').getAttribute('data-active-tool')
-    record('A after cancel stays on area tool without a group', ugTool === 'area', `tool=${ugTool}`)
+    await page.locator('button[aria-label="Area"]').click()
+    await page.getByRole('heading', { name: /New area/i }).waitFor({ timeout: 4000 })
+    await page.getByPlaceholder(/Sod area/).fill('Loose bed')
+    await page.getByRole('button', { name: /Start drawing/i }).click()
+    await page.waitForTimeout(150)
     const ug = [
       [pb.x + pb.width * 0.08, pb.y + pb.height * 0.08],
       [pb.x + pb.width * 0.20, pb.y + pb.height * 0.08],
@@ -208,9 +204,12 @@ async function main() {
       await ugInspector.getByLabel('Custom depth inches').fill('12')
       await ugInspector.getByLabel('Topsoil type').selectOption('custom')
       await ugInspector.getByPlaceholder('Topsoil type').fill('Ungrouped mix')
-      await page.waitForTimeout(200)
+      await page.waitForTimeout(150)
     }
-    await page.locator('button[aria-label="Select"]').click().catch(() => {})
+    const looseRow = page.locator('div').filter({ hasText: /^Loose bed$/ }).first()
+    const looseVisible = await looseRow.isVisible().catch(() => false)
+    if (looseVisible) await looseRow.locator('button').last().click()
+    record('Loose bed group deleted (orphan polygon is ungrouped)', looseVisible)
     await page.waitForTimeout(200)
     await page.goto(`${BASE}/app/project/proj-1`, { waitUntil: 'networkidle', timeout: 30000 })
     await page.getByText('Essential only').click().catch(() => {})
@@ -221,8 +220,10 @@ async function main() {
     await page.waitForTimeout(250)
     const listText = await page.locator('body').innerText()
     record('Ungrouped soil appears in canonical takeoff Material List',
-      /Ungrouped mix/.test(listText) && /Depth: 12"/.test(listText),
-      listText.includes('Ungrouped mix') ? 'found Ungrouped mix + Depth: 12"' : listText.replace(/\s+/g, ' ').slice(0, 400))
+      /Loose bed/.test(listText) && /Ungrouped mix/.test(listText) && /Depth: 12"/.test(listText),
+      listText.includes('Ungrouped mix')
+        ? 'found Loose bed + Ungrouped mix + Depth: 12"'
+        : listText.replace(/\s+/g, ' ').slice(0, 500))
     await page.goto(`${BASE}/app/project/proj-1/sheet/sheet-1`, { waitUntil: 'networkidle', timeout: 45000 })
     await page.getByText('Essential only').click().catch(() => {})
     await page.waitForTimeout(600)
