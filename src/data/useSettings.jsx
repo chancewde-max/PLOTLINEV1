@@ -12,6 +12,7 @@ export const DEFAULT_HOTKEYS = {
   measure: 'M',
   text:    'T',
   area:    'A',
+  turf:    'U',
   linear:  'L',
   count:   'C',
   newItem: 'N',
@@ -27,6 +28,7 @@ export const HOTKEY_LABELS = {
   measure: 'Measure tool',
   text:    'Text tool',
   area:    'Area tool',
+  turf:    'Synthetic turf tool',
   linear:  'Linear tool',
   count:   'Count tool',
   newItem: 'New item (in active tool)',
@@ -38,7 +40,7 @@ export const HOTKEY_LABELS = {
 // Default order of every button in the sheet-editor's bottom toolbar —
 // the drawing tools plus scale/snap/ortho/deduct/overlay. Any button can be
 // dragged to any position; persisted per-browser.
-export const DEFAULT_TOOLBAR_ORDER = ['select', 'pan', 'region', 'measure', 'text', 'area', 'linear', 'count', 'scale', 'snap', 'ortho', 'deduct', 'overlay']
+export const DEFAULT_TOOLBAR_ORDER = ['select', 'pan', 'region', 'measure', 'text', 'area', 'turf', 'linear', 'count', 'scale', 'snap', 'ortho', 'deduct', 'overlay']
 
 // Multiplier applied to scroll-wheel zoom speed on the sheet canvas. 1 =
 // original feel; higher zooms faster per scroll tick, lower is finer/slower.

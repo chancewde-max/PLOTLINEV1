@@ -5,7 +5,7 @@ import {
   Ruler, Lasso, Eye, EyeOff, Check, TriangleAlert, Sun, Moon,
   Settings2, FileDown, Share2, ChevronRight, ChevronLeft, Eraser, Sparkles,
   X as XIcon, Map, Pencil, Trash2, MousePointer2, Layers, Download, GripVertical,
-  Printer, Type,
+  Printer, Type, Sprout,
 } from 'lucide-react'
 import { Button } from '../components/ui/Button.jsx'
 import { Badge } from '../components/ui/Badge.jsx'
@@ -25,7 +25,20 @@ import { resolveSheetPdfUrl, sheetHasPdf } from '../components/pdfCache.js'
 import { computeOverlayDiff } from '../components/pdfDiff.js'
 import { uploadPdfAsset, personalPdfPath, orgPdfPath } from '../data/pdfStorage.js'
 import { CATS, CAT_COLOR, SHEET_W, SHEET_H, categoryTotals } from '../data/sampleData.js'
-import { inside, polyAreaPx, perimPx, centroid, clipPx2, dist, buildAreaPath, buildLinePath, linePathLenPx, circularArcSeg } from '../workspace/geometry.js'
+import { inside, polyAreaPx, perimPx, centroid, clipPx2, dist, buildAreaPath, buildLinePath, linePathLenPx, circularArcSeg, bbox } from '../workspace/geometry.js'
+import { TOPSOIL_OPTIONS, isTurfArea } from '../workspace/areaProps.js'
+import {
+  DEFAULT_ROLL_W_FT, DEFAULT_ROLL_L_FT, DEFAULT_ROLL_ROT,
+  snapAngle, rollCorners, rollHandlePoint, rollFitsInArea, pointInRoll, turfCoverage,
+  objectBounds, unionBounds,
+} from '../workspace/turf.js'
+import {
+  PANEL_MIN_PX, DEFAULT_LEFT_PANEL_W, DEFAULT_RIGHT_PANEL_W,
+  LEFT_PANEL_W_KEY, RIGHT_PANEL_W_KEY,
+  clampPanelWidth, readStoredPanelWidth, persistPanelWidth, viewportWidth,
+} from '../workspace/panelLayout.js'
+import AreaInspector from '../components/AreaInspector.jsx'
+import TurfPanel from '../components/TurfPanel.jsx'
 import s from './SheetPage.module.css'
 
 const TOOLS = [
@@ -35,6 +48,7 @@ const TOOLS = [
   { id: 'measure',label: 'Measure',      Icon: Ruler,         k: 'M' },
   { id: 'text',   label: 'Text',         Icon: Type,          k: 'T' },
   { id: 'area',   label: 'Area',         Icon: SquareDashed,  k: 'A' },
+  { id: 'turf',   label: 'Synthetic turf', Icon: Sprout,      k: 'U' },
   { id: 'linear', label: 'Linear',       Icon: Spline,        k: 'L' },
   { id: 'count',  label: 'Count',        Icon: MapPin,        k: 'C' },
 ]
@@ -148,9 +162,9 @@ export default function SheetPage() {
   const [settings, setSettings] = useState(false)
   const [zoom, setZoom]         = useState(100)
   const [panOffset, setPanOffset]   = useState({ x: 0, y: 0 })
-  const [leftPanelW, setLeftPanelW]   = useState(264)
+  const [leftPanelW, setLeftPanelW]   = useState(() => readStoredPanelWidth(LEFT_PANEL_W_KEY, DEFAULT_LEFT_PANEL_W))
   const [bottomRailH, setBottomRailH] = useState(56)
-  const [rightPanelW, setRightPanelW] = useState(320)
+  const [rightPanelW, setRightPanelW] = useState(() => readStoredPanelWidth(RIGHT_PANEL_W_KEY, DEFAULT_RIGHT_PANEL_W))
   // Collapsed by default on narrow screens so the canvas gets the room —
   // the side panels are a lot to ask a phone-width viewport to carry
   // alongside the drawing surface. A push-in arrow (rendered in .body,
@@ -361,6 +375,21 @@ export default function SheetPage() {
   const [selectedIds, setSelectedIds]   = useState([]) // multi-select from box drag
   const [boxSelect, setBoxSelect]       = useState(null) // { x1,y1,x2,y2 } in sheet coords
   const [hoverLabel, setHoverLabel]     = useState(null) // { x, y, text } — name shown on hover
+  const boxSelectAddRef  = useRef(false) // Shift held when marquee started
+  const [spacePan, setSpacePan]         = useState(false)
+  const spacePanRef      = useRef(false)
+  const [panningUi, setPanningUi]       = useState(false)
+  const [turfSubmode, setTurfSubmode]   = useState('draw') // 'draw' | 'stamp'
+  const [turfRollW, setTurfRollW]       = useState(String(DEFAULT_ROLL_W_FT))
+  const [turfRollL, setTurfRollL]       = useState(String(DEFAULT_ROLL_L_FT))
+  const [turfRollRot, setTurfRollRot]   = useState(String(DEFAULT_ROLL_ROT))
+  const [turfHint, setTurfHint]         = useState('')
+  const [activeTurfAreaId, setActiveTurfAreaId] = useState(null)
+  const [turfPreview, setTurfPreview]   = useState(null) // { cx, cy, valid }
+  const [pendingTurfDelete, setPendingTurfDelete] = useState(null) // { ids: string[] }
+  const rHeldRef         = useRef(false)
+  const turfNumRef       = useRef((sheets[sheetId]?.savedAreas || []).filter(isTurfArea).length)
+  const skipStampClickRef = useRef(false)
   const isDraggingRef    = useRef(false)
   const dragStartRef     = useRef(null)
   const origDragRef      = useRef(null)
@@ -608,6 +637,71 @@ export default function SheetPage() {
 
   // Persist active left panel tab across sheet navigations (component remounts with key=sheetId)
   useEffect(() => { sessionStorage.setItem('sheetLeftPanel', leftPanel) }, [leftPanel])
+  useEffect(() => { persistPanelWidth(LEFT_PANEL_W_KEY, leftPanelW) }, [leftPanelW])
+  useEffect(() => { persistPanelWidth(RIGHT_PANEL_W_KEY, rightPanelW) }, [rightPanelW])
+  useEffect(() => {
+    const onResize = () => {
+      const vw = viewportWidth()
+      setLeftPanelW(w => clampPanelWidth(w, vw))
+      setRightPanelW(w => clampPanelWidth(w, vw))
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+  useEffect(() => {
+    const onResize = () => {
+      const vw = viewportWidth()
+      setLeftPanelW(w => clampPanelWidth(w, vw))
+      setRightPanelW(w => clampPanelWidth(w, vw))
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  const startPanelResize = (side, clientX, startW) => {
+    const move = (ev) => {
+      const vw = viewportWidth()
+      const next = side === 'left'
+        ? clampPanelWidth(startW + ev.clientX - clientX, vw)
+        : clampPanelWidth(startW - (ev.clientX - clientX), vw)
+      if (side === 'left') setLeftPanelW(next)
+      else setRightPanelW(next)
+    }
+    const up = () => {
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+  }
+  const resetPanelWidth = (side) => {
+    if (side === 'left') setLeftPanelW(clampPanelWidth(DEFAULT_LEFT_PANEL_W))
+    else setRightPanelW(clampPanelWidth(DEFAULT_RIGHT_PANEL_W))
+  }
+
+  // Space = temporary pan (does not change the active tool).
+  useEffect(() => {
+    const down = (e) => {
+      if (e.code !== 'Space' || e.repeat) return
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return
+      e.preventDefault()
+      spacePanRef.current = true
+      setSpacePan(true)
+    }
+    const up = (e) => {
+      if (e.code !== 'Space') return
+      spacePanRef.current = false
+      setSpacePan(false)
+      isPanningRef.current = false
+      setPanningUi(false)
+    }
+    window.addEventListener('keydown', down, { passive: false })
+    window.addEventListener('keyup', up)
+    return () => {
+      window.removeEventListener('keydown', down)
+      window.removeEventListener('keyup', up)
+    }
+  }, [])
 
   // Debounce drawing saves — batch all 5 fields into one write 400ms after last change
   const saveTimerRef = useRef(null)
@@ -655,8 +749,12 @@ export default function SheetPage() {
       if (key === hk.count) {
         openNewDlg('count')
       }
-      if (key === hk.area && activeTool !== 'area' && activeTool !== 'linear') {
+      if (key === hk.area && activeTool !== 'area' && activeTool !== 'linear' && activeTool !== 'turf') {
         openNewDlg('area')
+      }
+      if (key === (hk.turf || 'U')) setActiveTool('turf')
+      if (key === 'R' && (selectedKind === 'roll' || (activeTool === 'turf' && turfSubmode === 'stamp'))) {
+        rHeldRef.current = true
       }
       if (key === hk.snap) { e.preventDefault(); setSnapEnabled(v => !v) }
       if (key === hk.ortho) { e.preventDefault(); setOrthoEnabled(v => !v) }
@@ -683,6 +781,7 @@ export default function SheetPage() {
       if (key === hk.area) {
         // If drawing area or linear: toggle arc mode; otherwise switch to area tool
         if ((activeTool === 'area' && areaVerts.length > 0) ||
+            (activeTool === 'turf' && turfSubmode === 'draw' && areaVerts.length > 0) ||
             (activeTool === 'linear' && linearVerts.length > 0)) {
           setArcMode(v => {
             if (v) setPendingArcThrough(null)
@@ -710,20 +809,46 @@ export default function SheetPage() {
         setArcMode(false); setPendingArcThrough(null)
         arcSegsRef.current = {}; linearArcSegsRef.current = {}
         setSettings(false)
-        setSelectedId(null); setSelectedKind(null)
-        setTextStyleDlg(null)
-        // Esc always returns to the selection tool, from any tool.
-        setActiveTool('select')
+        setTurfPreview(null)
+        setTurfHint('')
+        if (activeTool === 'turf' && turfSubmode === 'draw' && areaVerts.length > 0) {
+          // Cancel in-progress turf polygon only
+        } else if (activeTool === 'turf' && turfSubmode === 'stamp') {
+          setTurfSubmode('draw')
+        } else {
+          setSelectedId(null); setSelectedKind(null)
+          setTextStyleDlg(null)
+          // Esc always returns to the selection tool, from any tool.
+          setActiveTool('select')
+        }
       }
       if (key === 'DELETE' || e.key === 'Backspace') {
-        if (selectedIds.length > 0) {
+        const turfWithStamps = (ids) => addedAreas.filter(a => ids.has(a.id) && isTurfArea(a) && (a.rolls || []).length > 0)
+        if (selectedKind === 'roll' && selectedId) {
           pushUndo()
+          setAddedAreas(prev => prev.map(a => ({
+            ...a, rolls: (a.rolls || []).filter(r => r.id !== selectedId),
+          })))
+          setSelectedId(null); setSelectedKind(null)
+        } else if (selectedIds.length > 0) {
           const idSet = new Set(selectedIds)
+          const stamped = turfWithStamps(idSet)
+          if (stamped.length) { setPendingTurfDelete({ ids: stamped.map(a => a.id), also: [...idSet] }); return }
+          pushUndo()
           setCountGroups(prev => prev.map(g => ({ ...g, points: g.points.filter(p => !idSet.has(p.id)) })))
-          setAddedAreas(prev => prev.filter(a => !idSet.has(a.id)))
+          setAddedAreas(prev => prev.filter(a => !idSet.has(a.id)).map(a => ({
+            ...a, rolls: (a.rolls || []).filter(r => !idSet.has(r.id)),
+          })))
           setAddedLines(prev => prev.filter(l => !idSet.has(l.id)))
           setSelectedIds([])
         } else if (selectedId && selectedKind) {
+          if (selectedKind === 'area') {
+            const a = addedAreas.find(x => x.id === selectedId)
+            if (isTurfArea(a) && (a.rolls || []).length > 0) {
+              setPendingTurfDelete({ ids: [selectedId], also: [selectedId] })
+              return
+            }
+          }
           pushUndo()
           if (selectedKind === 'area') setAddedAreas(prev => prev.filter(a => a.id !== selectedId))
           else if (selectedKind === 'point') setCountGroups(prev => prev.map(g => ({ ...g, points: g.points.filter(p => p.id !== selectedId) })))
@@ -747,15 +872,21 @@ export default function SheetPage() {
         setActiveTool('select')
       }
       if (activeTool === 'area' && areaVerts.length >= 3) finishArea()
+      if (activeTool === 'turf' && turfSubmode === 'draw' && areaVerts.length >= 3) finishTurfArea()
       if (activeTool === 'linear' && linearVerts.length >= 2) finishLine()
+    }
+    const onKeyUp = (e) => {
+      if (e.key.toUpperCase() === 'R') rHeldRef.current = false
     }
     window.addEventListener('keydown', onKey)
     window.addEventListener('keydown', onEnter)
+    window.addEventListener('keyup', onKeyUp)
     return () => {
       window.removeEventListener('keydown', onKey)
       window.removeEventListener('keydown', onEnter)
+      window.removeEventListener('keyup', onKeyUp)
     }
-  }, [project, sheet, activeTool, regionVerts, measureDone, measurePts, areaVerts, areaType, linearVerts, linearType, arcMode, selectedId, selectedKind, selectedIds, hotkeys])
+  }, [project, sheet, activeTool, turfSubmode, regionVerts, measureDone, measurePts, areaVerts, areaType, linearVerts, linearType, arcMode, selectedId, selectedKind, selectedIds, hotkeys, addedAreas])
 
   if (dataLoading) return <SheetPageSkeleton />
   if (!project || !sheet) {
@@ -840,6 +971,31 @@ export default function SheetPage() {
     arcSegsRef.current = {}
   }
 
+  const finishTurfArea = () => {
+    if (areaVerts.length < 3) return
+    const capturedVerts = [...areaVerts]
+    turfNumRef.current += 1
+    const id = `ua-${Date.now()}`
+    pushUndo()
+    setAddedAreas(prev => [...prev, {
+      id,
+      groupId: null,
+      type: 'turf',
+      kind: 'turf',
+      name: `Turf Area ${turfNumRef.current}`,
+      color: '#15803d',
+      poly: capturedVerts,
+      rolls: [],
+    }])
+    setAreaVerts([]); setAreaCursor(null)
+    setArcMode(false); setPendingArcThrough(null)
+    arcSegsRef.current = {}
+    setSelectedId(id); setSelectedKind('area')
+    setActiveTurfAreaId(id)
+    setTurfSubmode('stamp')
+    setTurfHint('Stamp rolls (or adjust area)')
+  }
+
   const finishLine = () => {
     if (linearVerts.length < 2) return
     const capturedArcSegs = { ...linearArcSegsRef.current }
@@ -866,6 +1022,7 @@ export default function SheetPage() {
   // ---- Event handlers ----
   const isRecording = areaVerts.length > 0 || linearVerts.length > 0
     || (measurePts.length > 0 && !measureDone) || (activeTool === 'region' && regionVerts.length > 0 && !regionClosed)
+    || (activeTool === 'turf' && turfSubmode === 'draw' && areaVerts.length > 0)
 
   const stopRecording = () => {
     setAreaVerts([]); setAreaCursor(null)
@@ -889,25 +1046,63 @@ export default function SheetPage() {
   // Only suppresses the native OS menu — our own menu is decided in
   // onMouseUp (see the comment there for why).
   const onContextMenu = (e) => { e.preventDefault() }
+  const beginPan = (e) => {
+    isPanningRef.current = true
+    setPanningUi(true)
+    panStartRef.current = { x: e.clientX, y: e.clientY }
+    panLastPosRef.current = { x: e.clientX, y: e.clientY }
+  }
+
   const onMouseDown = (e) => {
     // Right-click always pans (except pan tool uses left click)
     if (e.button === 2) {
-      isPanningRef.current = true
       rightDragMovedRef.current = false
-      panStartRef.current = { x: e.clientX, y: e.clientY }
-      panLastPosRef.current = { x: e.clientX, y: e.clientY }
+      beginPan(e)
       return
     }
-    if (activeTool === 'pan') {
-      isPanningRef.current = true
-      panStartRef.current = { x: e.clientX, y: e.clientY }
-      panLastPosRef.current = { x: e.clientX, y: e.clientY }
+    if (activeTool === 'pan' || spacePanRef.current) {
+      beginPan(e)
+      return
+    }
+    if (activeTool === 'turf' && turfSubmode === 'stamp') {
+      const p = toSheet(e)
+      const hitPx = 10 / ((zoom / 100) * FIT)
+      const host = addedAreas.find(a => a.id === activeTurfAreaId && isTurfArea(a))
+        || addedAreas.filter(isTurfArea).find(a => inside(p, a.poly))
+      if (host) {
+        const handle = (host.rolls || []).find(r => {
+          const h = rollHandlePoint(r, pxPerFt)
+          return dist(p, h) < hitPx * 1.4
+        })
+        if (handle) {
+          pushUndo()
+          setSelectedId(handle.id); setSelectedKind('roll')
+          setActiveTurfAreaId(host.id)
+          isDraggingRef.current = true
+          dragStartRef.current = p
+          origDragRef.current = { ...handle, mode: 'rotate' }
+          dragAreaIdRef.current = host.id
+          return
+        }
+        const hit = (host.rolls || []).find(r => pointInRoll(p, r, pxPerFt))
+        if (hit) {
+          pushUndo()
+          setSelectedId(hit.id); setSelectedKind('roll')
+          setActiveTurfAreaId(host.id)
+          isDraggingRef.current = true
+          dragStartRef.current = p
+          origDragRef.current = { ...hit, mode: rHeldRef.current ? 'rotate' : 'move' }
+          dragAreaIdRef.current = host.id
+          return
+        }
+      }
       return
     }
     if (activeTool !== 'select') return
     const p = toSheet(e)
-    // A fresh press clears any prior marquee multi-selection.
-    if (selectedIds.length) setSelectedIds([])
+    boxSelectAddRef.current = !!e.shiftKey
+    // A fresh press clears any prior marquee multi-selection unless Shift-add.
+    if (selectedIds.length && !e.shiftKey) setSelectedIds([])
     // Hit thresholds fixed in screen pixels (~10px) regardless of zoom
     const hitPx = 10 / ((zoom / 100) * FIT)
     // Check text boxes first (they render on top)
@@ -917,10 +1112,42 @@ export default function SheetPage() {
       if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) {
         pushUndo()
         setSelectedId(t.id); setSelectedKind('text')
+        if (e.shiftKey) setSelectedIds(prev => prev.includes(t.id) ? prev : [...prev, t.id])
+        else setSelectedIds([t.id])
         isDraggingRef.current = true
         dragStartRef.current = p
         origDragRef.current = { x: t.x, y: t.y }
         return
+      }
+    }
+    // Turf roll stamps (sit on top of their parent area)
+    for (let i = addedAreas.length - 1; i >= 0; i--) {
+      const a = addedAreas[i]
+      if (!isTurfArea(a)) continue
+      for (const r of (a.rolls || [])) {
+        const h = rollHandlePoint(r, pxPerFt)
+        if (dist(p, h) < hitPx * 1.4) {
+          pushUndo()
+          setSelectedId(r.id); setSelectedKind('roll')
+          setActiveTurfAreaId(a.id)
+          setSelectedIds(e.shiftKey ? (selectedIds.includes(r.id) ? selectedIds : [...selectedIds, r.id]) : [r.id])
+          isDraggingRef.current = true
+          dragStartRef.current = p
+          origDragRef.current = { ...r, mode: 'rotate' }
+          dragAreaIdRef.current = a.id
+          return
+        }
+        if (pointInRoll(p, r, pxPerFt)) {
+          pushUndo()
+          setSelectedId(r.id); setSelectedKind('roll')
+          setActiveTurfAreaId(a.id)
+          setSelectedIds(e.shiftKey ? (selectedIds.includes(r.id) ? selectedIds : [...selectedIds, r.id]) : [r.id])
+          isDraggingRef.current = true
+          dragStartRef.current = p
+          origDragRef.current = { ...r, mode: rHeldRef.current ? 'rotate' : 'move' }
+          dragAreaIdRef.current = a.id
+          return
+        }
       }
     }
     // Check added points first
@@ -929,6 +1156,7 @@ export default function SheetPage() {
       if (dist(p, { x: pt.x, y: pt.y }) < hitPx) {
         pushUndo()
         setSelectedId(pt.id); setSelectedKind('point')
+        setSelectedIds(e.shiftKey ? (selectedIds.includes(pt.id) ? selectedIds : [...selectedIds, pt.id]) : [pt.id])
         isDraggingRef.current = true
         dragStartRef.current = p
         origDragRef.current = { x: pt.x, y: pt.y }
@@ -942,6 +1170,8 @@ export default function SheetPage() {
         if (dist(p, a.poly[j]) < hitPx) {
           pushUndo()
           setSelectedId(a.id); setSelectedKind('area')
+          if (isTurfArea(a)) setActiveTurfAreaId(a.id)
+          setSelectedIds(e.shiftKey ? (selectedIds.includes(a.id) ? selectedIds : [...selectedIds, a.id]) : [a.id])
           isDraggingRef.current = true
           dragStartRef.current = p
           origDragRef.current = a.poly[j]
@@ -953,6 +1183,8 @@ export default function SheetPage() {
       if (inside(p, a.poly)) {
         pushUndo()
         setSelectedId(a.id); setSelectedKind('area')
+        if (isTurfArea(a)) setActiveTurfAreaId(a.id)
+        setSelectedIds(e.shiftKey ? (selectedIds.includes(a.id) ? selectedIds : [...selectedIds, a.id]) : [a.id])
         isDraggingRef.current = true
         dragStartRef.current = p
         origDragRef.current = a.poly.map(v => ({ ...v }))
@@ -968,6 +1200,7 @@ export default function SheetPage() {
         if (dist(p, l.pts[j]) < hitPx) {
           pushUndo()
           setSelectedId(l.id); setSelectedKind('line')
+          setSelectedIds(e.shiftKey ? (selectedIds.includes(l.id) ? selectedIds : [...selectedIds, l.id]) : [l.id])
           isDraggingRef.current = true
           dragStartRef.current = p
           origDragRef.current = l.pts[j]
@@ -981,6 +1214,7 @@ export default function SheetPage() {
         if (distToSeg(p, l.pts[j], l.pts[j + 1]) < hitPx) {
           pushUndo()
           setSelectedId(l.id); setSelectedKind('line')
+          setSelectedIds(e.shiftKey ? (selectedIds.includes(l.id) ? selectedIds : [...selectedIds, l.id]) : [l.id])
           isDraggingRef.current = true
           dragStartRef.current = p
           origDragRef.current = l.pts.map(v => ({ ...v }))
@@ -991,7 +1225,7 @@ export default function SheetPage() {
       }
     }
     // Start box select on empty space
-    setSelectedId(null); setSelectedKind(null); setSelectedIds([])
+    if (!e.shiftKey) { setSelectedId(null); setSelectedKind(null); setSelectedIds([]) }
     setBoxSelect({ x1: p.x, y1: p.y, x2: p.x, y2: p.y })
   }
 
@@ -1007,10 +1241,11 @@ export default function SheetPage() {
       panLastPosRef.current = { x: e.clientX, y: e.clientY }
       panTargetRef.current = np; panCurrentRef.current = np
       setPanOffset(np)
-      if (activeTool === 'pan' || e.buttons === 2) return
+      return
     }
     const rawP = toSheet(e)
-    const prevMove = activeTool === 'area' && areaVerts.length > 0 ? areaVerts[areaVerts.length - 1]
+    const prevMove = ((activeTool === 'area' || (activeTool === 'turf' && turfSubmode === 'draw')) && areaVerts.length > 0)
+      ? areaVerts[areaVerts.length - 1]
       : activeTool === 'linear' && linearVerts.length > 0 ? linearVerts[linearVerts.length - 1] : null
     const p = applySnap(rawP, prevMove)
     // Region vertex drag
@@ -1023,14 +1258,27 @@ export default function SheetPage() {
     if (activeTool === 'region' && !regionClosed) setRegionCursor(p)
     if (activeTool === 'measure' && !measureDone && measurePts.length > 0) setMeasureCursor(p)
     if (activeTool === 'scale') setRegionCursor(p)
-    if (activeTool === 'area' && (areaVerts.length > 0 || pendingArcThrough)) setAreaCursor(p)
+    if ((activeTool === 'area' || (activeTool === 'turf' && turfSubmode === 'draw')) && (areaVerts.length > 0 || pendingArcThrough)) setAreaCursor(p)
     if (activeTool === 'linear' && (linearVerts.length > 0 || pendingArcThrough)) setLinearCursor(p)
+    if (activeTool === 'turf' && turfSubmode === 'stamp' && !isDraggingRef.current) {
+      const rot = e.shiftKey ? snapAngle(parseFloat(turfRollRot) || 0) : (parseFloat(turfRollRot) || 0)
+      const preview = {
+        cx: rawP.x, cy: rawP.y,
+        wFt: parseFloat(turfRollW) || DEFAULT_ROLL_W_FT,
+        lFt: parseFloat(turfRollL) || DEFAULT_ROLL_L_FT,
+        rotation: rot,
+      }
+      const host = addedAreas.find(a => a.id === activeTurfAreaId && isTurfArea(a))
+        || addedAreas.filter(isTurfArea).find(a => inside(rawP, a.poly))
+      const valid = !!(host && rollFitsInArea(preview, host.poly, pxPerFt))
+      setTurfPreview({ ...preview, valid, hostId: host?.id || null })
+    }
 
     // Update box select
     if (activeTool === 'select' && boxSelect && !isDraggingRef.current) {
       setBoxSelect(b => b ? { ...b, x2: rawP.x, y2: rawP.y } : null)
     }
-    if (activeTool === 'select' && isDraggingRef.current && dragStartRef.current) {
+    if ((activeTool === 'select' || (activeTool === 'turf' && turfSubmode === 'stamp')) && isDraggingRef.current && dragStartRef.current) {
       const dx = p.x - dragStartRef.current.x
       const dy = p.y - dragStartRef.current.y
       if (selectedKind === 'point') {
@@ -1081,6 +1329,27 @@ export default function SheetPage() {
         setTextAnnotations(prev => prev.map(t =>
           t.id === selectedId ? { ...t, x: orig.x + dx, y: orig.y + dy } : t
         ))
+      } else if (selectedKind === 'roll') {
+        const orig = origDragRef.current
+        const host = addedAreas.find(a => a.id === dragAreaIdRef.current)
+        if (orig?.mode === 'rotate') {
+          const ang = Math.atan2(p.y - orig.cy, p.x - orig.cx) * 180 / Math.PI
+          const rot = e.shiftKey ? snapAngle(ang) : ang
+          setTurfRollRot(String(Math.round(rot)))
+          setAddedAreas(prev => prev.map(a => a.id !== dragAreaIdRef.current ? a : {
+            ...a,
+            rolls: (a.rolls || []).map(r => r.id === selectedId ? { ...r, rotation: rot } : r),
+          }))
+        } else {
+          const next = { ...orig, cx: orig.cx + dx, cy: orig.cy + dy }
+          const fits = host ? rollFitsInArea(next, host.poly, pxPerFt) : false
+          if (fits) {
+            setAddedAreas(prev => prev.map(a => a.id !== dragAreaIdRef.current ? a : {
+              ...a,
+              rolls: (a.rolls || []).map(r => r.id === selectedId ? { ...r, cx: next.cx, cy: next.cy } : r),
+            }))
+          }
+        }
       }
     }
 
@@ -1126,7 +1395,9 @@ export default function SheetPage() {
     if (e?.button === 2 && !rightDragMovedRef.current) {
       setCtxMenu({ x: e.clientX, y: e.clientY })
     }
+    if (isDraggingRef.current && selectedKind === 'roll') skipStampClickRef.current = true
     isPanningRef.current = false
+    setPanningUi(false)
     isDraggingRef.current = false
     dragVertIdxRef.current = null
     dragAreaIdRef.current = null
@@ -1151,7 +1422,19 @@ export default function SheetPage() {
           l.pts.some(v => inBox(v)) ||
           l.pts.some((v, i) => i < l.pts.length - 1 && segIntersectsRect(v, l.pts[i + 1], r))
         ).map(l => l.id)
-        setSelectedIds([...ptIds, ...areaIds, ...lineIds])
+        const rollIds = addedAreas.flatMap(a => (a.rolls || []).filter(roll => {
+          const b = bbox(rollCorners(roll, pxPerFt))
+          return !(b.maxX < r.minX || b.minX > r.maxX || b.maxY < r.minY || b.minY > r.maxY)
+        }).map(roll => roll.id))
+        const next = [...ptIds, ...areaIds, ...lineIds, ...rollIds]
+        if (boxSelectAddRef.current) {
+          setSelectedIds(prev => [...new Set([...prev, ...next])])
+        } else {
+          setSelectedIds(next)
+        }
+      } else if (!boxSelectAddRef.current) {
+        setSelectedIds([])
+        setSelectedId(null); setSelectedKind(null)
       }
       setBoxSelect(null)
     }
@@ -1225,8 +1508,10 @@ export default function SheetPage() {
 
   const onClick = (e) => {
     if (isDraggingRef.current) return
+    if (spacePanRef.current || activeTool === 'pan' || isPanningRef.current) return
     const rawP = toSheet(e)
-    const prevPt = activeTool === 'area' && areaVerts.length > 0 ? areaVerts[areaVerts.length - 1]
+    const prevPt = ((activeTool === 'area' || (activeTool === 'turf' && turfSubmode === 'draw')) && areaVerts.length > 0)
+      ? areaVerts[areaVerts.length - 1]
       : activeTool === 'linear' && linearVerts.length > 0 ? linearVerts[linearVerts.length - 1]
       : null
     const p = applySnap(rawP, prevPt)
@@ -1249,6 +1534,43 @@ export default function SheetPage() {
 
     if (activeTool === 'measure' && !measureDone) {
       setMeasurePts(pts => [...pts, p]); return
+    }
+
+    if (activeTool === 'turf' && turfSubmode === 'draw') {
+      if (areaVerts.length >= 3 && dist(p, areaVerts[0]) < NEAR && !pendingArcThrough) {
+        finishTurfArea(); return
+      }
+      if (arcMode && !pendingArcThrough && areaVerts.length > 0) {
+        setPendingArcThrough(p); return
+      }
+      if (pendingArcThrough && areaVerts.length > 0) {
+        arcSegsRef.current[areaVerts.length - 1] = pendingArcThrough
+        setPendingArcThrough(null); setArcMode(false)
+        if (areaVerts.length >= 2 && dist(p, areaVerts[0]) < NEAR) { finishTurfArea(); return }
+        setAreaVerts(v => [...v, p]); return
+      }
+      setAreaVerts(v => [...v, p]); return
+    }
+
+    if (activeTool === 'turf' && turfSubmode === 'stamp') {
+      if (skipStampClickRef.current) { skipStampClickRef.current = false; return }
+      const preview = turfPreview
+      if (!preview?.valid || !preview.hostId) return
+      const host = addedAreas.find(a => a.id === preview.hostId)
+      if (!host) return
+      pushUndo()
+      const roll = {
+        id: `tr-${Date.now()}`,
+        cx: preview.cx,
+        cy: preview.cy,
+        wFt: preview.wFt,
+        lFt: preview.lFt,
+        rotation: preview.rotation,
+      }
+      setAddedAreas(prev => prev.map(a => a.id === host.id ? { ...a, rolls: [...(a.rolls || []), roll] } : a))
+      setActiveTurfAreaId(host.id)
+      setSelectedId(roll.id); setSelectedKind('roll')
+      return
     }
 
     if (activeTool === 'area') {
@@ -1310,6 +1632,7 @@ export default function SheetPage() {
   }
 
   const onDblClick = (e) => {
+    if (spacePanRef.current || activeTool === 'pan') return
     if (activeTool === 'region' && !regionClosed && regionVerts.length >= 3) {
       setRegionClosed(regionVerts); setRegionCursor(null)
     }
@@ -1319,6 +1642,7 @@ export default function SheetPage() {
       setActiveTool('select')
     }
     if (activeTool === 'linear' && linearVerts.length >= 2) finishLine()
+    if (activeTool === 'turf' && turfSubmode === 'draw' && areaVerts.length >= 3) finishTurfArea()
     // Double-click a text box → open its style/content editor
     if (activeTool === 'select') {
       const p = toSheet(e)
@@ -1689,6 +2013,43 @@ export default function SheetPage() {
   const selectedPoint = selectedKind === 'point' ? addedPoints.find(p => p.id === selectedId) : null
   const selectedLine  = selectedKind === 'line'  ? addedLines.find(l => l.id === selectedId) : null
   const selectedItem  = selectedArea || selectedPoint || selectedLine
+  const selectedAreaSet = (() => {
+    const ids = new Set(selectedIds)
+    if (selectedKind === 'area' && selectedId) ids.add(selectedId)
+    return ids
+  })()
+  const selectedSoilAreas = addedAreas.filter(a => selectedAreaSet.has(a.id) && !isTurfArea(a))
+  const activeTurfArea = addedAreas.find(a => a.id === activeTurfAreaId && isTurfArea(a))
+    || (selectedKind === 'area' && selectedArea && isTurfArea(selectedArea) ? selectedArea : null)
+    || addedAreas.find(isTurfArea) || null
+  const activeTurfCoverage = activeTurfArea
+    ? turfCoverage(activeTurfArea.poly, activeTurfArea.rolls || [], pxPerFt)
+    : null
+  const multiSelectBounds = (() => {
+    if (selectedIds.length < 2) return null
+    const boxes = selectedIds.map(id => {
+      const area = addedAreas.find(a => a.id === id)
+      if (area) return objectBounds(area, 'area')
+      const line = addedLines.find(l => l.id === id)
+      if (line) return objectBounds(line, 'line')
+      const pt = addedPoints.find(p => p.id === id)
+      if (pt) return objectBounds(pt, 'point')
+      for (const a of addedAreas) {
+        const roll = (a.rolls || []).find(r => r.id === id)
+        if (roll) return objectBounds(roll, 'roll', pxPerFt)
+      }
+      const t = textAnnotations.find(x => x.id === id)
+      if (t) { const b = textBBox(t); return { minX: b.x, minY: b.y, maxX: b.x + b.w, maxY: b.y + b.h } }
+      return null
+    })
+    return unionBounds(boxes)
+  })()
+
+  const applyAreaInspector = (patch) => {
+    const ids = selectedAreaSet
+    pushUndo()
+    setAddedAreas(prev => prev.map(a => ids.has(a.id) && !isTurfArea(a) ? { ...a, ...patch } : a))
+  }
   const editingText = textStyleDlg ? textAnnotations.find(t => t.id === textStyleDlg) : null
   const patchEditingText = (patch) => {
     if (!textStyleDlg) return
@@ -1722,9 +2083,10 @@ export default function SheetPage() {
     }
   }
 
-  const canvasCursor = activeTool === 'pan' ? 'grab'
+  const canvasCursor = (activeTool === 'pan' || spacePan)
+    ? (panningUi ? 'grabbing' : 'grab')
     : activeTool === 'select' ? (isDraggingRef.current ? 'grabbing' : 'default')
-    : ['region','measure','scale','area','linear','count'].includes(activeTool) ? 'crosshair'
+    : ['region','measure','scale','area','linear','count','turf'].includes(activeTool) ? 'crosshair'
     : 'default'
 
   // Derive the line-item list from the current MTO version (for the dropdown)
@@ -1953,13 +2315,14 @@ export default function SheetPage() {
 
         <div className={s.leftPanel} style={{
           width: leftPanelCollapsed ? 0 : leftPanelW,
-          minWidth: leftPanelCollapsed ? 0 : 180,
-          maxWidth: 500,
+          minWidth: leftPanelCollapsed ? 0 : PANEL_MIN_PX,
+          maxWidth: leftPanelCollapsed ? 0 : '40vw',
           overflow: leftPanelCollapsed ? 'hidden' : undefined,
           borderRightWidth: leftPanelCollapsed ? 0 : undefined,
         }}>
-          <div className={s.resizeHandle} style={{ right: -3 }}
-            onMouseDown={e => { e.preventDefault(); const startX = e.clientX, startW = leftPanelW; const move = ev => setLeftPanelW(Math.max(180, Math.min(500, startW + ev.clientX - startX))); const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }; window.addEventListener('mousemove', move); window.addEventListener('mouseup', up) }} />
+          <div className={s.resizeHandle} data-testid="left-resize-handle" style={{ right: -3 }}
+            onMouseDown={e => { e.preventDefault(); startPanelResize('left', e.clientX, leftPanelW) }}
+            onDoubleClick={e => { e.preventDefault(); resetPanelWidth('left') }} />
           {/* Always show Layers / Sheets */}
           <div className={s.leftPanelTabs}>
             <Tabs variant="pill" value={leftPanel} onChange={setLeftPanel}
@@ -2094,6 +2457,11 @@ export default function SheetPage() {
         </div>
 
         <main className={s.canvas} ref={canvasRef}
+          style={{ cursor: canvasCursor }}
+          onMouseDown={(e) => {
+            if (e.button === 2) { rightDragMovedRef.current = false; beginPan(e); return }
+            if (activeTool === 'pan' || spacePanRef.current) beginPan(e)
+          }}
           onMouseMove={onMouseMove}
           onMouseUp={onMouseUp}
           onMouseLeave={() => setHoverLabel(null)}
@@ -2108,8 +2476,8 @@ export default function SheetPage() {
                 : <><Ruler size={14} /><span>Now click the <b>other end</b> of that distance</span></>
             ) : activeTool === 'select' ? (
               selectedId
-                ? <><MousePointer2 size={14} /><span>Drag to move · drag vertex to reshape · <kbd>Esc</kbd> to deselect</span></>
-                : <><MousePointer2 size={14} /><span>Click an item to select it. Drag vertices to reshape areas.</span></>
+                ? <><MousePointer2 size={14} /><span>Drag to move · drag vertex to reshape · Shift+drag adds · <kbd>Esc</kbd> to deselect</span></>
+                : <><MousePointer2 size={14} /><span>Click an item or drag a marquee. Shift+drag adds to the selection.</span></>
             ) : activeTool === 'region' ? (
               isDrawingRegion
                 ? regionVerts.length === 0
@@ -2144,8 +2512,16 @@ export default function SheetPage() {
               <><MapPin size={14} /><span><b>Click</b> to place an item — change type in the right panel · <kbd>{hotkeys.newItem}</kbd> to start a new count</span></>
             ) : activeTool === 'text' ? (
               <><Type size={14} /><span><b>Click</b> to place a text box, then customize its color, background, border, and size</span></>
+            ) : activeTool === 'turf' ? (
+              turfSubmode === 'draw'
+                ? (areaVerts.length === 0
+                  ? <><Sprout size={14} /><span><b>Draw turf area</b> — click vertices · double-click or <kbd>Enter</kbd> to close</span></>
+                  : <><Sprout size={14} /><span>Keep clicking · double-click or <kbd>Enter</kbd> to close · <kbd>Esc</kbd> cancel</span></>)
+                : <><Sprout size={14} /><span>{turfHint || (activeTurfArea ? 'Hover to preview · click to stamp · Shift snaps 15° · R+drag to rotate' : 'Select or draw a turf area first')}</span></>
             ) : activeTool === 'pan' ? (
-              <><Hand size={14} /><span>Drag to pan · scroll to zoom</span></>
+              <><Hand size={14} /><span>Drag to pan · or hold <kbd>Space</kbd> · scroll to zoom</span></>
+            ) : spacePan ? (
+              <><Hand size={14} /><span>Temporary pan — release <kbd>Space</kbd> to return</span></>
             ) : (
               <><SquareDashed size={14} /><span><b>{ALL_TOOLS_BY_ID[activeTool]?.label}</b></span></>
             )}
@@ -2237,6 +2613,10 @@ export default function SheetPage() {
                       <polygon points={previewPoly.map(p => `${p.x},${p.y}`).join(' ')} />
                     </clipPath>
                   )}
+                  <pattern id="turf-hatch" patternUnits="userSpaceOnUse" width={10 * u} height={10 * u} patternTransform="rotate(35)">
+                    <rect width={10 * u} height={10 * u} fill="rgba(21,128,61,0.12)" />
+                    <path d={`M0 ${10 * u} L${10 * u} 0`} stroke="#15803d" strokeWidth={1.2 * u} />
+                  </pattern>
                 </defs>
 
                 {/* Page overlay drag handle — a full-sheet transparent hit
@@ -2284,11 +2664,12 @@ export default function SheetPage() {
                   const inRegionMode = activeTool === 'region' && hasRegion
                   const isSelected = selectedId === a.id || selectedIds.includes(a.id)
                   const hasArcs = a.arcSegs && Object.keys(a.arcSegs).length > 0
-                  const areaColor = a.color || CAT_COLOR[a.type]
-                  const fillOp = inRegionMode ? 0.05 : 0.18
+                  const turf = isTurfArea(a)
+                  const areaColor = turf ? '#15803d' : (a.color || CAT_COLOR[a.type])
+                  const fillOp = turf ? 1 : (inRegionMode ? 0.05 : 0.18)
                   const strokeOp = inRegionMode ? 0.3 : 0.85
                   const sharedProps = {
-                    fill: areaColor, fillOpacity: fillOp,
+                    fill: turf ? 'url(#turf-hatch)' : areaColor, fillOpacity: fillOp,
                     stroke: isSelected ? '#000' : (a.deduct ? '#dc2626' : areaColor),
                     strokeOpacity: strokeOp, strokeWidth: isSelected ? strokeW * u * 2 : strokeW * u * 0.75,
                     strokeDasharray: a.deduct ? `${5 * u} ${3 * u}` : (isSelected ? '0' : undefined),
@@ -2409,31 +2790,35 @@ export default function SheetPage() {
                 ))}
 
                 {/* Area drawing overlay */}
-                {activeTool === 'area' && areaVerts.length >= 1 && (() => {
+                {((activeTool === 'area' || (activeTool === 'turf' && turfSubmode === 'draw')) && areaVerts.length >= 1) && (() => {
                   const pathD = buildAreaPreviewPath()
+                  const col = activeTool === 'turf' ? '#15803d' : (CAT_COLOR[areaType] || '#888')
                   return (
                     <>
                       <path d={pathD}
-                        fill={CAT_COLOR[areaType] || '#888'} fillOpacity="0.15"
-                        stroke={CAT_COLOR[areaType] || '#888'} strokeWidth={2*u}
+                        fill={activeTool === 'turf' ? 'url(#turf-hatch)' : col} fillOpacity={activeTool === 'turf' ? 1 : 0.15}
+                        stroke={col} strokeWidth={2*u}
                         strokeLinejoin="round" />
                       {pendingArcThrough && (
                         <circle cx={pendingArcThrough.x} cy={pendingArcThrough.y} r={6*u}
-                          fill={CAT_COLOR[areaType] || '#888'} opacity="0.8" />
+                          fill={col} opacity="0.8" />
                       )}
                       {arcMode && !pendingArcThrough && areaCursor && (
                         <circle cx={areaCursor.x} cy={areaCursor.y} r={5*u}
-                          fill="none" stroke={CAT_COLOR[areaType] || '#888'} strokeWidth={2*u} strokeDasharray={`${3*u} ${2*u}`} />
+                          fill="none" stroke={col} strokeWidth={2*u} strokeDasharray={`${3*u} ${2*u}`} />
                       )}
                     </>
                   )
                 })()}
-                {activeTool === 'area' && areaVerts.map((v, i) => (
+                {(activeTool === 'area' || (activeTool === 'turf' && turfSubmode === 'draw')) && areaVerts.map((v, i) => {
+                  const col = activeTool === 'turf' ? '#15803d' : (CAT_COLOR[areaType] || '#888')
+                  return (
                   <circle key={i} cx={v.x} cy={v.y}
                     r={i === 0 && areaVerts.length >= 3 ? 7*u : 4*u}
-                    fill={i === 0 && areaVerts.length >= 3 ? '#fff' : (CAT_COLOR[areaType] || '#888')}
-                    stroke={CAT_COLOR[areaType] || '#888'} strokeWidth={2*u} />
-                ))}
+                    fill={i === 0 && areaVerts.length >= 3 ? '#fff' : col}
+                    stroke={col} strokeWidth={2*u} />
+                  )
+                })}
 
                 {/* Linear drawing overlay */}
                 {activeTool === 'linear' && linearVerts.length >= 1 && (() => {
@@ -2594,11 +2979,57 @@ export default function SheetPage() {
                   )
                 })}
 
+                {/* Turf roll stamps */}
+                {addedAreas.filter(isTurfArea).flatMap(a => (a.rolls || []).map(r => {
+                  const corners = rollCorners(r, pxPerFt)
+                  const pts = corners.map(p => `${p.x},${p.y}`).join(' ')
+                  const selected = selectedId === r.id || selectedIds.includes(r.id)
+                  const handle = rollHandlePoint(r, pxPerFt)
+                  return (
+                    <g key={r.id}>
+                      <polygon points={pts}
+                        fill="#15803d" fillOpacity={selected ? 0.38 : 0.22}
+                        stroke={selected ? '#14532d' : '#166534'}
+                        strokeWidth={(selected ? 2.2 : 1.4) * u} />
+                      {selected && (
+                        <>
+                          <line x1={r.cx} y1={r.cy} x2={handle.x} y2={handle.y}
+                            stroke="#14532d" strokeWidth={1.2 * u} />
+                          <circle cx={handle.x} cy={handle.y} r={5 * u}
+                            fill="#fff" stroke="#14532d" strokeWidth={1.6 * u} />
+                        </>
+                      )}
+                    </g>
+                  )
+                }))}
+
+                {/* Stamp preview */}
+                {activeTool === 'turf' && turfSubmode === 'stamp' && turfPreview && (() => {
+                  const pts = rollCorners(turfPreview, pxPerFt).map(p => `${p.x},${p.y}`).join(' ')
+                  const ok = turfPreview.valid
+                  return (
+                    <polygon points={pts}
+                      fill={ok ? '#15803d' : '#dc2626'} fillOpacity={0.18}
+                      stroke={ok ? '#15803d' : '#dc2626'} strokeWidth={2 * u}
+                      strokeDasharray={`${5 * u} ${3 * u}`} pointerEvents="none" />
+                  )
+                })()}
+
                 {/* Box select rectangle */}
                 {boxSelect && (
                   <rect x={Math.min(boxSelect.x1, boxSelect.x2)} y={Math.min(boxSelect.y1, boxSelect.y2)}
                     width={Math.abs(boxSelect.x2 - boxSelect.x1)} height={Math.abs(boxSelect.y2 - boxSelect.y1)}
                     fill="var(--brand-500)" fillOpacity="0.08" stroke="var(--brand-500)" strokeWidth="1.5" strokeDasharray="5 3" />
+                )}
+
+                {/* Shared multi-select bounds */}
+                {multiSelectBounds && (
+                  <rect
+                    x={multiSelectBounds.minX} y={multiSelectBounds.minY}
+                    width={multiSelectBounds.maxX - multiSelectBounds.minX}
+                    height={multiSelectBounds.maxY - multiSelectBounds.minY}
+                    fill="none" stroke="var(--brand-600)" strokeWidth={1.4 * u}
+                    strokeDasharray={`${6 * u} ${4 * u}`} pointerEvents="none" />
                 )}
 
                 {/* Hover name tooltip (Select tool) */}
@@ -2741,7 +3172,7 @@ export default function SheetPage() {
             <span>{calib ? `Scale set · ${calib.feet} ${calib.unit} = ${Math.round(calib.px)} px` : 'Default scale — click "Set scale" to calibrate'}</span>
           </div>
 
-          <div className={s.zoomPanel}>
+          <div className={s.zoomPanel} data-testid="zoom-hud">
             <button className={s.zoomPanBtn} onClick={() => setZoom(z => Math.max(25, z - 25))}><Minus size={14} /></button>
             <span className={s.zoomPanVal}>{Math.round(zoom)}%</span>
             <button className={s.zoomPanBtn} onClick={() => setZoom(z => Math.min(6400, z + 25))}><Plus size={14} /></button>
@@ -2768,14 +3199,35 @@ export default function SheetPage() {
         {/* Tool detail panel - always visible on right */}
         <aside className={s.rightPanel} style={{
           width: rightPanelCollapsed ? 0 : rightPanelW,
-          minWidth: rightPanelCollapsed ? 0 : 240,
-          maxWidth: 600,
+          minWidth: rightPanelCollapsed ? 0 : PANEL_MIN_PX,
+          maxWidth: rightPanelCollapsed ? 0 : '40vw',
           overflow: rightPanelCollapsed ? 'hidden' : undefined,
           borderLeftWidth: rightPanelCollapsed ? 0 : undefined,
         }}>
-          <div className={s.resizeHandle} style={{ left: -3 }}
-            onMouseDown={e => { e.preventDefault(); const startX = e.clientX, startW = rightPanelW; const move = ev => setRightPanelW(Math.max(240, Math.min(600, startW - (ev.clientX - startX)))); const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }; window.addEventListener('mousemove', move); window.addEventListener('mouseup', up) }} />
-          {activeTool === 'measure' ? (
+          <div className={s.resizeHandle} data-testid="right-resize-handle" style={{ left: -3 }}
+            onMouseDown={e => { e.preventDefault(); startPanelResize('right', e.clientX, rightPanelW) }}
+            onDoubleClick={e => { e.preventDefault(); resetPanelWidth('right') }} />
+          {selectedSoilAreas.length > 0 && (
+            <AreaInspector
+              areas={selectedSoilAreas}
+              areaGroups={areaGroups}
+              sqft={sqft}
+              onApply={applyAreaInspector}
+              fs={fs}
+            />
+          )}
+          {activeTool === 'turf' ? (
+            <TurfPanel
+              submode={turfSubmode}
+              onSubmode={setTurfSubmode}
+              rollW={turfRollW} rollL={turfRollL} rollRot={turfRollRot}
+              onRollW={setTurfRollW} onRollL={setTurfRollL} onRollRot={setTurfRollRot}
+              coverage={activeTurfCoverage}
+              hint={turfHint}
+              hasActiveArea={!!activeTurfArea}
+              fs={fs}
+            />
+          ) : activeTool === 'measure' ? (
             <MeasurePanel
               sessions={measureSessions}
               segments={measureSegments}
@@ -2879,6 +3331,7 @@ export default function SheetPage() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', paddingLeft: 4 }}>
           <span style={{ fontWeight: 700, color: 'var(--text-strong)' }}>{ALL_TOOLS_BY_ID[activeTool]?.label || activeTool}</span>
           {activeTool === 'area' && <span style={{ color: 'var(--brand-600)' }}>· {areaGroups.find(g => g.id === activeAreaGroupId)?.name || 'No group'}</span>}
+          {activeTool === 'turf' && <span style={{ color: '#15803d' }}>· {turfSubmode === 'draw' ? 'Draw area' : 'Stamp rolls'}</span>}
           {activeTool === 'count' && <span style={{ color: 'var(--brand-600)' }}>· {countGroups.find(g => g.id === activeCountGroupId)?.name || 'No group'}</span>}
         </div>
       </div>
@@ -3228,7 +3681,7 @@ export default function SheetPage() {
                   </select>
                 </div>
                 {eTopsoil === 'custom' && (
-                  <input placeholder="Describe topsoil…" value={eTopsoilCustom} onChange={e => setETopsoilCustom(e.target.value)}
+                  <input placeholder="Topsoil type" value={eTopsoilCustom} onChange={e => setETopsoilCustom(e.target.value)}
                     style={{ padding: '5px 8px', border: '1px solid var(--border-default)', borderRadius: 6, fontSize: 13, background: 'var(--surface-card)', color: 'var(--text-strong)' }} />
                 )}
               </div>
@@ -3238,6 +3691,38 @@ export default function SheetPage() {
                 style={{ padding: '8px 20px', borderRadius: 8, border: '1px solid var(--border-default)', background: 'transparent', fontSize: 14, cursor: 'pointer', color: 'var(--text-muted)' }}>Cancel</button>
               <button onClick={saveEditGroup}
                 style={{ padding: '8px 22px', borderRadius: 8, border: 'none', background: eColor, color: 'white', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingTurfDelete && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setPendingTurfDelete(null)}>
+          <div data-testid="turf-delete-confirm" style={{ background: 'var(--surface-card)', borderRadius: 12, padding: 24, width: 360, boxShadow: '0 8px 40px rgba(0,0,0,0.22)' }}
+            onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 10px', fontSize: 16, fontWeight: 700, color: 'var(--text-strong)' }}>Delete turf area?</h3>
+            <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.45 }}>
+              This turf area has roll stamps. Deleting it will also remove those stamps.
+            </p>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => setPendingTurfDelete(null)}
+                style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border-default)', background: 'transparent', cursor: 'pointer' }}>Cancel</button>
+              <button
+                onClick={() => {
+                  const idSet = new Set(pendingTurfDelete.also || pendingTurfDelete.ids)
+                  pushUndo()
+                  setCountGroups(prev => prev.map(g => ({ ...g, points: g.points.filter(p => !idSet.has(p.id)) })))
+                  setAddedAreas(prev => prev.filter(a => !idSet.has(a.id)).map(a => ({
+                    ...a, rolls: (a.rolls || []).filter(r => !idSet.has(r.id)),
+                  })))
+                  setAddedLines(prev => prev.filter(l => !idSet.has(l.id)))
+                  setSelectedIds([]); setSelectedId(null); setSelectedKind(null)
+                  setPendingTurfDelete(null)
+                }}
+                style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: '#dc2626', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>
+                Delete
+              </button>
             </div>
           </div>
         </div>
@@ -3605,14 +4090,6 @@ function _OldRegionPanel_UNUSED({ hasRegion, regionSqft, regionPerim, totalPoint
 }
 
 // ---- Area draw panel -------------------------------------------------------
-const TOPSOIL_OPTIONS = [
-  { value: 'none', label: 'None' },
-  { value: 'enriched', label: 'Enriched topsoil' },
-  { value: 'sandy_loam', label: 'Sandy loam' },
-  { value: '4way', label: '4 way mix' },
-  { value: 'custom', label: 'Custom…' },
-]
-
 function RegionPanel({ folders, activeFolderId, renamingId, renameVal, onSwitch, onAdd, onDelete,
   onStartRename, onCommitRename, onRenameVal, hasRegion, regionSqft, regionPerim,
   fSq, fLn, isDrawingRegion, onExportMTO,
@@ -3796,7 +4273,7 @@ function AreaPanel({ areaType, onSetAreaType, addedAreas, sqft, fSq, onClearAdde
           </select>
         </div>
         {topsoilType === 'custom' && (
-          <input placeholder="Describe topsoil type…" value={topsoilCustom} onChange={e => onSetTopsoilCustom(e.target.value)}
+          <input placeholder="Topsoil type" value={topsoilCustom} onChange={e => onSetTopsoilCustom(e.target.value)}
             style={{ padding: '5px 8px', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', fontSize: `calc(13px * ${fs})`, background: 'var(--surface-card)', color: 'var(--text-strong)' }} />
         )}
       </div>
