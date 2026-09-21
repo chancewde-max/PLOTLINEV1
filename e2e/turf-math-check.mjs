@@ -1,5 +1,5 @@
 // Fast node smoke for turf / volume math (no browser).
-import { volumeCy, formatCy, mixedValue, DEPTH_PRESETS, areaExportNotes, quoteHeaderFields, areaOwnVolumeCy } from '../src/workspace/areaProps.js'
+import { volumeCy, formatCy, mixedValue, DEPTH_PRESETS, areaExportNotes, quoteHeaderFields, areaOwnVolumeCy, isUngroupedSoilArea } from '../src/workspace/areaProps.js'
 import { takeoffMaterialItems } from '../src/data/takeoff.js'
 import {
   rollCorners, rollFitsInArea, turfCoverage, parseRollFt,
@@ -61,6 +61,10 @@ const orphanedTakeoff = takeoffMaterialItems(
 check('orphaned-group soil uses the same takeoff Notes suffix',
   orphanedTakeoff.some(it => /Loose bed/.test(it.description) && /Ungrouped mix/.test(it.description)),
   JSON.stringify(orphanedTakeoff.map(it => it.description)))
+check('orphan groupId counts as ungrouped soil',
+  isUngroupedSoilArea({ groupId: 'ag-deleted' }, [{ id: 'ag-alive' }]) === true
+    && isUngroupedSoilArea({ groupId: 'ag-alive' }, [{ id: 'ag-alive' }]) === false
+    && isUngroupedSoilArea({ groupId: null }, []) === true)
 const turfOnlyTakeoff = takeoffMaterialItems(
   { sheetIds: ['s1'] },
   { s1: { pxPerFt: 4, savedAreaGroups: [], savedAreas: [{ name: 'Turf Area 1', type: 'turf', kind: 'turf', poly: square }] } },

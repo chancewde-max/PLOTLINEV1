@@ -35,6 +35,13 @@ export function isTurfArea(a) {
   return !!(a && (a.type === 'turf' || a.kind === 'turf'))
 }
 
+/** Soil with no group, or whose groupId no longer exists (orphaned). */
+export function isUngroupedSoilArea(area, groups = []) {
+  if (!area || isTurfArea(area)) return false
+  if (!area.groupId) return true
+  return !(groups || []).some(g => g.id === area.groupId)
+}
+
 export function areaDepthOf(area, groups = []) {
   if (area && area.depth != null && String(area.depth) !== '') return String(area.depth)
   const g = area?.groupId ? groups.find(x => x.id === area.groupId) : null

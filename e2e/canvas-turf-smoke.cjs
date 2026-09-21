@@ -202,6 +202,13 @@ async function main() {
     if (area1Visible) await area1Name.locator('xpath=..').locator('button').last().click()
     record('Area 1 group deleted (orphan polygon is ungrouped)', area1Visible)
     await page.waitForTimeout(250)
+    page.once('download', () => {})
+    await page.getByTestId('mto-export').click()
+    await page.waitForTimeout(200)
+    const orphanMto = await page.getByTestId('mto-last-notes').innerText().catch(() => '')
+    record('exportMTO includes orphaned soil notes',
+      /Depth: 12"/.test(orphanMto) && /Test mix/.test(orphanMto),
+      orphanMto)
     await page.goto(`${BASE}/app/project/proj-1`, { waitUntil: 'networkidle', timeout: 30000 })
     await page.getByText('Essential only').click().catch(() => {})
     await page.waitForTimeout(200)

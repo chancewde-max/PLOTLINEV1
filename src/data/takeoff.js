@@ -6,7 +6,7 @@
 //
 // Units: counts -> EA, areas -> SF, linear -> LF. Deduction items subtract.
 import { polyAreaPx, linePathLenPx } from '../workspace/geometry.js'
-import { areaExportNotes, isTurfArea } from '../workspace/areaProps.js'
+import { areaExportNotes, isUngroupedSoilArea } from '../workspace/areaProps.js'
 
 const DEFAULT_PXFT = 4
 const sign = (it) => (it && it.deduct ? -1 : 1)
@@ -44,9 +44,7 @@ export function takeoffMaterialItems(project, sheets, sheetIds) {
       add(notes ? `${g.name} — ${notes}` : g.name, 'SF', qty, g.key, 'area')
     }
     // Ungrouped soil (no group, or group deleted) uses the same description + Notes suffix.
-    const groupedIds = new Set(groups.map(g => g.id))
-    const ungroupedSoil = (sh.savedAreas || []).filter(a =>
-      !isTurfArea(a) && (!a.groupId || !groupedIds.has(a.groupId)))
+    const ungroupedSoil = (sh.savedAreas || []).filter(a => isUngroupedSoilArea(a, groups))
     const ungroupedByName = {}
     for (const a of ungroupedSoil) {
       const name = (a.name || 'Area').trim() || 'Area'

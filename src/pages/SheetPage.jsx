@@ -28,7 +28,7 @@ import { CATS, CAT_COLOR, SHEET_W, SHEET_H, categoryTotals } from '../data/sampl
 import { inside, polyAreaPx, perimPx, centroid, clipPx2, dist, buildAreaPath, buildLinePath, linePathLenPx, circularArcSeg, bbox } from '../workspace/geometry.js'
 import {
   TOPSOIL_OPTIONS, isTurfArea, areaExportNotes, areaDepthOf, areaTopsoilOf,
-  areaTopsoilCustomOf, quoteHeaderFields, areaOwnVolumeCy,
+  areaTopsoilCustomOf, quoteHeaderFields, areaOwnVolumeCy, isUngroupedSoilArea,
 } from '../workspace/areaProps.js'
 import {
   DEFAULT_ROLL_W_FT, DEFAULT_ROLL_L_FT, DEFAULT_ROLL_ROT,
@@ -1983,10 +1983,15 @@ export default function SheetPage() {
       const notes = areaExportNotes(groupAreas, areaGroups, sqft)
       rows.push(['Area', g.name, groupAreas.length, Math.round(totalSqFt), '', notes])
     })
-    const ungroupedSoil = addedAreas.filter(a => !a.groupId && !isTurfArea(a))
-    if (ungroupedSoil.length) {
-      const totalSqFt = ungroupedSoil.reduce((s, a) => s + sqft(polyAreaPx(a.poly)) * itemSign(a), 0)
-      rows.push(['Area', ungroupedSoil[0].name || 'Area', ungroupedSoil.length, Math.round(totalSqFt), '', areaExportNotes(ungroupedSoil, areaGroups, sqft)])
+    const ungroupedByName = {}
+    for (const a of addedAreas.filter(a => isUngroupedSoilArea(a, areaGroups))) {
+      const name = (a.name || 'Area').trim() || 'Area'
+      if (!ungroupedByName[name]) ungroupedByName[name] = []
+      ungroupedByName[name].push(a)
+    }
+    for (const [name, areas] of Object.entries(ungroupedByName)) {
+      const totalSqFt = areas.reduce((s, a) => s + sqft(polyAreaPx(a.poly)) * itemSign(a), 0)
+      rows.push(['Area', name, areas.length, Math.round(totalSqFt), '', areaExportNotes(areas, areaGroups, sqft)])
     }
     // Linear groups
     linearGroups.forEach(g => {
@@ -3945,6 +3950,7 @@ function generateQuoteEmail(project, sheet, allAreas, allLines, allPoints, vendo
 
   const areaLines = allAreas.map(a => {
     const sf = sqft(polyAreaPx(a.poly))
+    // Per-area CY only from this Area's inspector/group depth — never pageDepthIn.
     const d = areaDepthOf(a, areaGroups || [])
     const depthVal = parseFloat(d) || 0
     const soil = areaTopsoilOf(a, areaGroups || [])
