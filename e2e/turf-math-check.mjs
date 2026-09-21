@@ -53,12 +53,24 @@ const far = { id: 'c', cx: 40 + 40 * pxPerFt, cy: 50, wFt: 10, lFt: 10, rotation
 check('far roll does not snap', snapRollToNeighbors(far, [placed], pxPerFt) === null)
 check('Alt/Option disable skips snap', snapRollToNeighbors(near, [placed], pxPerFt, { disable: true }) === null)
 
-const angledBase = { id: 'e', cx: 0, cy: 0, wFt: 10, lFt: 10, rotation: 33.3 }
-const seat = neighborSnapTargets(angledBase, placed, pxPerFt)[0]
-const angled = { ...angledBase, cx: seat.cx, cy: seat.cy }
-const angledLock = snapRollToNeighbors(angled, [placed], pxPerFt)
-check('neighbor snap does not change rotation', !!(angledLock && angledLock.rotation === 33.3),
-  angledLock ? String(angledLock.rotation) : 'null')
+const a37 = { id: 'a37', cx: 80, cy: 80, wFt: 10, lFt: 10, rotation: 37 }
+const seat37 = neighborSnapTargets({ wFt: 10, lFt: 10, rotation: 37 }, a37, pxPerFt)[0]
+const incoming0 = { id: 'b', cx: seat37.cx, cy: seat37.cy, wFt: 10, lFt: 10, rotation: 0 }
+const lock37 = snapRollToNeighbors(incoming0, [a37], pxPerFt)
+check('adjacent snap adopts neighbor rotation', !!(lock37 && lock37.rotation === 37),
+  lock37 ? String(lock37.rotation) : 'null')
+check('adjacent snap is flush after co-rotate', !!(lock37 && Math.abs(lock37.cx - seat37.cx) < 0.01 && Math.abs(lock37.cy - seat37.cy) < 0.01))
+
+const n0 = { id: 'n0', cx: 0, cy: 50, wFt: 10, lFt: 10, rotation: 0 }
+const n45 = { id: 'n45', cx: 400, cy: 400, wFt: 10, lFt: 10, rotation: 45 }
+const seatN0 = neighborSnapTargets({ wFt: 10, lFt: 10, rotation: 0 }, n0, pxPerFt)[0]
+const conflict = snapRollToNeighbors(
+  { id: 'x', cx: seatN0.cx, cy: seatN0.cy, wFt: 10, lFt: 10, rotation: 12 },
+  [n0, n45],
+  pxPerFt,
+)
+check('PENDING CLIENT: two-angle conflict uses nearest neighbor', !!(conflict && conflict.snapTo === 'n0' && conflict.rotation === 0),
+  conflict ? `${conflict.snapTo}/${conflict.rotation}` : 'null')
 
 check('gaps 2500 / 1500 sq ft roll = 2 needed', estimateRollsNeeded(2500, 15, 100) === 2)
 check('no gaps = 0 needed', estimateRollsNeeded(0, 15, 100) === 0)

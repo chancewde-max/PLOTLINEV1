@@ -2531,8 +2531,8 @@ export default function SheetPage() {
                   : <><Sprout size={14} /><span>Keep clicking · double-click or <kbd>Enter</kbd> to close · <kbd>Esc</kbd> cancel</span></>)
                 : <><Sprout size={14} /><span>{turfHint || (activeTurfArea
                   ? (turfPreview?.snapped
-                    ? 'Snapped flush · click to lock · Alt/Option disables snap · drag freely to any angle'
-                    : 'Hover to preview · snap flush within 0.5 ft · Alt/Option disables snap · free rotation')
+                    ? `Snapped flush at ${Number(turfPreview.rotation).toFixed(1)}° · click to lock · Alt/Option disables snap`
+                    : 'Hover to preview · snap flush + match neighbor angle within 0.5 ft · Alt/Option disables snap · free rotation')
                   : 'Select or draw a turf area first')}</span></>
             ) : activeTool === 'pan' ? (
               <><Hand size={14} /><span>Drag to pan · or hold <kbd>Space</kbd> · scroll to zoom</span></>

@@ -34,18 +34,16 @@ function axisFromDeg(deg) {
   }
 }
 
-function halfExtentOnAxis(roll, axis, pxPerFt) {
-  const corners = rollCorners({ ...roll, cx: 0, cy: 0 }, pxPerFt)
-  return Math.max(...corners.map(p => Math.abs(p.x * axis.x + p.y * axis.y)))
-}
-
-/** Four flush seats around a neighbor (side-by-side and end-to-end). Rotation is unchanged. */
+/**
+ * Four flush seats around a neighbor, assuming `roll` already shares the
+ * neighbor's rotation so long/short edges can meet edge-to-edge.
+ */
 export function neighborSnapTargets(roll, neighbor, pxPerFt) {
   const { ux, uy } = axisFromDeg(neighbor.rotation)
   const nHW = (parseRollFt(neighbor.wFt, 0) * pxPerFt) / 2
   const nHL = (parseRollFt(neighbor.lFt, 0) * pxPerFt) / 2
-  const rHW = halfExtentOnAxis(roll, ux, pxPerFt)
-  const rHL = halfExtentOnAxis(roll, uy, pxPerFt)
+  const rHW = (parseRollFt(roll.wFt, 0) * pxPerFt) / 2
+  const rHL = (parseRollFt(roll.lFt, 0) * pxPerFt) / 2
   const gx = nHW + rHW
   const gy = nHL + rHL
   return [
@@ -57,11 +55,13 @@ export function neighborSnapTargets(roll, neighbor, pxPerFt) {
 }
 
 /**
- * Lock `roll` flush to a neighbor when its edge is within ~0.5 ft world
- * of that neighbor's edge. Center distance to the flush seat equals the
- * edge gap for parallel rolls. Does not change rotation.
- * Translation only — does not rotate the active roll to match the neighbor.
- * Pass `{ disable: true }` for Alt/Option override.
+ * When the stamp is within ~0.5 ft of a flush seat, lock it edge-to-edge
+ * AND adopt that neighbor's rotation (required — translate-only flush is
+ * not acceptable). Free rotation applies when no neighbor is in range or
+ * when `{ disable: true }` (Alt/Option).
+ *
+ * PENDING CLIENT: two in-range neighbors at different angles — V1 picks
+ * the nearest single neighbor by seat/edge distance. Not a product rule.
  */
 export function snapRollToNeighbors(roll, neighbors, pxPerFt, opts = {}) {
   if (opts.disable || !roll || !neighbors?.length) return null
@@ -72,11 +72,12 @@ export function snapRollToNeighbors(roll, neighbors, pxPerFt, opts = {}) {
   let bestDist = Infinity
   for (const n of neighbors) {
     if (!n || n.id === excludeId || n.id === roll.id) continue
-    for (const pos of neighborSnapTargets(roll, n, pxPerFt)) {
+    const aligned = { ...roll, rotation: n.rotation }
+    for (const pos of neighborSnapTargets(aligned, n, pxPerFt)) {
       const d = Math.hypot(pos.cx - roll.cx, pos.cy - roll.cy)
       if (d <= limit && d < bestDist) {
         bestDist = d
-        best = { ...roll, cx: pos.cx, cy: pos.cy, snapped: true, snapTo: n.id }
+        best = { ...aligned, cx: pos.cx, cy: pos.cy, snapped: true, snapTo: n.id }
       }
     }
   }

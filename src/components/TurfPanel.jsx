@@ -57,7 +57,7 @@ export default function TurfPanel({
           {hint || (submode === 'draw'
             ? 'Click vertices · double-click or Enter to close · Esc cancel'
             : hasActiveArea
-              ? 'Hover to preview · snap flush within 0.5 ft · Alt/Option disables snap · drag to any angle'
+              ? 'Hover to preview · snap flush and match neighbor angle within 0.5 ft · Alt/Option disables snap · free rotation otherwise'
               : 'Select or draw a turf area first')}
         </p>
       </div>
