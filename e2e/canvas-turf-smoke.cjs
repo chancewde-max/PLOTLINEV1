@@ -268,6 +268,10 @@ async function main() {
   const failed = results.filter((x) => !x.pass)
   console.log(`\n=== ${failed.length === 0 ? 'ALL PASS' : 'FAILURES: ' + failed.length} ===`)
   if (failed.length) console.log('FAILED: ' + failed.map((f) => f.name).join(' | '))
+  const fs = require('fs')
+  if (failed.length === 0 && fs.existsSync('/opt/cursor/artifacts')) {
+    await page.screenshot({ path: '/opt/cursor/artifacts/turf_adjacent_inherit_flush.png' })
+  }
   await browser.close()
   process.exit(failed.length === 0 ? 0 : 1)
 }
