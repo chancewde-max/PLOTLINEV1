@@ -69,8 +69,29 @@ const conflict = snapRollToNeighbors(
   [n0, n45],
   pxPerFt,
 )
-check('PENDING CLIENT: two-angle conflict uses nearest neighbor', !!(conflict && conflict.snapTo === 'n0' && conflict.rotation === 0),
+check('Chance confirmed: two-angle conflict uses nearest neighbor', !!(conflict && conflict.snapTo === 'n0' && conflict.rotation === 0),
   conflict ? `${conflict.snapTo}/${conflict.rotation}` : 'null')
+
+const a45 = { id: 'a45', cx: 240, cy: 240, wFt: 10, lFt: 10, rotation: 45 }
+const seatB = neighborSnapTargets({ wFt: 10, lFt: 10, rotation: 45 }, a45, pxPerFt)[0]
+const lockB = snapRollToNeighbors(
+  { id: 'b45', cx: seatB.cx, cy: seatB.cy, wFt: 10, lFt: 10, rotation: 0 },
+  [a45],
+  pxPerFt,
+)
+check('chain A→B inherits 45°', !!(lockB && lockB.rotation === 45), lockB ? String(lockB.rotation) : 'null')
+const seatC = neighborSnapTargets({ wFt: 10, lFt: 10, rotation: 45 }, lockB, pxPerFt)[0]
+const lockC = snapRollToNeighbors(
+  { id: 'c45', cx: seatC.cx, cy: seatC.cy, wFt: 10, lFt: 10, rotation: 8 },
+  [a45, lockB],
+  pxPerFt,
+)
+check('chain B→C inherits 45°', !!(lockC && lockC.rotation === 45), lockC ? String(lockC.rotation) : 'null')
+
+const moving0 = { id: 'move', cx: seat37.cx, cy: seat37.cy, wFt: 10, lFt: 10, rotation: 0 }
+const moveLock = snapRollToNeighbors(moving0, [a37], pxPerFt)
+check('move into snap range inherits neighbor angle', !!(moveLock && moveLock.rotation === 37 && Math.abs(moveLock.cx - seat37.cx) < 0.01),
+  moveLock ? `${moveLock.rotation}@${moveLock.cx.toFixed(2)}` : 'null')
 
 check('gaps 2500 / 1500 sq ft roll = 2 needed', estimateRollsNeeded(2500, 15, 100) === 2)
 check('no gaps = 0 needed', estimateRollsNeeded(0, 15, 100) === 0)

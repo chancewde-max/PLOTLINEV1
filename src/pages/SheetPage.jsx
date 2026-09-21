@@ -1341,6 +1341,8 @@ export default function SheetPage() {
         const orig = origDragRef.current
         const host = addedAreas.find(a => a.id === dragAreaIdRef.current)
         if (orig?.mode === 'rotate') {
+          // Free continuous rotate — do not re-snap. Flush may break until the
+          // user moves the roll back into a neighbor seat (no sticky angle-lock).
           const ang = Math.atan2(p.y - orig.cy, p.x - orig.cx) * 180 / Math.PI
           const rot = ang
           setTurfRollRot(String(rot))
@@ -1356,9 +1358,12 @@ export default function SheetPage() {
           const next = (snapped && host && rollFitsInArea(snapped, host.poly, pxPerFt)) ? snapped : rawNext
           const fits = host ? rollFitsInArea(next, host.poly, pxPerFt) : false
           if (fits) {
+            setTurfRollRot(String(next.rotation ?? 0))
             setAddedAreas(prev => prev.map(a => a.id !== dragAreaIdRef.current ? a : {
               ...a,
-              rolls: (a.rolls || []).map(r => r.id === selectedId ? { ...r, cx: next.cx, cy: next.cy } : r),
+              rolls: (a.rolls || []).map(r => r.id === selectedId
+                ? { ...r, cx: next.cx, cy: next.cy, rotation: next.rotation }
+                : r),
             }))
           }
         }
@@ -1582,6 +1587,7 @@ export default function SheetPage() {
       setAddedAreas(prev => prev.map(a => a.id === host.id ? { ...a, rolls: [...(a.rolls || []), roll] } : a))
       setActiveTurfAreaId(host.id)
       setSelectedId(roll.id); setSelectedKind('roll')
+      setTurfRollRot(String(roll.rotation ?? 0))
       return
     }
 
@@ -2531,8 +2537,8 @@ export default function SheetPage() {
                   : <><Sprout size={14} /><span>Keep clicking · double-click or <kbd>Enter</kbd> to close · <kbd>Esc</kbd> cancel</span></>)
                 : <><Sprout size={14} /><span>{turfHint || (activeTurfArea
                   ? (turfPreview?.snapped
-                    ? `Snapped flush at ${Number(turfPreview.rotation).toFixed(1)}° · click to lock · Alt/Option disables snap`
-                    : 'Hover to preview · snap flush + match neighbor angle within 0.5 ft · Alt/Option disables snap · free rotation')
+                    ? `Snapped flush at ${Number(turfPreview.rotation).toFixed(1)}° · click to lock · Alt/Option disables snap and angle inherit`
+                    : 'Hover to preview · place or move within 0.5 ft snaps flush and matches neighbor angle · Alt/Option disables snap · rotate after snap may break flush')
                   : 'Select or draw a turf area first')}</span></>
             ) : activeTool === 'pan' ? (
               <><Hand size={14} /><span>Drag to pan · or hold <kbd>Space</kbd> · scroll to zoom</span></>

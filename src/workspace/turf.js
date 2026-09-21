@@ -55,13 +55,16 @@ export function neighborSnapTargets(roll, neighbor, pxPerFt) {
 }
 
 /**
- * When the stamp is within ~0.5 ft of a flush seat, lock it edge-to-edge
- * AND adopt that neighbor's rotation (required — translate-only flush is
- * not acceptable). Free rotation applies when no neighbor is in range or
- * when `{ disable: true }` (Alt/Option).
+ * When a stamp is within ~0.5 ft of a flush seat, lock it edge-to-edge
+ * AND adopt that neighbor's current rotation (required — translate-only
+ * flush is not acceptable). Applies on first place and when moving an
+ * existing roll into snap range. Free continuous rotation when no
+ * neighbor is in range or when `{ disable: true }` (Alt/Option).
+ * Rotate-after-snap is not sticky: this helper is not applied during
+ * rotate, so flush may break until the user moves back into range.
  *
- * PENDING CLIENT: two in-range neighbors at different angles — V1 picks
- * the nearest single neighbor by seat/edge distance. Not a product rule.
+ * Chance confirmed: two in-range neighbors at different angles — nearest
+ * single neighbor by seat/edge distance wins.
  */
 export function snapRollToNeighbors(roll, neighbors, pxPerFt, opts = {}) {
   if (opts.disable || !roll || !neighbors?.length) return null
