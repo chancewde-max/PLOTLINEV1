@@ -188,32 +188,53 @@ async function main() {
     await page.getByLabel('Roll rotation').fill('0')
     await page.waitForTimeout(80)
 
+    const seats = await page.evaluate(() => {
+      const g = document.querySelector('[data-testid="turf-roll"]')
+      const poly = g?.querySelector('polygon')
+      const svg = poly?.ownerSVGElement
+      if (!poly || !svg) return []
+      const pts = poly.getAttribute('points').trim().split(/\s+/).map((pair) => {
+        const [x, y] = pair.split(',').map(Number)
+        return { x, y }
+      })
+      const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length
+      const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length
+      const toScreen = (x, y) => {
+        const pt = svg.createSVGPoint()
+        pt.x = x
+        pt.y = y
+        const s = pt.matrixTransform(poly.getScreenCTM())
+        return { x: s.x, y: s.y }
+      }
+      return pts.map((a, i) => {
+        const b = pts[(i + 1) % pts.length]
+        const mx = (a.x + b.x) / 2
+        const my = (a.y + b.y) / 2
+        return toScreen(cx + 2 * (mx - cx), cy + 2 * (my - cy))
+      })
+    })
     let inheritHint = false
     let inheritClick = null
     let inheritHintText = ''
-    if (firstBox) {
-      const box2 = await firstRoll.boundingBox()
-      const cx = (box2 || firstBox).x + (box2 || firstBox).width / 2
-      const cy = (box2 || firstBox).y + (box2 || firstBox).height / 2
-      const probes = []
-      for (const ox of [-120, -80, -50, -30, 0, 30, 50, 80, 120, 160]) {
-        for (const oy of [-80, -40, -20, 0, 20, 40, 80]) probes.push([cx + ox, cy + oy])
-      }
-      const expectDeg = neighborRot.toFixed(1)
-      for (const [x, y] of probes) {
-        await page.mouse.move(x, y)
-        await page.waitForTimeout(25)
-        const hint = await page.locator('[data-testid="canvas-hint"]').innerText().catch(() => '')
-        if (hint.includes(`Snapped flush at ${expectDeg}`)) {
-          inheritHint = true
-          inheritHintText = hint
-          inheritClick = [x, y]
-          break
-        }
+    for (const seat of seats) {
+      await page.mouse.move(seat.x, seat.y)
+      await page.waitForTimeout(60)
+      const hint = await page.locator('[data-testid="canvas-hint"]').innerText().catch(() => '')
+      const preview = await page.locator('[data-testid="turf-roll-preview"]').first()
+      const snapped = await preview.getAttribute('data-snapped').catch(() => 'false')
+      const prevRot = await preview.getAttribute('data-rotation').catch(() => '')
+      if (snapped === 'true' && Math.abs(Number(prevRot) - neighborRot) < 0.2) {
+        inheritHint = true
+        inheritHintText = hint
+        inheritClick = [seat.x, seat.y]
+        break
       }
     }
-    record('Adjacent preview inherits neighbor angle + flush', inheritHint, inheritHintText.slice(0, 120))
+    record('Adjacent preview inherits neighbor angle + flush', inheritHint,
+      inheritHintText.slice(0, 140) || `seats=${seats.length} neighbor=${neighborRot}`)
     if (inheritClick) {
+      await page.mouse.click(inheritClick[0], inheritClick[1])
+      await page.waitForTimeout(80)
       await page.mouse.click(inheritClick[0], inheritClick[1])
       await page.waitForTimeout(250)
     }

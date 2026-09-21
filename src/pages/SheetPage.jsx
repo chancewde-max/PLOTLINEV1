@@ -3032,6 +3032,9 @@ export default function SheetPage() {
                   const locked = ok && turfPreview.snapped
                   return (
                     <polygon points={pts}
+                      data-testid="turf-roll-preview"
+                      data-snapped={locked ? 'true' : 'false'}
+                      data-rotation={String(turfPreview.rotation ?? 0)}
                       fill={ok ? '#15803d' : '#dc2626'} fillOpacity={locked ? 0.32 : 0.18}
                       stroke={ok ? '#15803d' : '#dc2626'} strokeWidth={(locked ? 2.6 : 2) * u}
                       strokeDasharray={locked ? undefined : `${5 * u} ${3 * u}`} pointerEvents="none" />
