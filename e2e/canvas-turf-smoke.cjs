@@ -158,6 +158,7 @@ async function main() {
     record('Width input is free-form (no max)', await widthInput.evaluate((el) => el.max === '').catch(() => false))
     await widthInput.fill('8')
     await page.getByLabel('Roll length').fill('12')
+    await page.getByLabel('Roll rotation').fill('37')
     await page.mouse.move(pb.x + pb.width * 0.45, pb.y + pb.height * 0.75)
     await page.mouse.click(pb.x + pb.width * 0.45, pb.y + pb.height * 0.75)
     await page.waitForTimeout(200)
@@ -169,6 +170,40 @@ async function main() {
       /Area sq ft/.test(cov) && /Rolls placed/.test(cov) && /Covered sq ft/.test(cov) && /Coverage %/.test(cov) && /Gaps/.test(cov),
       cov.slice(0, 220))
     record('Free-form roll size shown', /8 × 12 ft/.test(cov), cov.slice(0, 220))
+
+    const firstRot = await page.locator('[data-testid="turf-roll"]').first().getAttribute('data-rotation')
+    record('First stamp keeps typed 37°', Math.abs(Number(firstRot) - 37) < 0.01, `rot=${firstRot}`)
+    await page.getByLabel('Roll rotation').fill('0')
+    await page.waitForTimeout(80)
+
+    const firstBox = await page.locator('[data-testid="turf-roll"]').first().boundingBox()
+    let inheritHint = false
+    let inheritClick = null
+    if (firstBox) {
+      const cx = firstBox.x + firstBox.width / 2
+      const cy = firstBox.y + firstBox.height / 2
+      const probes = []
+      for (const ox of [-80, -50, -30, 0, 30, 50, 80, 110]) {
+        for (const oy of [-50, -20, 0, 20, 50]) probes.push([cx + ox, cy + oy])
+      }
+      for (const [x, y] of probes) {
+        await page.mouse.move(x, y)
+        await page.waitForTimeout(30)
+        const hint = await page.locator('[data-testid="canvas-hint"]').innerText().catch(() => '')
+        if (/Snapped flush at 37/.test(hint)) {
+          inheritHint = true
+          inheritClick = [x, y]
+          break
+        }
+      }
+    }
+    record('Adjacent preview inherits 37° and shows flush hint', inheritHint)
+    if (inheritClick) {
+      await page.mouse.click(inheritClick[0], inheritClick[1])
+      await page.waitForTimeout(250)
+    }
+    const rots = await page.locator('[data-testid="turf-roll"]').evaluateAll((els) => els.map((el) => Number(el.getAttribute('data-rotation'))))
+    record('Second stamp locks at neighbor 37°', rots.filter((r) => Math.abs(r - 37) < 0.05).length >= 2, JSON.stringify(rots))
   }
 
   record('No console/page errors', consoleErrors.length === 0 && pageErrors.length === 0,

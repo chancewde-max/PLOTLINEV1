@@ -2487,7 +2487,7 @@ export default function SheetPage() {
           onTouchMove={onTouchMove}
           onTouchEnd={onTouchEnd}
           onTouchCancel={onTouchEnd}>
-          <div className={s.hint}>
+          <div className={s.hint} data-testid="canvas-hint">
             {activeTool === 'scale' ? (
               scalePts.length === 0
                 ? <><Ruler size={14} /><span><b>Set scale</b> — click the first end of a known distance</span></>
@@ -3008,7 +3008,7 @@ export default function SheetPage() {
                   const selected = selectedId === r.id || selectedIds.includes(r.id)
                   const handle = rollHandlePoint(r, pxPerFt)
                   return (
-                    <g key={r.id} data-testid="turf-roll" data-roll-id={r.id}>
+                    <g key={r.id} data-testid="turf-roll" data-roll-id={r.id} data-rotation={String(r.rotation ?? 0)}>
                       <polygon points={pts}
                         fill="#15803d" fillOpacity={selected ? 0.38 : 0.22}
                         stroke={selected ? '#14532d' : '#166534'}
