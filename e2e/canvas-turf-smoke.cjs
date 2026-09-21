@@ -172,7 +172,10 @@ async function main() {
     record('Quote header falls back to inspector depth/topsoil',
       /Installation depth: 12/.test(quoteBody) && /Test mix/.test(quoteBody),
       quoteBody.replace(/\s+/g, ' ').slice(0, 220))
-    await page.getByRole('button', { name: 'Close' }).click().catch(() => {})
+    await page.keyboard.press('Escape')
+    await page.getByTestId('quote-email-body').waitFor({ state: 'hidden', timeout: 3000 }).catch(async () => {
+      await page.getByRole('button', { name: 'Close dialog' }).click()
+    })
     await page.waitForTimeout(80)
   }
 
