@@ -130,6 +130,13 @@ async function main() {
     for (const [x, y] of pts) { await page.mouse.click(x, y); await page.waitForTimeout(80) }
     await page.keyboard.press('Enter')
     await page.waitForTimeout(200)
+    const closeHud = await page.locator('[data-testid="area-close-sqft"]').innerText().catch(() => '')
+    record('Soil close shows sq ft immediately in HUD', /\d+\.\d+ sq ft/.test(closeHud), closeHud)
+    record('Soil close shows inspector without later Select',
+      await page.locator('[data-testid="area-inspector"]').isVisible().catch(() => false))
+    const closeInsp = await page.locator('[data-testid="area-sqft"]').innerText().catch(() => '')
+    record('Soil close shows inspector sq ft immediately',
+      /\d+\.\d+ sq ft/.test(closeInsp) && closeInsp !== '0.0 sq ft', closeInsp)
     await page.locator('button[aria-label="Select"]').click()
     await page.mouse.click(pts[0][0] + 40, pts[0][1] + 40)
     await page.waitForTimeout(200)
@@ -150,6 +157,15 @@ async function main() {
       labels.join('|'))
     await topsoil.selectOption('custom')
     record('Custom topsoil field placeholder', await inspector.getByPlaceholder('Topsoil type').isVisible().catch(() => false))
+    await inspector.getByPlaceholder('Topsoil type').fill('Test mix')
+    await page.waitForTimeout(80)
+    page.once('download', () => {})
+    await page.getByTestId('mto-export').click()
+    await page.waitForTimeout(200)
+    const mtoNotes = await page.getByTestId('mto-last-notes').innerText().catch(() => '')
+    record('Inspector depth/topsoil flows into MTO notes',
+      /Depth: 12"/.test(mtoNotes) && /cy/.test(mtoNotes) && /Test mix/.test(mtoNotes),
+      mtoNotes)
   }
 
   // Turf tool
@@ -184,6 +200,10 @@ async function main() {
     record('R in turf stamp does not steal Region tool', stampTool === 'turf' && stampMode === 'stamp',
       `tool=${stampTool} submode=${stampMode}`)
     await page.keyboard.up('r')
+    await page.keyboard.press('a')
+    await page.waitForTimeout(80)
+    const afterA = await page.locator('[data-testid="canvas-hint"]').getAttribute('data-active-tool')
+    record('A in turf stamp does not steal soil Area tool', afterA === 'turf', `tool=${afterA}`)
     const widthInput = page.getByLabel('Roll width')
     record('Width input is free-form (no max)', await widthInput.evaluate((el) => el.max === '').catch(() => false))
     await widthInput.fill('8')
@@ -332,6 +352,21 @@ async function main() {
       record('Hold-R rotates stamp without leaving turf',
         stillTurf === 'turf' && Number.isFinite(afterRot) && Math.abs(afterRot - beforeRot) > 2,
         `tool=${stillTurf} ${beforeRot}→${afterRot}`)
+    }
+
+    await page.locator('button[aria-label="Select"]').click()
+    await page.waitForTimeout(80)
+    const beforeCx = Number(await firstRoll.getAttribute('data-cx'))
+    const turfBox = await page.locator('[data-testid="turf-area"]').first().boundingBox()
+    if (turfBox && Number.isFinite(beforeCx)) {
+      await page.mouse.move(turfBox.x + 36, turfBox.y + 22)
+      await page.mouse.down()
+      await page.mouse.move(turfBox.x + 96, turfBox.y + 22)
+      await page.mouse.up()
+      await page.waitForTimeout(120)
+      const afterCx = Number(await page.locator('[data-testid="turf-roll"]').first().getAttribute('data-cx'))
+      record('Moving turf polygon moves child stamps', Number.isFinite(afterCx) && Math.abs(afterCx - beforeCx) > 2,
+        `${beforeCx}→${afterCx}`)
     }
     }
 

@@ -26,7 +26,10 @@ import { computeOverlayDiff } from '../components/pdfDiff.js'
 import { uploadPdfAsset, personalPdfPath, orgPdfPath } from '../data/pdfStorage.js'
 import { CATS, CAT_COLOR, SHEET_W, SHEET_H, categoryTotals } from '../data/sampleData.js'
 import { inside, polyAreaPx, perimPx, centroid, clipPx2, dist, buildAreaPath, buildLinePath, linePathLenPx, circularArcSeg, bbox } from '../workspace/geometry.js'
-import { TOPSOIL_OPTIONS, isTurfArea } from '../workspace/areaProps.js'
+import {
+  TOPSOIL_OPTIONS, isTurfArea, areaExportNotes, areaDepthOf, areaTopsoilOf,
+  areaTopsoilCustomOf,
+} from '../workspace/areaProps.js'
 import {
   DEFAULT_ROLL_W_FT, DEFAULT_ROLL_L_FT, DEFAULT_ROLL_ROT,
   parseRollFt, rollCorners, rollHandlePoint, rollFitsInArea, pointInRoll,
@@ -384,6 +387,8 @@ export default function SheetPage() {
   const [turfRollL, setTurfRollL]       = useState(String(DEFAULT_ROLL_L_FT))
   const [turfRollRot, setTurfRollRot]   = useState(String(DEFAULT_ROLL_ROT))
   const [turfHint, setTurfHint]         = useState('')
+  const [areaCloseHint, setAreaCloseHint] = useState('')
+  const [lastMtoNotes, setLastMtoNotes] = useState('')
   const [activeTurfAreaId, setActiveTurfAreaId] = useState(null)
   const [turfPreview, setTurfPreview]   = useState(null) // { cx, cy, valid, snapTo }
   const [turfSnapTo, setTurfSnapTo]     = useState(null) // winning neighbor id while snap-previewing
@@ -798,6 +803,7 @@ export default function SheetPage() {
         // (P0 → T → P1), not cubic bezier (P0, C1, C2, P1). Notion §5.1 cubic
         // construction needs a new segment model + diamond-handle editing —
         // do not invent that here. Toggle circular-arc mode only.
+        if (activeTool === 'turf' && turfSubmode === 'stamp') return
         if ((activeTool === 'area' && areaVerts.length > 0) ||
             (activeTool === 'turf' && turfSubmode === 'draw' && areaVerts.length > 0) ||
             (activeTool === 'linear' && linearVerts.length > 0)) {
@@ -805,6 +811,8 @@ export default function SheetPage() {
             if (v) setPendingArcThrough(null)
             return !v
           })
+        } else if (activeTool === 'turf') {
+          // Draw with no verts yet: stay on turf (do not steal to soil Area).
         } else {
           setActiveTool('area')
         }
@@ -972,10 +980,12 @@ export default function SheetPage() {
     const capturedArcSegs = { ...arcSegsRef.current }
     const capturedVerts = [...areaVerts]
     const grp = areaGroups.find(g => g.id === activeAreaGroupId)
+    const id = `ua-${Date.now()}`
+    const closedSqFt = sqft(polyAreaPx(capturedVerts))
     pushUndo()
     setAddedAreas(prev => {
       return [...prev, {
-        id: `ua-${Date.now()}`,
+        id,
         groupId: activeAreaGroupId || null,
         type: areaType,
         name: grp?.name || genName(areaType),
@@ -988,6 +998,8 @@ export default function SheetPage() {
     setAreaVerts([]); setAreaCursor(null)
     setArcMode(false); setPendingArcThrough(null)
     arcSegsRef.current = {}
+    setSelectedId(id); setSelectedKind('area'); setSelectedIds([id])
+    setAreaCloseHint(`${Number.isFinite(closedSqFt) ? closedSqFt.toFixed(1) : '0.0'} sq ft`)
   }
 
   const finishTurfArea = () => {
@@ -1236,7 +1248,10 @@ export default function SheetPage() {
         setSelectedIds(e.shiftKey ? (selectedIds.includes(a.id) ? selectedIds : [...selectedIds, a.id]) : [a.id])
         isDraggingRef.current = true
         dragStartRef.current = p
-        origDragRef.current = a.poly.map(v => ({ ...v }))
+        origDragRef.current = {
+          poly: a.poly.map(v => ({ ...v })),
+          rolls: (a.rolls || []).map(r => ({ ...r })),
+        }
         dragVertIdxRef.current = null
         dragAreaIdRef.current = a.id
         return
@@ -1352,11 +1367,17 @@ export default function SheetPage() {
               : a
           ))
         } else {
-          // Move whole area
-          const origPoly = origDragRef.current
+          // Move whole area — turf stamps follow the parent transform.
+          const orig = origDragRef.current
+          const origPoly = Array.isArray(orig) ? orig : (orig?.poly || [])
+          const origRolls = Array.isArray(orig) ? null : orig?.rolls
           setAddedAreas(prev => prev.map(a =>
             a.id === dragAreaIdRef.current
-              ? { ...a, poly: origPoly.map(v => ({ x: v.x + dx, y: v.y + dy })) }
+              ? {
+                  ...a,
+                  poly: origPoly.map(v => ({ x: v.x + dx, y: v.y + dy })),
+                  rolls: (origRolls || a.rolls || []).map(r => ({ ...r, cx: r.cx + dx, cy: r.cy + dy })),
+                }
               : a
           ))
         }
@@ -1641,6 +1662,7 @@ export default function SheetPage() {
         if (areaVerts.length >= 2 && dist(p, areaVerts[0]) < NEAR) { finishArea(); return }
         setAreaVerts(v => [...v, p]); return
       }
+      setAreaCloseHint('')
       setAreaVerts(v => [...v, p]); return
     }
 
@@ -1946,17 +1968,24 @@ export default function SheetPage() {
     })
     // Area groups
     areaGroups.forEach(g => {
-      const totalSqFt = addedAreas.filter(a => a.groupId === g.id).reduce((s, a) => s + sqft(polyAreaPx(a.poly)) * itemSign(a), 0)
-      const depth = g.depth ? `Depth: ${g.depth}"` : ''
-      const topsoil = g.topsoil && g.topsoil !== 'none' ? `Topsoil: ${g.topsoil}` : ''
-      rows.push(['Area', g.name, addedAreas.filter(a => a.groupId === g.id).length, Math.round(totalSqFt), '', [depth, topsoil].filter(Boolean).join('; ')])
+      const groupAreas = addedAreas.filter(a => a.groupId === g.id)
+      const totalSqFt = groupAreas.reduce((s, a) => s + sqft(polyAreaPx(a.poly)) * itemSign(a), 0)
+      const notes = areaExportNotes(groupAreas, areaGroups, sqft)
+      rows.push(['Area', g.name, groupAreas.length, Math.round(totalSqFt), '', notes])
     })
+    const ungroupedSoil = addedAreas.filter(a => !a.groupId && !isTurfArea(a))
+    if (ungroupedSoil.length) {
+      const totalSqFt = ungroupedSoil.reduce((s, a) => s + sqft(polyAreaPx(a.poly)) * itemSign(a), 0)
+      rows.push(['Area', ungroupedSoil[0].name || 'Area', ungroupedSoil.length, Math.round(totalSqFt), '', areaExportNotes(ungroupedSoil, areaGroups, sqft)])
+    }
     // Linear groups
     linearGroups.forEach(g => {
       const totalLnFt = addedLines.filter(l => l.groupId === g.id).reduce((s, l) => s + lnft(linePathLenPx(l.pts, l.arcSegs)) * itemSign(l), 0)
       rows.push(['Linear', g.name, addedLines.filter(l => l.groupId === g.id).length, '', Math.round(totalLnFt), ''])
     })
     const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n')
+    const areaNotes = rows.filter(r => r[0] === 'Area').map(r => r[5]).filter(Boolean).join(' | ')
+    setLastMtoNotes(areaNotes)
     const blob = new Blob([csv], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -2251,7 +2280,8 @@ export default function SheetPage() {
           </button>
           <Button size="sm" variant="secondary" iconLeft={<Share2 size={14} />}>Share</Button>
           <Button size="sm" variant="ghost" iconLeft={<Share2 size={14} />} onClick={() => { setQuoteVendor(''); setQuoteCopied(false); setQuoteOpen(true) }}>Quote email</Button>
-          <Button size="sm" variant="ghost" iconLeft={<Download size={14} />} onClick={exportMTO}>MTO</Button>
+          <Button size="sm" variant="ghost" iconLeft={<Download size={14} />} onClick={exportMTO} data-testid="mto-export">MTO</Button>
+          <span hidden data-testid="mto-last-notes">{lastMtoNotes}</span>
           <Button size="sm" variant="ghost" iconLeft={<Printer size={14} />} onClick={() => setPrintOpen(true)}>Print</Button>
           <Button size="sm" variant="primary" iconLeft={<FileDown size={14} />} onClick={() => setExportOpen(true)}>Export</Button>
         </div>
@@ -2550,7 +2580,9 @@ export default function SheetPage() {
                 : arcMode
                 ? <><SquareDashed size={14} /><span>Arc mode — click the <b>through-point</b> of the curve · <kbd>A</kbd> to cancel</span></>
                 : areaVerts.length === 0
-                  ? <><SquareDashed size={14} /><span><b>Click</b> to start drawing — <kbd>A</kbd> for arc segment</span></>
+                  ? (areaCloseHint
+                    ? <><SquareDashed size={14} /><span data-testid="area-close-sqft"><b>{areaCloseHint}</b> · click to draw another</span></>
+                    : <><SquareDashed size={14} /><span><b>Click</b> to start drawing — <kbd>A</kbd> for arc segment</span></>)
                   : <><SquareDashed size={14} /><span>Keep clicking · <kbd>A</kbd> for arc · click first point or <kbd>Enter</kbd> to close</span></>
             ) : activeTool === 'linear' ? (
               arcMode && pendingArcThrough
@@ -3047,7 +3079,7 @@ export default function SheetPage() {
                   const snapTarget = !!(turfSnapTo && r.id === turfSnapTo)
                   const handle = rollHandlePoint(r, pxPerFt)
                   return (
-                    <g key={r.id} data-testid="turf-roll" data-roll-id={r.id} data-rotation={String(r.rotation ?? 0)} data-snap-target={snapTarget ? 'true' : 'false'}>
+                    <g key={r.id} data-testid="turf-roll" data-roll-id={r.id} data-cx={String(r.cx)} data-cy={String(r.cy)} data-rotation={String(r.rotation ?? 0)} data-snap-target={snapTarget ? 'true' : 'false'}>
                       <polygon points={pts}
                         fill={snapTarget ? '#d97706' : '#15803d'} fillOpacity={snapTarget ? 0.40 : (selected ? 0.38 : 0.22)}
                         stroke={snapTarget ? '#b45309' : (selected ? '#14532d' : '#166534')}
@@ -3901,8 +3933,14 @@ function generateQuoteEmail(project, sheet, allAreas, allLines, allPoints, vendo
 
   const areaLines = allAreas.map(a => {
     const sf = sqft(polyAreaPx(a.poly))
-    const cy = depthIn > 0 ? ((sf * (depthIn/12))/27).toFixed(1) : null
-    return `  - ${a.name || a.type}: ${fSq(sf)} sq ft${cy ? ` / ${cy} CY` : ''}${depthIn ? ` @ ${depthIn}" depth` : ''}`
+    const d = areaDepthOf(a)
+    const depthVal = parseFloat(d) || depthIn
+    const soil = areaTopsoilOf(a)
+    const soilCustom = areaTopsoilCustomOf(a)
+    const soilLabel = soil === 'custom' ? (soilCustom || 'custom') : soil !== 'none' ? soil : ''
+    const cy = depthVal > 0 ? ((sf * (depthVal / 12)) / 27).toFixed(1) : null
+    const extra = [depthVal ? `@ ${depthVal}"` : '', soilLabel ? soilLabel : ''].filter(Boolean).join(' · ')
+    return `  - ${a.name || a.type}: ${fSq(sf)} sq ft${cy ? ` / ${cy} CY` : ''}${extra ? ` ${extra}` : ''}`
   })
   const lineLines = allLines.map(l => `  - ${l.name || l.type}: ${fLn(lnft(linePathLenPx(l.pts, l.arcSegs)))} ln ft`)
   const ptLines = allPoints.length > 0 ? [`  - ${allPoints.length} item(s): ${allPoints.map(p => p.type).join(', ')}`] : []

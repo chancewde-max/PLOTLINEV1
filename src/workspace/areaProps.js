@@ -1,3 +1,5 @@
+import { polyAreaPx } from './geometry.js'
+
 // Soil Area inspector is IN SCOPE: Custom depth → cy + topsoil.
 // Depth-inch PRESET lists stay empty — do not invent inches.
 // Turf rolls are free L×W only (no thickness).
@@ -55,4 +57,37 @@ export function mixedValue(values) {
   if (!values.length) return { mixed: false, value: '' }
   const first = values[0]
   return values.every(v => v === first) ? { mixed: false, value: first } : { mixed: true, value: first }
+}
+
+function topsoilExportLabel(value, custom) {
+  if (!value || value === 'none') return ''
+  if (value === 'custom') return custom || 'Custom'
+  const o = TOPSOIL_OPTIONS.find(x => x.value === value)
+  return o?.label || value
+}
+
+/** Notes string for existing MTO/export rows — per-area inspector fields. */
+export function areaExportNotes(areas, groups = [], sqftFn) {
+  const list = (areas || []).filter(a => !isTurfArea(a))
+  if (!list.length) return ''
+  const depths = list.map(a => areaDepthOf(a, groups))
+  const soils = list.map(a => areaTopsoilOf(a, groups))
+  const customs = list.map(a => areaTopsoilCustomOf(a, groups))
+  const depthMix = mixedValue(depths)
+  const soilMix = mixedValue(soils)
+  const customMix = mixedValue(customs)
+  const totalCy = list.reduce((sum, a) => {
+    const sf = typeof sqftFn === 'function' ? sqftFn(polyAreaPx(a.poly || [])) : 0
+    return sum + volumeCy(sf, areaDepthOf(a, groups))
+  }, 0)
+  const parts = []
+  if (depthMix.mixed) parts.push('Depth: Multiple')
+  else if (depthMix.value) parts.push(`Depth: ${depthMix.value}"`)
+  if (totalCy > 0) parts.push(formatCy(totalCy))
+  if (soilMix.mixed) parts.push('Topsoil: Multiple')
+  else {
+    const label = topsoilExportLabel(soilMix.value, customMix.value)
+    if (label) parts.push(`Topsoil: ${label}`)
+  }
+  return parts.join('; ')
 }

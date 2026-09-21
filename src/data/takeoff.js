@@ -6,6 +6,7 @@
 //
 // Units: counts -> EA, areas -> SF, linear -> LF. Deduction items subtract.
 import { polyAreaPx, linePathLenPx } from '../workspace/geometry.js'
+import { areaExportNotes } from '../workspace/areaProps.js'
 
 const DEFAULT_PXFT = 4
 const sign = (it) => (it && it.deduct ? -1 : 1)
@@ -38,7 +39,8 @@ export function takeoffMaterialItems(project, sheets, sheetIds) {
     for (const g of sh.savedAreaGroups || []) {
       const areas = (sh.savedAreas || []).filter(a => a.groupId === g.id)
       const qty = areas.reduce((s, a) => s + sqft(polyAreaPx(a.poly)) * sign(a), 0)
-      add(g.name, 'SF', qty, g.key, 'area')
+      const notes = areaExportNotes(areas, sh.savedAreaGroups, sqft)
+      add(notes ? `${g.name} — ${notes}` : g.name, 'SF', qty, g.key, 'area')
     }
     for (const g of sh.savedLinearGroups || []) {
       const lines = (sh.savedLines || []).filter(l => l.groupId === g.id)

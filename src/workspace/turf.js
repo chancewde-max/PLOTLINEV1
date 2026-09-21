@@ -35,8 +35,9 @@ function axisFromDeg(deg) {
 }
 
 /**
- * Four flush seats around a neighbor, assuming `roll` already shares the
- * neighbor's rotation so long/short edges can meet edge-to-edge.
+ * Four *centered* flush seats (along-edge offset = 0). Tests and callers that
+ * want the middle of a face can still use this. Live snap uses nearest real
+ * neighbor edge and keeps the along-edge offset — see snapRollToNeighbors.
  */
 export function neighborSnapTargets(roll, neighbor, pxPerFt) {
   const { ux, uy } = axisFromDeg(neighbor.rotation)
@@ -52,6 +53,22 @@ export function neighborSnapTargets(roll, neighbor, pxPerFt) {
     { cx: neighbor.cx + uy.x * gy, cy: neighbor.cy + uy.y * gy },
     { cx: neighbor.cx - uy.x * gy, cy: neighbor.cy - uy.y * gy },
   ]
+}
+
+/** Local-axis half-sizes and along-edge components vs a neighbor. */
+function neighborEdgeFrame(roll, neighbor, pxPerFt) {
+  const { ux, uy } = axisFromDeg(neighbor.rotation)
+  const nHW = (parseRollFt(neighbor.wFt, 0) * pxPerFt) / 2
+  const nHL = (parseRollFt(neighbor.lFt, 0) * pxPerFt) / 2
+  const rHW = (parseRollFt(roll.wFt, 0) * pxPerFt) / 2
+  const rHL = (parseRollFt(roll.lFt, 0) * pxPerFt) / 2
+  const gx = nHW + rHW
+  const gy = nHL + rHL
+  const dx = roll.cx - neighbor.cx
+  const dy = roll.cy - neighbor.cy
+  const alongX = dx * ux.x + dy * ux.y
+  const alongY = dx * uy.x + dy * uy.y
+  return { ux, uy, gx, gy, alongX, alongY }
 }
 
 /**
@@ -80,11 +97,19 @@ export function snapRollToNeighbors(roll, neighbors, pxPerFt, opts = {}) {
   for (const n of neighbors) {
     if (!n || n.id === excludeId || n.id === roll.id) continue
     const aligned = { ...roll, rotation: n.rotation }
-    for (const pos of neighborSnapTargets(aligned, n, pxPerFt)) {
-      const d = Math.hypot(pos.cx - roll.cx, pos.cy - roll.cy)
-      if (d <= limit && d < bestDist) {
-        bestDist = d
-        best = { ...aligned, cx: pos.cx, cy: pos.cy, snapped: true, snapTo: n.id }
+    const { ux, uy, gx, gy, alongX, alongY } = neighborEdgeFrame(aligned, n, pxPerFt)
+    // Real edge-to-edge: nearest of the four neighbor faces by gap, keeping
+    // the along-edge offset (not only the four centered flush seats).
+    const faces = [
+      { gap: Math.abs(alongX - gx), cx: n.cx + ux.x * gx + uy.x * alongY, cy: n.cy + ux.y * gx + uy.y * alongY },
+      { gap: Math.abs(alongX + gx), cx: n.cx - ux.x * gx + uy.x * alongY, cy: n.cy - ux.y * gx + uy.y * alongY },
+      { gap: Math.abs(alongY - gy), cx: n.cx + uy.x * gy + ux.x * alongX, cy: n.cy + uy.y * gy + ux.y * alongX },
+      { gap: Math.abs(alongY + gy), cx: n.cx - uy.x * gy + ux.x * alongX, cy: n.cy - uy.y * gy + ux.y * alongX },
+    ]
+    for (const f of faces) {
+      if (f.gap <= limit && f.gap < bestDist) {
+        bestDist = f.gap
+        best = { ...aligned, cx: f.cx, cy: f.cy, snapped: true, snapTo: n.id }
       }
     }
   }

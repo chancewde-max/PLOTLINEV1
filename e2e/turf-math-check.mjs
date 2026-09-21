@@ -1,5 +1,5 @@
 // Fast node smoke for turf / volume math (no browser).
-import { volumeCy, formatCy, mixedValue, DEPTH_PRESETS } from '../src/workspace/areaProps.js'
+import { volumeCy, formatCy, mixedValue, DEPTH_PRESETS, areaExportNotes } from '../src/workspace/areaProps.js'
 import {
   rollCorners, rollFitsInArea, turfCoverage, parseRollFt,
   snapRollToNeighbors, neighborSnapTargets, estimateRollsNeeded, DEFAULT_ROLL_W_FT, ROLL_NEIGHBOR_SNAP_FT,
@@ -19,6 +19,14 @@ function check(name, cond, detail) {
 check('No invented depth presets', DEPTH_PRESETS.length === 0, String(DEPTH_PRESETS))
 check('12in over 27 sq ft = 1.00 cy', formatCy(volumeCy(27, 12)) === '1.00 cy', formatCy(volumeCy(27, 12)))
 check('mixedValue detects Multiple', mixedValue(['4', '6']).mixed === true)
+const exportNotes = areaExportNotes(
+  [{ poly: square, depth: '12', topsoil: 'enriched' }],
+  [],
+  (px2) => px2 / (pxPerFt * pxPerFt),
+)
+check('MTO notes include inspector depth + cy + topsoil',
+  /Depth: 12"/.test(exportNotes) && /cy/.test(exportNotes) && /Enriched/.test(exportNotes),
+  exportNotes)
 
 const insideRoll = { cx: 50, cy: 50, wFt: 10, lFt: 10, rotation: 0 }
 const outsideRoll = { cx: 95, cy: 50, wFt: 10, lFt: 20, rotation: 0 }
@@ -46,6 +54,19 @@ check('edge within 0.5 ft snaps flush', !!(locked && locked.snapped), JSON.strin
 check('snapped center is exactly neighbor + (w1+w2)/2', locked && Math.abs(locked.cx - flush) < 0.01 && Math.abs(locked.cy - placed.cy) < 0.01,
   locked ? `${locked.cx},${locked.cy}` : 'null')
 
+const offsetNear = { id: 'off', cx: flush + 0.3 * pxPerFt, cy: 50 + 8, wFt: 10, lFt: 10, rotation: 0 }
+const lockOff = snapRollToNeighbors(offsetNear, [placed], pxPerFt)
+check('offset approach uses real edge (keeps along-edge, flushes face)',
+  !!(lockOff && Math.abs(lockOff.cx - flush) < 0.01 && Math.abs(lockOff.cy - (50 + 8)) < 0.01),
+  lockOff ? `${lockOff.cx},${lockOff.cy}` : 'null')
+
+const longFlush = placed.cy + 10 * pxPerFt
+const longOff = { id: 'long', cx: 40 + 7, cy: longFlush + 0.25 * pxPerFt, wFt: 10, lFt: 10, rotation: 0 }
+const lockLong = snapRollToNeighbors(longOff, [placed], pxPerFt)
+check('length-edge offset snap flushes that face (not a width-center seat)',
+  !!(lockLong && Math.abs(lockLong.cy - longFlush) < 0.01 && Math.abs(lockLong.cx - (40 + 7)) < 0.01),
+  lockLong ? `${lockLong.cx},${lockLong.cy}` : 'null')
+
 const justOut = { id: 'd', cx: flush + 0.75 * pxPerFt, cy: 50, wFt: 10, lFt: 10, rotation: 0 }
 check('edge beyond 0.5 ft does not snap', snapRollToNeighbors(justOut, [placed], pxPerFt) === null)
 
@@ -62,6 +83,29 @@ check('adjacent snap adopts neighbor rotation', !!(lock37 && lock37.rotation ===
 check('adjacent snap is flush after co-rotate', !!(lock37 && Math.abs(lock37.cx - seat37.cx) < 0.01 && Math.abs(lock37.cy - seat37.cy) < 0.01))
 check('winning neighbor id is snapTo for hover highlight', !!(lock37 && lock37.snapTo === 'a37'),
   lock37 ? String(lock37.snapTo) : 'null')
+
+const rad37 = 37 * Math.PI / 180
+const ux37 = { x: Math.cos(rad37), y: Math.sin(rad37) }
+const uy37 = { x: -Math.sin(rad37), y: Math.cos(rad37) }
+const gx37 = 10 * pxPerFt
+const along37 = 9
+const gap37 = 0.28 * pxPerFt
+const incoming37off = {
+  id: 'b37off',
+  cx: a37.cx + ux37.x * (gx37 + gap37) + uy37.x * along37,
+  cy: a37.cy + ux37.y * (gx37 + gap37) + uy37.y * along37,
+  wFt: 10, lFt: 10, rotation: 12,
+}
+const expect37 = {
+  cx: a37.cx + ux37.x * gx37 + uy37.x * along37,
+  cy: a37.cy + ux37.y * gx37 + uy37.y * along37,
+}
+const lock37off = snapRollToNeighbors(incoming37off, [a37], pxPerFt)
+check('37° offset inherit+flush uses real edge (not centered seat)',
+  !!(lock37off && lock37off.rotation === 37
+    && Math.abs(lock37off.cx - expect37.cx) < 0.02
+    && Math.abs(lock37off.cy - expect37.cy) < 0.02),
+  lock37off ? `${lock37off.rotation}@${lock37off.cx.toFixed(2)},${lock37off.cy.toFixed(2)}` : 'null')
 
 const n0 = { id: 'n0', cx: 0, cy: 50, wFt: 10, lFt: 10, rotation: 0 }
 const n45 = { id: 'n45', cx: 400, cy: 400, wFt: 10, lFt: 10, rotation: 45 }
