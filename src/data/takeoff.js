@@ -6,6 +6,7 @@
 //
 // Units: counts -> EA, areas -> SF, linear -> LF. Deduction items subtract.
 import { polyAreaPx, linePathLenPx } from '../workspace/geometry.js'
+import { areaExportNotes, isUngroupedSoilArea } from '../workspace/areaProps.js'
 
 const DEFAULT_PXFT = 4
 const sign = (it) => (it && it.deduct ? -1 : 1)
@@ -35,10 +36,25 @@ export function takeoffMaterialItems(project, sheets, sheetIds) {
       const qty = (g.points || []).reduce((s, p) => s + sign(p), 0)
       add(g.name, 'EA', qty, g.key, 'count')
     }
-    for (const g of sh.savedAreaGroups || []) {
+    const groups = sh.savedAreaGroups || []
+    for (const g of groups) {
       const areas = (sh.savedAreas || []).filter(a => a.groupId === g.id)
       const qty = areas.reduce((s, a) => s + sqft(polyAreaPx(a.poly)) * sign(a), 0)
-      add(g.name, 'SF', qty, g.key, 'area')
+      const notes = areaExportNotes(areas, groups, sqft)
+      add(notes ? `${g.name} — ${notes}` : g.name, 'SF', qty, g.key, 'area')
+    }
+    // Ungrouped soil (no group, or group deleted) uses the same description + Notes suffix.
+    const ungroupedSoil = (sh.savedAreas || []).filter(a => isUngroupedSoilArea(a, groups))
+    const ungroupedByName = {}
+    for (const a of ungroupedSoil) {
+      const name = (a.name || 'Area').trim() || 'Area'
+      if (!ungroupedByName[name]) ungroupedByName[name] = []
+      ungroupedByName[name].push(a)
+    }
+    for (const [name, areas] of Object.entries(ungroupedByName)) {
+      const qty = areas.reduce((s, a) => s + sqft(polyAreaPx(a.poly || [])) * sign(a), 0)
+      const notes = areaExportNotes(areas, groups, sqft)
+      add(notes ? `${name} — ${notes}` : name, 'SF', qty, '', 'area')
     }
     for (const g of sh.savedLinearGroups || []) {
       const lines = (sh.savedLines || []).filter(l => l.groupId === g.id)

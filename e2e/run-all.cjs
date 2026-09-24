@@ -71,6 +71,7 @@ async function main() {
     ['smoke', 'e2e/smoke.cjs'],
     ['auth', 'e2e/auth-check.cjs'],
     ['nav', 'e2e/nav-check.cjs'],
+    ['canvas-turf', 'e2e/canvas-turf-smoke.cjs'],
   ]
   let failed = 0
   for (const [name, file] of suites) {

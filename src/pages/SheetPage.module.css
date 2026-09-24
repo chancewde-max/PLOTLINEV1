@@ -217,7 +217,8 @@
   background: var(--surface-card);
   border-right: 1px solid var(--border-default);
   min-height: 0;
-  transition: width var(--dur-base) var(--ease-standard), min-width var(--dur-base) var(--ease-standard);
+  /* Width is user-dragged live — don't ease it or the handle lags the pointer. */
+  transition: min-width var(--dur-base) var(--ease-standard);
 }
 
 .leftPanelTabs { padding: 12px 12px 0; }
@@ -423,7 +424,8 @@
   background: var(--surface-card);
   border-left: 1px solid var(--border-default);
   min-height: 0;
-  transition: width var(--dur-base) var(--ease-standard), min-width var(--dur-base) var(--ease-standard);
+  /* Width is user-dragged live — don't ease it or the handle lags the pointer. */
+  transition: min-width var(--dur-base) var(--ease-standard);
 }
 
 /* ---- Folder rows ---- */

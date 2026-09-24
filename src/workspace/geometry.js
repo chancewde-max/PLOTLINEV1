@@ -60,7 +60,8 @@ export function clipPx2(subj, region, step = 4) {
 // Distance between two points
 export function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y) }
 
-// True circular arc SVG segment through 3 points S, T (through-point), E
+// Circular arc SVG segment through 3 points S, T (through-point), E.
+// Not cubic bezier: no C1/C2 control points, no `C` path commands.
 export function circularArcSeg(S, T, E) {
   const ax = S.x, ay = S.y, bx = T.x, by = T.y, cx = E.x, cy = E.y
   const D = 2 * (ax*(by-cy) + bx*(cy-ay) + cx*(ay-by))
