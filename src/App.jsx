@@ -9,6 +9,8 @@ import { RouteSkeleton } from './components/Skeleton.jsx'
 import ConsentBanner from './components/ConsentBanner.jsx'
 import PrivacyPolicy from './pages/PrivacyPolicy.jsx'
 import TermsOfService from './pages/TermsOfService.jsx'
+import ResetPasswordPage from './pages/ResetPasswordPage.jsx'
+import { landingRedirectTarget } from './auth/authFlow.js'
 
 // Lazy-load the pdf-heavy route components so pdf.js / tesseract are not in the
 // initial bundle. SheetPage pulls in pdfjs-dist (and tesseract.js), so it is the
@@ -27,8 +29,10 @@ function SheetPageKeyed() {
 // Logged-in users landing on '/' (bookmark, back-button, typed URL) should go
 // straight to their projects instead of seeing the marketing page again.
 function LandingRoute() {
-  const { user } = useAuth()
-  return user ? <Navigate to="/app" replace /> : <LandingPage />
+  const { user, recoveryPending } = useAuth()
+  const target = landingRedirectTarget({ user, recoveryPending })
+  if (target) return <Navigate to={target} replace />
+  return <LandingPage />
 }
 
 // Single global auth modal, driven by AuthProvider's open-state so any CTA
@@ -75,6 +79,8 @@ export default function App() {
                 <LazyAcceptInvitePage />
               </Suspense>
             } />
+            {/* Registered before the splat so a recovery link is not sent to /app. */}
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="*" element={<Navigate to="/app" replace />} />
           </Routes>
           <AuthModalMount />

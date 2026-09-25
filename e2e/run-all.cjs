@@ -70,6 +70,7 @@ async function main() {
   const suites = [
     ['smoke', 'e2e/smoke.cjs'],
     ['auth', 'e2e/auth-check.cjs'],
+    ['auth-recovery', 'e2e/auth-recovery-check.cjs'],
     ['nav', 'e2e/nav-check.cjs'],
     ['canvas-turf', 'e2e/canvas-turf-smoke.cjs'],
   ]

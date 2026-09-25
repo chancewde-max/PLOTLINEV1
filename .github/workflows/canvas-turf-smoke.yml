@@ -31,6 +31,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Unit tests
+        run: npm test
+
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
@@ -70,6 +73,9 @@ jobs:
           echo "Vite did not become ready in 60s"
           cat /tmp/vite-dev.log || true
           exit 1
+
+      - name: Auth recovery check
+        run: node e2e/auth-recovery-check.cjs
 
       - name: Canvas turf smoke
         run: node e2e/canvas-turf-smoke.cjs

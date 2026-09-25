@@ -86,3 +86,17 @@
   color: var(--text-muted);
   margin-top: 2px;
 }
+
+.status {
+  font-size: 13px;
+  color: var(--text-body);
+  background: var(--surface-sunken);
+  border-radius: 8px;
+  padding: 10px 12px;
+  line-height: 1.45;
+}
+
+.status:focus {
+  outline: 2px solid var(--brand-600);
+  outline-offset: 2px;
+}
