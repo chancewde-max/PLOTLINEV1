@@ -196,6 +196,8 @@ async function missingSheetLoad(browser) {
     const posts = []
     const { ctx, page, errors } = await openSignedInProjects(browser, posts)
     const path = `/app/project/proj-1/sheet/${sheetId}`
+    // Install before the sheet route mounts so its debounce timers are fake.
+    await page.clock.install()
     await page.evaluate((nextPath) => {
       const state = window.history.state || {}
       const idx = typeof state.idx === 'number' ? state.idx + 1 : 1
@@ -207,9 +209,11 @@ async function missingSheetLoad(browser) {
       sheetId,
       { timeout: 5000 },
     )
-    // Sheet save is 400ms, localStorage write is another 500ms, cloud save
-    // is 800ms after the sheets change. 1.5s can miss the remote write.
-    await page.waitForTimeout(3500)
+    // Fake timers, not a wall-clock sleep. runFor fires timers in order, so
+    // the 400ms sheet save, the 500ms localStorage write it schedules, and
+    // the 800ms cloud save all run before the assertions.
+    await page.clock.runFor(10_000)
+    await page.getByText('Sheet not found.').waitFor({ state: 'visible', timeout: 5000 }).catch(() => {})
     const notFound = await page.getByText('Sheet not found.').isVisible().catch(() => false)
     const localHit = await page.evaluate((id) => {
       try {
@@ -1182,7 +1186,9 @@ async function main() {
     const stuck = verts.some(v => Math.hypot(v.x - 750, v.y - 450) < 1)
     const saved = await page2.evaluate(() => {
       const d = JSON.parse(localStorage.getItem('plotline-appdata') || 'null')
-      const polys = d?.sheets?.['sheet-1']?.regionPolys || {}
+      const bag = d && d.sheets
+      const sheet = bag && typeof bag === 'object' && Object.hasOwn(bag, 'sheet-1') ? bag['sheet-1'] : null
+      const polys = sheet?.regionPolys || {}
       return Object.values(polys).flat()
     })
     const savedHit = saved.some(p => p && Math.hypot(p.x - 690, p.y - 530) < 8)
@@ -1309,7 +1315,9 @@ async function main() {
     const panelText = await page2.locator('aside').innerText()
     const saved = await page2.evaluate(() => {
       const d = JSON.parse(localStorage.getItem('plotline-appdata') || 'null')
-      const polys = d?.sheets?.['sheet-1']?.regionPolys || {}
+      const bag = d && d.sheets
+      const sheet = bag && typeof bag === 'object' && Object.hasOwn(bag, 'sheet-1') ? bag['sheet-1'] : null
+      const polys = sheet?.regionPolys || {}
       return Object.values(polys).filter(p => Array.isArray(p) && p.length >= 3)
     })
     const savedOriginal = saved.some(poly => poly.some(p => Math.hypot(p.x - 750, p.y - 450) < 1))

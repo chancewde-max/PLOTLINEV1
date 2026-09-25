@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react'
 import { PROJECTS as D_PROJECTS, SHEETS as D_SHEETS } from './sampleData.js'
 import { emptyOcrMemory, addSample as addOcrSample, addCorrection as addOcrCorrection } from './ocrLearning.js'
+import { ownRecord } from './ownRecord.js'
 
 const Ctx = createContext(null)
 const VER = '6'
@@ -10,17 +11,6 @@ const VER = '6'
 // never re-parse localStorage JSON while clicking around. "Load once, reuse
 // instantly."
 const dataCache = { loaded: false, snapshot: null }
-
-// Bracket access walks Object.prototype, so sheets['__proto__'] and
-// sheets['constructor'] are truthy even when that id was never stored.
-// Unknown ids and those prototype names must stay absent.
-export function ownRecord(bag, id) {
-  if (bag == null || typeof bag !== 'object') return undefined
-  if (!Object.hasOwn(bag, id)) return undefined
-  const value = bag[id]
-  if (value == null || typeof value !== 'object') return undefined
-  return value
-}
 
 // Migrate the legacy single `project.mto` shape into the new versioned array.
 // Old:  project.mto = { fileName, uploadedAt, headers, rows, columnMap }

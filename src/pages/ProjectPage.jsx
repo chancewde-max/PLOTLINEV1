@@ -19,6 +19,7 @@ import MtoPanel from '../components/MtoPanel.jsx'
 import ProposalEditor from '../components/ProposalEditor.jsx'
 import JobManagement from '../components/JobManagement.jsx'
 import { useAppData } from '../data/useAppData.jsx'
+import { ownRecord } from '../data/ownRecord.js'
 import { STATUS_LABEL, STATUS_VARIANT, CATS, CAT_COLOR, SHEET_W, SHEET_H } from '../data/sampleData.js'
 import s from './ProjectPage.module.css'
 
@@ -89,7 +90,7 @@ export default function ProjectPage() {
   if (dataLoading) return <ProjectPageSkeleton />
   if (!project) return <div style={{ padding: 40, color: 'var(--text-muted)' }}>Project not found.</div>
 
-  const sheetList = (project.sheetIds || []).map(id => sheets[id]).filter(Boolean)
+  const sheetList = (project.sheetIds || []).map(id => ownRecord(sheets, id)).filter(Boolean)
 
   // Sheets not assigned to any folder
   const assignedIds = new Set((project.sheetSets || []).flatMap(s => s.sheetIds || []))
@@ -98,7 +99,7 @@ export default function ProjectPage() {
   // Folder/region grouping for the bid proposal.
   const folderGroups = (project.sheetSets || []).map(set => ({
     name: set.name,
-    sheets: (set.sheetIds || []).map(id => sheets[id]).filter(Boolean),
+    sheets: (set.sheetIds || []).map(id => ownRecord(sheets, id)).filter(Boolean),
   })).filter(g => g.sheets.length > 0)
 
   const onDragStart = (e, sheetId) => {
@@ -358,7 +359,7 @@ export default function ProjectPage() {
         )}
 
         {(project.sheetSets || []).map(set => {
-          const setSheets = (set.sheetIds || []).map(id => sheets[id]).filter(Boolean)
+          const setSheets = (set.sheetIds || []).map(id => ownRecord(sheets, id)).filter(Boolean)
           const expanded = expandedSets[set.id] !== false
           const isOver = dragOverTarget === set.id
           const allSelected = setSheets.length > 0 && setSheets.every(sh => selectedSheetIds.has(sh.id))
