@@ -3,7 +3,8 @@ import { volumeCy, formatCy, mixedValue, DEPTH_PRESETS, areaExportNotes, quoteHe
 import { takeoffMaterialItems } from '../src/data/takeoff.js'
 import {
   polyAreaPx, shapeAreaPx, areaShapePx, buildAreaPath, buildChainPath, cubicPreviewCmd,
-  shiftCubicSegsForInsert, translateCubicSegs,
+  shiftCubicSegsForInsert, translateCubicSegs, clipPx2, clipAreaPx2, inside, pointInArea,
+  nearestAreaEdge, nearestOnCubic, splitCubicEdge,
 } from '../src/workspace/geometry.js'
 import {
   rollCorners, rollFitsInArea, turfCoverage, parseRollFt,
@@ -303,6 +304,48 @@ check('takeoff sq ft uses the cubic area, not the chord',
   cubicTakeoff.some(it => it.kind === 'area' && it.qty === Math.round(curveSf) && it.qty !== Math.round(chordSf)),
   JSON.stringify(cubicTakeoff.map(it => it.qty)))
 check('DEPTH_PRESETS stay empty', DEPTH_PRESETS.length === 0)
+
+const enclose = [
+  { x: -50, y: -50 }, { x: 250, y: -50 }, { x: 250, y: 250 }, { x: -50, y: 250 },
+]
+const curvedArea = { poly: unitSquare, cubicSegs: bulge }
+const regionClip = clipAreaPx2(curvedArea, enclose, 4)
+const chordClip = clipPx2(unitSquare, enclose, 4)
+check('enclosing region clip uses the cubic area, 925 sf at 4 px/ft',
+  regionClip.px2 === exactBulge && exactBulge / 16 === 925 && chordClip.px2 === 10000,
+  `clip=${regionClip.px2} chordClip=${chordClip.px2} sf=${exactBulge / 16}`)
+check('region clip without cubics stays on the chord',
+  clipAreaPx2({ poly: unitSquare }, enclose, 4).px2 === chordClip.px2)
+check('circular arcSegs are still clipped as the chord',
+  clipAreaPx2({ poly: unitSquare, arcSegs: { 1: { x: 180, y: 50 } } }, enclose, 4).px2 === chordClip.px2)
+
+check('bulge interior is inside the curved outline and outside the chord polygon',
+  pointInArea({ x: 140, y: 50 }, curvedArea) && !inside({ x: 140, y: 50 }, unitSquare))
+check('square interior is still inside',
+  pointInArea({ x: 50, y: 50 }, curvedArea) && inside({ x: 50, y: 50 }, unitSquare))
+
+const chordOnCurve = nearestOnCubic(
+  { x: 100, y: 0 }, { x: 180, y: 0 }, { x: 180, y: 100 }, { x: 100, y: 100 }, { x: 100, y: 50 },
+)
+const chordHit = nearestAreaEdge(unitSquare, bulge, { x: 100, y: 50 })
+const curveHit = nearestAreaEdge(unitSquare, bulge, { x: 160, y: 50 })
+check('dbl-click on the chord inside the bulge misses the curve',
+  chordOnCurve.dist > 30 && !!chordHit && chordHit.dist > 30,
+  `curve=${chordOnCurve.dist.toFixed(2)} edge=${chordHit ? chordHit.dist.toFixed(2) : 'none'}`)
+check('dbl-click on the curve hits that cubic near t=0.5',
+  !!curveHit && curveHit.cubic && curveHit.edge === 1 && curveHit.dist < 0.5 && Math.abs(curveHit.t - 0.5) < 0.02,
+  curveHit ? `dist=${curveHit.dist.toFixed(3)} t=${curveHit.t.toFixed(3)} edge=${curveHit.edge}` : 'none')
+
+const split = splitCubicEdge(unitSquare, bulge, 1, curveHit.t)
+const splitClip = clipAreaPx2({ poly: split.poly, cubicSegs: split.cubicSegs }, enclose, 4)
+check('splitting the cubic keeps 925 sf and two cubic segments',
+  split.poly.length === 5
+  && Object.keys(split.cubicSegs).length === 2
+  && split.cubicSegs[1] && split.cubicSegs[2]
+  && Math.abs(shapeAreaPx(split.poly, split.cubicSegs) - exactBulge) < 1e-4
+  && splitClip.px2 === exactBulge
+  && Math.hypot(split.poly[2].x - 160, split.poly[2].y - 50) < 0.05,
+  `px2=${shapeAreaPx(split.poly, split.cubicSegs)} keys=${Object.keys(split.cubicSegs).join(',')} pt=${split.poly[2].x.toFixed(2)},${split.poly[2].y.toFixed(2)}`)
 
 if (failed) { console.log(`\nFAILURES: ${failed}`); process.exit(1) }
 console.log('\n=== ALL PASS ===')

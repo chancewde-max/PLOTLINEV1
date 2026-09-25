@@ -25,7 +25,7 @@ import { resolveSheetPdfUrl, sheetHasPdf } from '../components/pdfCache.js'
 import { computeOverlayDiff } from '../components/pdfDiff.js'
 import { uploadPdfAsset, personalPdfPath, orgPdfPath } from '../data/pdfStorage.js'
 import { CATS, CAT_COLOR, SHEET_W, SHEET_H, categoryTotals } from '../data/sampleData.js'
-import { inside, polyAreaPx, perimPx, centroid, clipPx2, dist, buildAreaPath, buildChainPath, buildLinePath, linePathLenPx, circularArcSeg, cubicPreviewCmd, bbox, areaShapePx, shapeAreaPx, cloneCubicSegs, translateCubicSegs, shiftCubicSegsForInsert } from '../workspace/geometry.js'
+import { inside, polyAreaPx, perimPx, centroid, clipAreaPx2, dist, buildAreaPath, buildChainPath, buildLinePath, linePathLenPx, circularArcSeg, cubicPreviewCmd, bbox, areaShapePx, shapeAreaPx, cloneCubicSegs, translateCubicSegs, shiftCubicSegsForInsert, pointInArea, nearestAreaEdge, splitCubicEdge } from '../workspace/geometry.js'
 import {
   TOPSOIL_OPTIONS, isTurfArea, areaExportNotes, areaDepthOf, areaTopsoilOf,
   areaTopsoilCustomOf, quoteHeaderFields, areaOwnVolumeCy, isUngroupedSoilArea,
@@ -1284,17 +1284,17 @@ export default function SheetPage() {
         return
       }
     }
-    // Check added area control points, vertices, then interiors
-    for (let i = addedAreas.length - 1; i >= 0; i--) {
-      const a = addedAreas[i]
-      if (!isTurfArea(a) && a.cubicSegs) {
-        for (const [k, seg] of Object.entries(a.cubicSegs)) {
+    // C1/C2 diamonds render only for the selected area, so only that area's handles are live.
+    if (selectedKind === 'area' && selectedId) {
+      const sel = addedAreas.find(a => a.id === selectedId)
+      if (sel && !isTurfArea(sel) && sel.cubicSegs) {
+        for (const [k, seg] of Object.entries(sel.cubicSegs)) {
           if (!seg?.c1 || !seg?.c2) continue
           for (const which of ['c1', 'c2']) {
             if (dist(p, seg[which]) < hitPx) {
               pushUndo()
-              setSelectedId(a.id); setSelectedKind('area')
-              setSelectedIds(e.shiftKey ? (selectedIds.includes(a.id) ? selectedIds : [...selectedIds, a.id]) : [a.id])
+              setSelectedId(sel.id); setSelectedKind('area')
+              setSelectedIds(e.shiftKey ? (selectedIds.includes(sel.id) ? selectedIds : [...selectedIds, sel.id]) : [sel.id])
               isDraggingRef.current = true
               dragStartRef.current = p
               origDragRef.current = {
@@ -1304,12 +1304,16 @@ export default function SheetPage() {
               }
               dragCubicRef.current = { edge: Number(k), which }
               dragVertIdxRef.current = null
-              dragAreaIdRef.current = a.id
+              dragAreaIdRef.current = sel.id
               return
             }
           }
         }
       }
+    }
+    // Check added area vertices, then curved interiors
+    for (let i = addedAreas.length - 1; i >= 0; i--) {
+      const a = addedAreas[i]
       for (let j = 0; j < a.poly.length; j++) {
         if (dist(p, a.poly[j]) < hitPx) {
           pushUndo()
@@ -1324,7 +1328,7 @@ export default function SheetPage() {
           return
         }
       }
-      if (inside(p, a.poly)) {
+      if (pointInArea(p, a)) {
         pushUndo()
         setSelectedId(a.id); setSelectedKind('area')
         if (isTurfArea(a)) setActiveTurfAreaId(a.id)
@@ -1555,7 +1559,7 @@ export default function SheetPage() {
       }
       for (let i = addedAreas.length - 1; i >= 0 && !found; i--) {
         const a = addedAreas[i]
-        if (a.poly.some(v => dist(rawP, v) < hp) || inside(rawP, a.poly)) found = { x: rawP.x, y: rawP.y, text: (a.name || 'Area') + suffix(a) }
+        if (a.poly.some(v => dist(rawP, v) < hp) || pointInArea(rawP, a)) found = { x: rawP.x, y: rawP.y, text: (a.name || 'Area') + suffix(a) }
       }
       for (let i = addedLines.length - 1; i >= 0 && !found; i--) {
         const l = addedLines[i]
@@ -1756,6 +1760,9 @@ export default function SheetPage() {
         setPendingC2(p); setCurvePhase('p1'); return
       }
       if (curvePhase === 'p1' && pendingC1 && pendingC2) {
+        const p0 = areaVerts[areaVerts.length - 1]
+        // P1 on P0 would store a zero-length edge and a duplicate vertex.
+        if (p0 && dist(p, p0) < 1) return
         const closing = areaVerts.length >= 3 && dist(p, areaVerts[0]) < NEAR
         cubicSegsRef.current[areaVerts.length - 1] = {
           c1: { x: pendingC1.x, y: pendingC1.y },
@@ -1849,27 +1856,24 @@ export default function SheetPage() {
         }
       }
     }
-    // Insert vertex on double-click near edge of selected area
+    // Insert vertex on double-click near an edge of the selected area.
+    // Cubic edges hit-test the curve and split it; the chord of a bulge is not an edge.
     if (activeTool === 'select' && selectedArea) {
       const p = toSheet(e)
       const poly = selectedArea.poly
       const threshold = 12 / ((zoom / 100) * FIT)
-      let bestDist = Infinity, bestIdx = -1, bestPt = null
-      for (let i = 0; i < poly.length; i++) {
-        const a = poly[i], b = poly[(i + 1) % poly.length]
-        const dx = b.x - a.x, dy = b.y - a.y
-        const len2 = dx*dx + dy*dy
-        if (len2 === 0) continue
-        const t = Math.max(0, Math.min(1, ((p.x-a.x)*dx + (p.y-a.y)*dy) / len2))
-        const nx = a.x + t*dx, ny = a.y + t*dy
-        const d = Math.hypot(p.x - nx, p.y - ny)
-        if (d < bestDist) { bestDist = d; bestIdx = i; bestPt = { x: nx, y: ny } }
-      }
-      if (bestIdx !== -1 && bestDist < threshold) {
+      const hit = nearestAreaEdge(poly, selectedArea.cubicSegs, p)
+      const nearEnd = hit?.cubic && (hit.t < 0.02 || hit.t > 0.98)
+      if (hit && hit.dist < threshold && !nearEnd) {
         pushUndo()
-        const newPoly = [...poly.slice(0, bestIdx + 1), bestPt, ...poly.slice(bestIdx + 1)]
-        const newCubic = shiftCubicSegsForInsert(selectedArea.cubicSegs, bestIdx)
-        setAddedAreas(prev => prev.map(a => a.id === selectedId ? { ...a, poly: newPoly, cubicSegs: newCubic } : a))
+        if (hit.cubic) {
+          const split = splitCubicEdge(poly, selectedArea.cubicSegs, hit.edge, hit.t)
+          setAddedAreas(prev => prev.map(a => a.id === selectedId ? { ...a, poly: split.poly, cubicSegs: split.cubicSegs } : a))
+        } else {
+          const newPoly = [...poly.slice(0, hit.edge + 1), hit.point, ...poly.slice(hit.edge + 1)]
+          const newCubic = shiftCubicSegsForInsert(selectedArea.cubicSegs, hit.edge)
+          setAddedAreas(prev => prev.map(a => a.id === selectedId ? { ...a, poly: newPoly, cubicSegs: newCubic } : a))
+        }
         e.stopPropagation()
       }
     }
@@ -1933,7 +1937,7 @@ export default function SheetPage() {
     })
     allAreas.forEach(a => {
       if (!catActive.has(a.type)) return
-      const cp = clipPx2(a.poly, regionPoly, clipStep)
+      const cp = clipAreaPx2(a, regionPoly, clipStep)
       if (cp.px2 > 0) { regionRes[a.type].count += itemSign(a); regionRes[a.type].sqft += sqft(cp.px2) * itemSign(a); areaClip[a.id] = cp }
     })
     allLines.forEach(l => {
@@ -2131,7 +2135,7 @@ export default function SheetPage() {
       const res = {}
       CATS.forEach(c => { res[c.id] = { count: 0, sqft: 0, lnft: 0 } })
       allPoints.forEach(p => { if (inside(p, poly)) res[p.type].count += itemSign(p) })
-      allAreas.forEach(a => { const cp = clipPx2(a.poly, poly, 4); if (cp.px2 > 0) { res[a.type].count += itemSign(a); res[a.type].sqft += sqft(cp.px2) * itemSign(a) } })
+      allAreas.forEach(a => { const cp = clipAreaPx2(a, poly, 4); if (cp.px2 > 0) { res[a.type].count += itemSign(a); res[a.type].sqft += sqft(cp.px2) * itemSign(a) } })
       allLines.forEach(l => { const lc = centroid(l.pts); if (inside(lc, poly)) { res[l.type].count += itemSign(l); res[l.type].lnft += lnft(linePathLenPx(l.pts, l.arcSegs)) * itemSign(l) } })
       CATS.forEach(c => {
         const r = res[c.id]
@@ -4436,7 +4440,7 @@ function RegionPanel({ folders, activeFolderId, renamingId, renameVal, onSwitch,
   const areaResults = (areaGroups || []).map(g => {
     const groupAreas = (addedAreas || []).filter(a => a.groupId === g.id)
     const totalSqft = poly && poly.length >= 3
-      ? groupAreas.reduce((s, a) => { const cp = clipPx2(a.poly, poly, 4); return s + sqft(cp.px2) * itemSign(a) }, 0)
+      ? groupAreas.reduce((s, a) => { const cp = clipAreaPx2(a, poly, 4); return s + sqft(cp.px2) * itemSign(a) }, 0)
       : 0
     return { id: g.id, name: g.name, color: g.color, sqft: totalSqft }
   }).filter(r => r.sqft !== 0)

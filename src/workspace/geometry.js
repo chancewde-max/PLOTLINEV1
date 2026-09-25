@@ -92,7 +92,8 @@ export function translateCubicSegs(cubicSegs, dx, dy) {
   return next
 }
 
-// Drop the cubic on the split edge and shift later edge indexes by +1.
+// Straight-edge insert: drop any cubic on that edge and shift later indexes by +1.
+// A cubic edge is split with splitCubicEdge instead, so the curve is kept.
 export function shiftCubicSegsForInsert(cubicSegs, edgeIndex) {
   const next = {}
   for (const [k, seg] of Object.entries(cloneCubicSegs(cubicSegs))) {
@@ -142,6 +143,145 @@ export function shapeAreaPx(poly, cubicSegs = {}) {
 
 export function areaShapePx(area) {
   return shapeAreaPx(area?.poly || [], area?.cubicSegs)
+}
+
+function lerpPt(a, b, t) {
+  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }
+}
+
+export function cubicPoint(p0, c1, c2, p1, t) {
+  const u = 1 - t
+  const uu = u * u
+  const tt = t * t
+  return {
+    x: uu * u * p0.x + 3 * uu * t * c1.x + 3 * u * tt * c2.x + tt * t * p1.x,
+    y: uu * u * p0.y + 3 * uu * t * c1.y + 3 * u * tt * c2.y + tt * t * p1.y,
+  }
+}
+
+// de Casteljau. Left runs P0 → point, right runs point → P1.
+export function splitCubicAt(p0, c1, c2, p1, t) {
+  const a = lerpPt(p0, c1, t)
+  const b = lerpPt(c1, c2, t)
+  const c = lerpPt(c2, p1, t)
+  const d = lerpPt(a, b, t)
+  const e = lerpPt(b, c, t)
+  const point = lerpPt(d, e, t)
+  return {
+    point,
+    left: { c1: a, c2: d },
+    right: { c1: e, c2: c },
+  }
+}
+
+export function nearestOnCubic(p0, c1, c2, p1, pt, steps = 48) {
+  let bestT = 0
+  let bestD = Infinity
+  let bestP = { x: p0.x, y: p0.y }
+  const consider = (t) => {
+    const p = cubicPoint(p0, c1, c2, p1, t)
+    const d = Math.hypot(p.x - pt.x, p.y - pt.y)
+    if (d < bestD) { bestD = d; bestT = t; bestP = p }
+  }
+  for (let i = 0; i <= steps; i++) consider(i / steps)
+  const span = 1 / steps
+  const lo = Math.max(0, bestT - span)
+  const hi = Math.min(1, bestT + span)
+  for (let i = 0; i <= 16; i++) consider(lo + (hi - lo) * (i / 16))
+  return { t: bestT, p: bestP, dist: bestD }
+}
+
+// Sample cubics into a polyline. Straight edges stay single chords.
+// Does not flatten circular arcSegs.
+export function flattenAreaPoly(poly, cubicSegs = {}, steps = 32) {
+  if (!poly || poly.length < 2) return poly ? poly.map(p => ({ x: p.x, y: p.y })) : []
+  const out = []
+  const n = poly.length
+  for (let i = 0; i < n; i++) {
+    const p0 = poly[i]
+    const p1 = poly[(i + 1) % n]
+    const seg = cubicSegs && cubicSegs[i]
+    if (isCubicSeg(seg)) {
+      for (let s = 0; s < steps; s++) out.push(cubicPoint(p0, seg.c1, seg.c2, p1, s / steps))
+    } else {
+      out.push({ x: p0.x, y: p0.y })
+    }
+  }
+  return out
+}
+
+export function pointInArea(pt, area) {
+  const poly = area?.poly || []
+  if (poly.length < 3) return false
+  const cubics = area?.cubicSegs
+  const curved = cubics && Object.values(cubics).some(isCubicSeg)
+  if (!curved) return inside(pt, poly)
+  return inside(pt, flattenAreaPoly(poly, cubics))
+}
+
+// Region/folder overlap. A curved area fully inside the region uses the exact
+// cubic integral; a partial overlap grid-samples the flattened outline.
+// Areas with only circular arcSegs stay on the chord polygon.
+export function clipAreaPx2(area, region, step = 4) {
+  const poly = area?.poly || []
+  const cubics = area?.cubicSegs
+  const curved = cubics && Object.values(cubics).some(isCubicSeg)
+  if (!curved) return clipPx2(poly, region, step)
+  const flat = flattenAreaPoly(poly, cubics)
+  if (region && region.length >= 3 && flat.length >= 3 && flat.every(p => inside(p, region))) {
+    return { px2: shapeAreaPx(poly, cubics), c: centroid(flat) }
+  }
+  return clipPx2(flat, region, step)
+}
+
+// Closest point on the real edge. Cubic edges use the curve, not the chord.
+export function nearestAreaEdge(poly, cubicSegs, pt) {
+  if (!poly || poly.length < 2 || !pt) return null
+  let best = null
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i]
+    const b = poly[(i + 1) % poly.length]
+    const seg = cubicSegs && cubicSegs[i]
+    if (isCubicSeg(seg)) {
+      const hit = nearestOnCubic(a, seg.c1, seg.c2, b, pt)
+      if (!best || hit.dist < best.dist) {
+        best = { edge: i, dist: hit.dist, point: hit.p, t: hit.t, cubic: true }
+      }
+    } else {
+      const dx = b.x - a.x
+      const dy = b.y - a.y
+      const len2 = dx * dx + dy * dy
+      if (len2 === 0) continue
+      const t = Math.max(0, Math.min(1, ((pt.x - a.x) * dx + (pt.y - a.y) * dy) / len2))
+      const point = { x: a.x + t * dx, y: a.y + t * dy }
+      const d = Math.hypot(pt.x - point.x, pt.y - point.y)
+      if (!best || d < best.dist) best = { edge: i, dist: d, point, t, cubic: false }
+    }
+  }
+  return best
+}
+
+// Insert a vertex on a cubic edge, splitting the bezier at t. Area is preserved.
+export function splitCubicEdge(poly, cubicSegs, edgeIndex, t) {
+  const n = poly.length
+  const p0 = poly[edgeIndex]
+  const p1 = poly[(edgeIndex + 1) % n]
+  const seg = cubicSegs[edgeIndex]
+  const split = splitCubicAt(p0, seg.c1, seg.c2, p1, t)
+  const nextPoly = [
+    ...poly.slice(0, edgeIndex + 1).map(p => ({ x: p.x, y: p.y })),
+    split.point,
+    ...poly.slice(edgeIndex + 1).map(p => ({ x: p.x, y: p.y })),
+  ]
+  const next = {}
+  for (const [k, s] of Object.entries(cloneCubicSegs(cubicSegs))) {
+    const i = Number(k)
+    if (!Number.isInteger(i) || i === edgeIndex) continue
+    next[i > edgeIndex ? i + 1 : i] = s
+  }
+  next[edgeIndex] = split.left
+  next[edgeIndex + 1] = split.right
+  return { poly: nextPoly, cubicSegs: next }
 }
 
 function areaEdgeCmd(start, end, arcThrough, cubic, closing = false) {
