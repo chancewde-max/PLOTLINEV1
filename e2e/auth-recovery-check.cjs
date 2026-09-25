@@ -58,12 +58,13 @@ async function main() {
     if (await signIn.isVisible().catch(() => false)) await signIn.click()
     else await page.getByRole('button', { name: /Start free trial/i }).first().click()
     await page.getByRole('dialog').waitFor({ timeout: 10000 })
-    await page.getByRole('button', { name: 'Forgot password?' }).click()
-    await page.getByText("Enter your email and we'll send you a reset link.").waitFor({ timeout: 10000 })
-    const send = page.getByRole('button', { name: 'Send reset link' })
+    const dialog = page.getByRole('dialog')
+    await dialog.getByRole('button', { name: 'Forgot password?' }).click()
+    await dialog.getByText("Enter your email and we'll send you a reset link.").waitFor({ timeout: 10000 })
+    const send = dialog.getByRole('button', { name: 'Send reset link' })
     record('forgot password opens reset view', await send.isVisible())
-    record('reset view has an email field', await page.getByLabel('Email').isVisible())
-    record('reset view hides the password field', (await page.locator('input[type="password"]').count()) === 0)
+    record('reset view has an email field', await dialog.getByRole('textbox', { name: 'Email' }).isVisible())
+    record('reset view hides the password field', (await dialog.locator('input[type="password"]').count()) === 0)
   } catch (err) {
     record('fatal', false, err.message)
   } finally {
