@@ -1,4 +1,4 @@
-import { polyAreaPx } from './geometry.js'
+import { areaShapePx } from './geometry.js'
 
 // Soil Area inspector is IN SCOPE: Custom depth → cy + topsoil.
 // Depth-inch PRESET lists stay empty — do not invent inches.
@@ -91,7 +91,7 @@ export function areaExportNotes(areas, groups = [], sqftFn) {
   const soilMix = mixedValue(soils)
   const customMix = mixedValue(customs)
   const totalCy = list.reduce((sum, a) => {
-    const sf = typeof sqftFn === 'function' ? sqftFn(polyAreaPx(a.poly || [])) : 0
+    const sf = typeof sqftFn === 'function' ? sqftFn(areaShapePx(a)) : 0
     return sum + volumeCy(sf, areaDepthOf(a, groups))
   }, 0)
   const parts = []

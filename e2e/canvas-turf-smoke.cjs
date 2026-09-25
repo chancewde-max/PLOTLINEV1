@@ -228,6 +228,294 @@ async function main() {
     pb = await page.locator('[class*="paper"]').first().boundingBox()
   }
 
+  // Area cubic bezier (§5.1) — not turf, not circular arc.
+  if (pb) {
+    await page.locator('button[aria-label="Area"]').click()
+    await page.waitForTimeout(200)
+    const cubicDlg = page.getByRole('heading', { name: /New area/i })
+    if (await cubicDlg.isVisible().catch(() => false)) {
+      await page.getByRole('button', { name: /Start drawing/i }).click()
+      await page.waitForTimeout(200)
+    }
+    const hintTool = () => page.locator('[data-testid="canvas-hint"]').getAttribute('data-active-tool')
+    const hintPhase = () => page.locator('[data-testid="canvas-hint"]').getAttribute('data-curve-phase')
+    const v0 = [pb.x + pb.width * 0.62, pb.y + pb.height * 0.20]
+    const c1 = [pb.x + pb.width * 0.74, pb.y + pb.height * 0.08]
+    const c2 = [pb.x + pb.width * 0.90, pb.y + pb.height * 0.16]
+    const p1 = [pb.x + pb.width * 0.88, pb.y + pb.height * 0.36]
+    const v2 = [pb.x + pb.width * 0.62, pb.y + pb.height * 0.36]
+    await page.mouse.click(v0[0], v0[1])
+    await page.waitForTimeout(80)
+    await page.keyboard.press('a')
+    await page.waitForTimeout(80)
+    await page.mouse.move(c1[0], c1[1])
+    await page.waitForTimeout(80)
+    const bandC1 = await page.locator('[data-testid="area-draw-preview"]').getAttribute('d').catch(() => '')
+    record('Live rubber-band while placing C1',
+      (await hintPhase()) === 'c1' && /\sL\s/.test(bandC1 || '') && await page.locator('[data-testid="bezier-handle-ghost"]').count() > 0,
+      `phase=${await hintPhase()} d=${bandC1}`)
+    await page.mouse.click(c1[0], c1[1])
+    await page.waitForTimeout(60)
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(80)
+    record('Esc keeps Area tool and prior point',
+      (await hintTool()) === 'area' && (await hintPhase()) === '',
+      `tool=${await hintTool()} phase=${await hintPhase()}`)
+    await page.keyboard.press('a')
+    await page.waitForTimeout(60)
+    record('A still starts a cubic after Esc (point kept)', (await hintPhase()) === 'c1', `phase=${await hintPhase()}`)
+    await page.mouse.move(c1[0], c1[1])
+    await page.mouse.click(c1[0], c1[1])
+    await page.waitForTimeout(60)
+    await page.mouse.move(c2[0], c2[1])
+    await page.waitForTimeout(60)
+    const bandC2 = await page.locator('[data-testid="area-draw-preview"]').getAttribute('d').catch(() => '')
+    record('Live rubber-band while placing C2',
+      (await hintPhase()) === 'c2' && /\sC\s/.test(bandC2 || ''),
+      `phase=${await hintPhase()} d=${bandC2}`)
+    await page.mouse.click(c2[0], c2[1])
+    await page.waitForTimeout(60)
+    await page.mouse.move(p1[0], p1[1])
+    await page.waitForTimeout(60)
+    const bandP1 = await page.locator('[data-testid="area-draw-preview"]').getAttribute('d').catch(() => '')
+    record('Live rubber-band while placing P1',
+      (await hintPhase()) === 'p1' && /\sC\s/.test(bandP1 || '') && await page.locator('[data-testid="bezier-p1-ghost"]').count() > 0,
+      `phase=${await hintPhase()} d=${bandP1}`)
+    await page.mouse.click(p1[0], p1[1])
+    await page.waitForTimeout(80)
+    await page.mouse.click(v2[0], v2[1])
+    await page.waitForTimeout(80)
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(200)
+    const cubicArea = page.locator('[data-testid="soil-area"][data-cubic-count="1"]').last()
+    const cubicD = await cubicArea.locator('path').getAttribute('d').catch(() => '')
+    const arcCount = await cubicArea.getAttribute('data-arc-count').catch(() => '')
+    record('Closed Area uses cubic C and not a circular A',
+      /\sC\s/.test(cubicD || '') && !/\sA\s/.test(cubicD || '') && arcCount === '0',
+      `arcs=${arcCount} d=${cubicD}`)
+    const px2 = Number(await cubicArea.getAttribute('data-area-px2'))
+    const chord = Number(await cubicArea.getAttribute('data-chord-px2'))
+    const insp = await page.locator('[data-testid="area-sqft"]').innerText().catch(() => '')
+    const expected = `${(px2 / 16).toFixed(1)} sq ft`
+    record('Closed mixed straight+cubic sq ft matches the cubic integral',
+      px2 > chord + 1 && insp === expected,
+      `insp=${insp} expected=${expected} px2=${px2.toFixed(1)} chord=${chord.toFixed(1)}`)
+    await page.locator('button[aria-label="Select"]').click()
+    await page.waitForTimeout(120)
+    const diamonds = page.locator('[data-testid="bezier-handle"][data-pending="false"]')
+    record('Placed cubic has editable C1/C2 diamonds', await diamonds.count() === 2, `n=${await diamonds.count()}`)
+    const beforePx = px2
+    const beforeInsp = insp
+    const handle = diamonds.first()
+    const hb = await handle.boundingBox()
+    if (hb) {
+      await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(hb.x + hb.width / 2 + 36, hb.y + hb.height / 2 + 28)
+      await page.mouse.up()
+      await page.waitForTimeout(150)
+    }
+    const afterHandlePx = Number(await cubicArea.getAttribute('data-area-px2'))
+    const afterHandleInsp = await page.locator('[data-testid="area-sqft"]').innerText().catch(() => '')
+    record('Dragging C1/C2 updates the curve and live sq ft',
+      Number.isFinite(afterHandlePx) && Math.abs(afterHandlePx - beforePx) > 1 && afterHandleInsp !== beforeInsp,
+      `${beforePx.toFixed(1)}→${afterHandlePx.toFixed(1)} ${beforeInsp}→${afterHandleInsp}`)
+    const vertex = page.locator('[data-testid="area-vertex"]').first()
+    const vb = await vertex.boundingBox()
+    const beforeVert = afterHandlePx
+    const beforeVertInsp = afterHandleInsp
+    if (vb) {
+      await page.mouse.move(vb.x + vb.width / 2, vb.y + vb.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(vb.x + vb.width / 2 - 30, vb.y + vb.height / 2 + 24)
+      await page.mouse.up()
+      await page.waitForTimeout(150)
+    }
+    const afterVertPx = Number(await cubicArea.getAttribute('data-area-px2'))
+    const afterVertInsp = await page.locator('[data-testid="area-sqft"]').innerText().catch(() => '')
+    const stillCubic = await cubicArea.locator('path').getAttribute('d').catch(() => '')
+    record('Dragging P0/P1 updates the curve and live sq ft',
+      Number.isFinite(afterVertPx) && Math.abs(afterVertPx - beforeVert) > 1
+      && afterVertInsp !== beforeVertInsp && /\sC\s/.test(stillCubic || ''),
+      `${beforeVert.toFixed(1)}→${afterVertPx.toFixed(1)} ${beforeVertInsp}→${afterVertInsp}`)
+  }
+
+  // Exact QA repro: 100×100 px square, cubic on the right edge, C1(180,0) C2(180,100).
+  // At 4 px/ft the curve is 925 sf and the chord is 625 sf. MouseEvent clientX is
+  // whole pixels in this Chrome, so the click names the sheet point directly.
+  if (pb) {
+    const hud = page.locator('[data-testid="zoom-hud"]')
+    const parseHud = async () => parseInt(String(await hud.innerText()).replace(/[^\d]/g, ''), 10) || 0
+    for (let i = 0; i < 16 && await parseHud() < 90; i++) {
+      await hud.getByLabel('Zoom in').click()
+      await page.waitForTimeout(30)
+    }
+    for (let i = 0; i < 16 && await parseHud() > 140; i++) {
+      await hud.getByLabel('Zoom out').click()
+      await page.waitForTimeout(30)
+    }
+    await page.waitForTimeout(80)
+    const clickSheet = async (x, y, { dbl = false } = {}) => {
+      await page.evaluate(({ x, y, dbl }) => {
+        const svg = [...document.querySelectorAll('svg')].find(s => (s.getAttribute('viewBox') || '').includes('-160'))
+        window.__plotlineSheetPoint = { x, y }
+        const fire = (type, detail) => svg.dispatchEvent(new MouseEvent(type, {
+          bubbles: true, cancelable: true, view: window, button: 0,
+          buttons: type === 'mousedown' ? 1 : 0, detail,
+        }))
+        const once = (detail) => { fire('mousedown', detail); fire('mouseup', detail); fire('click', detail) }
+        once(1)
+        if (dbl) { once(2); fire('dblclick', 2) }
+        window.__plotlineSheetPoint = null
+      }, { x, y, dbl })
+    }
+    await page.locator('button[aria-label="Area"]').click()
+    await page.waitForTimeout(200)
+    const reproDlg = page.getByRole('heading', { name: /New area/i })
+    if (await reproDlg.isVisible().catch(() => false)) {
+      await page.getByRole('button', { name: /Start drawing/i }).click()
+      await page.waitForTimeout(200)
+    }
+    const phase = () => page.locator('[data-testid="canvas-hint"]').getAttribute('data-curve-phase')
+    await clickSheet(0, 0)
+    await page.waitForTimeout(60)
+    await clickSheet(100, 0)
+    await page.waitForTimeout(60)
+    await page.keyboard.press('a')
+    await page.waitForTimeout(60)
+    await clickSheet(180, 0)
+    await page.waitForTimeout(60)
+    await clickSheet(180, 100)
+    await page.waitForTimeout(60)
+    await clickSheet(100, 0)
+    await page.waitForTimeout(80)
+    record('P1 on P0 is ignored and the cubic stays in progress', (await phase()) === 'p1', `phase=${await phase()}`)
+    await clickSheet(100, 100)
+    await page.waitForTimeout(60)
+    await clickSheet(0, 100)
+    await page.waitForTimeout(60)
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(250)
+    const reproArea = () => page.locator('[data-testid="soil-area"]').evaluateAll((nodes) => {
+      const hit = nodes
+        .map(n => ({
+          count: n.getAttribute('data-cubic-count'),
+          px2: Number(n.getAttribute('data-area-px2')),
+        }))
+        .filter(n => Number.isFinite(n.px2) && Math.abs(n.px2 - 14800) < 1)
+      return hit[0] || null
+    })
+    const drawn = await reproArea()
+    const drawnInsp = await page.locator('[data-testid="area-sqft"]').innerText().catch(() => '')
+    record('Inspector sq ft of the bulged square is 925',
+      !!drawn && drawn.count === '1' && drawnInsp === '925.0 sq ft',
+      `insp=${drawnInsp} area=${JSON.stringify(drawn)}`)
+    await page.locator('button[aria-label="Region count"]').click()
+    await page.waitForTimeout(150)
+    const uShape = [[-50, -50], [20, -50], [20, 50], [80, 50], [80, -50], [250, -50], [250, 250], [-50, 250]]
+    for (const [x, y] of uShape) {
+      await clickSheet(x, y)
+      await page.waitForTimeout(40)
+    }
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(400)
+    const uLabels = await page.locator('[data-testid="region-area-label"]').evaluateAll((nodes) =>
+      nodes.map(n => ({ sqft: Number(n.getAttribute('data-sqft')), text: n.textContent })))
+    const uPanel = await page.locator('[data-testid="region-folder-sqft"]').evaluateAll((nodes) =>
+      nodes.map(n => ({ sqft: Number(n.getAttribute('data-sqft')), text: n.textContent })))
+    const nearest5 = (n) => String(Math.round(n / 5) * 5)
+    const near737 = (row) => row && Number.isFinite(row.sqft) && Math.abs(row.sqft - 737.5) < 1
+      && String(row.text).includes(nearest5(row.sqft))
+      && !String(row.text).includes('737.5')
+    record('Concave U region clips the bulge to about 737.5 sf',
+      uLabels.some(near737) && uPanel.some(near737),
+      `labels=${JSON.stringify(uLabels)} panel=${JSON.stringify(uPanel)}`)
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(150)
+    record('Deselected area has no vertex handles', await page.locator('[data-testid="area-vertex"]').count() === 0)
+    await clickSheet(180, 0)
+    await page.waitForTimeout(150)
+    record('Hidden C1 on an unselected area is not hit-testable',
+      await page.locator('[data-testid="area-vertex"]').count() === 0
+      && await page.locator('[data-testid="bezier-handle"][data-pending="false"]').count() === 0)
+    // The miss above arms a zero-size marquee; its mouseup only sees that box
+    // after the next press. Clear it before the bulge click.
+    await clickSheet(-120, -120)
+    await page.waitForTimeout(120)
+    await clickSheet(140, 50)
+    await page.waitForTimeout(200)
+    record('Click in the bulge selects the area',
+      await page.locator('[data-testid="area-vertex"]').count() === 4,
+      `verts=${await page.locator('[data-testid="area-vertex"]').count()}`)
+    await clickSheet(100, 50, { dbl: true })
+    await page.waitForTimeout(200)
+    const afterChord = await reproArea()
+    const afterChordInsp = await page.locator('[data-testid="area-sqft"]').innerText().catch(() => '')
+    record('Dbl-click on the chord inside the bulge does not drop the curve',
+      !!afterChord && afterChord.count === '1' && afterChordInsp === '925.0 sq ft',
+      `insp=${afterChordInsp} area=${JSON.stringify(afterChord)}`)
+    // 4px inside the apex, still within the edge threshold, so the click is on the curve.
+    await clickSheet(156, 50, { dbl: true })
+    await page.waitForTimeout(250)
+    const afterSplit = await reproArea()
+    const afterSplitInsp = await page.locator('[data-testid="area-sqft"]').innerText().catch(() => '')
+    record('Dbl-click on the curve splits it and keeps 925 sf',
+      !!afterSplit && afterSplit.count === '2' && afterSplitInsp === '925.0 sq ft',
+      `insp=${afterSplitInsp} area=${JSON.stringify(afterSplit)}`)
+    await page.locator('button[aria-label="Region count"]').click()
+    await page.waitForTimeout(200)
+    for (const [x, y] of [[-50, -50], [250, -50], [250, 250], [-50, 250]]) {
+      await clickSheet(x, y)
+      await page.waitForTimeout(60)
+    }
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(300)
+    const labels = await page.locator('[class*="areaLabel"]').allInnerTexts().catch(() => [])
+    const panel = await page.locator('aside').last().innerText().catch(() => '')
+    record('Region enclosing the bulge shows 925 sf',
+      labels.some(t => t.replace(/\s+/g, ' ').includes('925 sq ft')) || /925 sf/.test(panel),
+      `labels=${JSON.stringify(labels)} panel=${panel.replace(/\s+/g, ' ').slice(0, 400)}`)
+    await page.locator('button[aria-label="Area"]').click()
+    await page.waitForTimeout(150)
+    const shortDlg = page.getByRole('heading', { name: /New area/i })
+    if (await shortDlg.isVisible().catch(() => false)) {
+      await page.getByRole('button', { name: /Start drawing/i }).click()
+      await page.waitForTimeout(150)
+    }
+    for (let i = 0; i < 40 && await parseHud() < 400; i++) {
+      await hud.getByLabel('Zoom in').click()
+      await page.waitForTimeout(20)
+    }
+    await clickSheet(420, 420)
+    await page.waitForTimeout(40)
+    await page.keyboard.press('a')
+    await page.waitForTimeout(40)
+    await clickSheet(428, 400)
+    await page.waitForTimeout(30)
+    await clickSheet(428, 440)
+    await page.waitForTimeout(30)
+    await clickSheet(428, 420)
+    await page.waitForTimeout(50)
+    const shortPhase = await phase()
+    const shortZoom = await parseHud()
+    await clickSheet(428, 460)
+    await page.waitForTimeout(30)
+    await clickSheet(420, 460)
+    await page.waitForTimeout(30)
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(200)
+    record('High zoom short cubic P1 finishes',
+      shortPhase !== 'p1' && shortZoom >= 400,
+      `phase=${shortPhase} zoom=${shortZoom}`)
+    for (let i = 0; i < 40; i++) {
+      const z = await parseHud()
+      if (z >= 95 && z <= 130) break
+      await hud.getByLabel(z > 130 ? 'Zoom out' : 'Zoom in').click()
+      await page.waitForTimeout(20)
+    }
+    await page.evaluate(() => { window.__plotlineSheetPoint = null })
+  }
+
   // Turf tool
   await page.locator('button[aria-label="Synthetic turf"]').click()
   await page.waitForTimeout(200)
@@ -468,6 +756,306 @@ async function main() {
   await page.waitForTimeout(80)
   const regionTool = await page.locator('[data-testid="canvas-hint"]').getAttribute('data-active-tool')
   record('R outside stamp still selects Region tool', regionTool === 'region', `tool=${regionTool}`)
+
+  // Sheet save is 400ms and app data hits localStorage 500ms after that.
+  await page.waitForTimeout(1000)
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.getByText('Essential only').click().catch(() => {})
+  await page.waitForTimeout(700)
+  const reloaded = await page.locator('[data-testid="soil-area"]').evaluateAll((nodes) => {
+    const hit = nodes
+      .map(n => ({
+        count: Number(n.getAttribute('data-cubic-count') || 0),
+        px2: Number(n.getAttribute('data-area-px2')),
+      }))
+      .find(n => Number.isFinite(n.px2) && Math.abs(n.px2 - 14800) < 1 && n.count >= 1)
+    return hit || null
+  }).catch(() => null)
+  await page.locator('button[aria-label="Select"]').click()
+  await page.waitForTimeout(150)
+  await page.evaluate(() => {
+    const svg = [...document.querySelectorAll('svg')].find(s => (s.getAttribute('viewBox') || '').includes('-160'))
+    window.__plotlineSheetPoint = { x: 50, y: 50 }
+    const fire = (type) => svg.dispatchEvent(new MouseEvent(type, {
+      bubbles: true, cancelable: true, view: window, button: 0,
+      buttons: type === 'mousedown' ? 1 : 0, detail: 1,
+    }))
+    fire('mousedown'); fire('mouseup'); fire('click')
+    window.__plotlineSheetPoint = null
+  })
+  await page.waitForTimeout(250)
+  const reloadedInsp = await page.locator('[data-testid="area-sqft"]').innerText().catch(() => '')
+  record('Save and reload keeps the cubic segments and 925 sf',
+    !!reloaded && reloaded.count >= 1 && reloadedInsp === '925.0 sq ft',
+    `area=${JSON.stringify(reloaded)} insp=${reloadedInsp}`)
+
+  // Release a region-vertex drag over the right panel. The canvas mouseup
+  // never fires there; the window listener has to save, restore labels, and
+  // publish the exact clip.
+  {
+    const fresh = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+    const page2 = await fresh.newPage()
+    await page2.goto(`${BASE}/app/project/proj-1/sheet/sheet-1`, { waitUntil: 'domcontentloaded', timeout: 45000 })
+    const hud = page2.locator('[data-testid="zoom-hud"]')
+    await hud.getByRole('button', { name: 'Zoom in' }).waitFor({ timeout: 20000 })
+    await page2.getByText('Essential only').click().catch(() => {})
+    await page2.locator('button[aria-label="Region count"]').click()
+    await page2.waitForTimeout(200)
+    const clickSheet = async (x, y) => {
+      await page2.evaluate(({ x, y }) => {
+        const svg = [...document.querySelectorAll('svg')].find(s => (s.getAttribute('viewBox') || '').includes('-160'))
+        window.__plotlineSheetPoint = { x, y }
+        const fire = (type) => svg.dispatchEvent(new MouseEvent(type, {
+          bubbles: true, cancelable: true, view: window, button: 0,
+          buttons: type === 'mousedown' ? 1 : 0, detail: 1,
+        }))
+        fire('mousedown'); fire('mouseup'); fire('click')
+        window.__plotlineSheetPoint = null
+      }, { x, y })
+    }
+    for (const [x, y] of [[80, 60], [750, 60], [750, 450], [80, 400]]) {
+      await clickSheet(x, y)
+      await page2.waitForTimeout(40)
+    }
+    await page2.keyboard.press('Enter')
+    await page2.waitForTimeout(400)
+    await page2.getByRole('button', { name: '+ Region' }).click()
+    await page2.waitForTimeout(200)
+    await page2.getByText('Region 1', { exact: true }).click()
+    await page2.waitForTimeout(400)
+    const rockSqft = () => page2.locator('[data-testid="region-folder-sqft"]').evaluateAll((nodes) => {
+      const rock = nodes.find(n => /rock/i.test(n.parentElement?.innerText || ''))
+      return rock ? Number(rock.getAttribute('data-sqft')) : null
+    })
+    const beforeRock = await rockSqft()
+    const beforeLabels = await page2.locator('[data-testid="region-area-label"]').count()
+    const fitHandle = async () => {
+      for (let i = 0; i < 8; i++) {
+        const visible = await page2.evaluate(() => {
+          const hit = [...document.querySelectorAll('[data-testid="region-vertex"]')]
+            .find(el => Math.abs(Number(el.getAttribute('data-x')) - 750) < 1
+              && Math.abs(Number(el.getAttribute('data-y')) - 450) < 1)
+          const main = document.querySelector('main')
+          if (!hit || !main) return false
+          const b = hit.getBoundingClientRect()
+          const m = main.getBoundingClientRect()
+          const x = b.x + b.width / 2
+          const y = b.y + b.height / 2
+          return x > m.left + 8 && x < m.right - 8 && y > m.top + 8 && y < m.bottom - 8
+        })
+        if (visible) return true
+        await hud.getByRole('button', { name: 'Zoom out' }).click()
+        await page2.waitForTimeout(40)
+      }
+      return false
+    }
+    await fitHandle()
+    const handle = await page2.evaluate(() => {
+      const hit = [...document.querySelectorAll('[data-testid="region-vertex"]')]
+        .find(el => Math.abs(Number(el.getAttribute('data-x')) - 750) < 1
+          && Math.abs(Number(el.getAttribute('data-y')) - 450) < 1)
+      const b = hit.getBoundingClientRect()
+      return { x: b.x + b.width / 2, y: b.y + b.height / 2 }
+    })
+    const dest = await page2.evaluate(() => {
+      const svg = [...document.querySelectorAll('svg')].find(s => (s.getAttribute('viewBox') || '').includes('-160'))
+      const rect = svg.getBoundingClientRect()
+      const vb = svg.viewBox.baseVal
+      return {
+        x: rect.left + ((690 - vb.x) / vb.width) * rect.width,
+        y: rect.top + ((530 - vb.y) / vb.height) * rect.height,
+      }
+    })
+    const panel = await page2.locator('aside').boundingBox()
+    const release = { x: panel.x + panel.width * 0.55, y: panel.y + 120 }
+    await page2.evaluate(() => {
+      window.__plotlineCountSheetCommits = true
+      window.__plotlineSheetCommits = 0
+    })
+    await page2.mouse.move(handle.x, handle.y)
+    await page2.mouse.down()
+    await page2.mouse.move(dest.x, dest.y)
+    await page2.waitForTimeout(80)
+    const duringLabels = await page2.locator('[data-testid="region-area-label"]').count()
+    const duringRock = await rockSqft()
+    await page2.evaluate(() => { window.__plotlineSheetCommits = 0 })
+    await page2.mouse.move(release.x, release.y)
+    await page2.mouse.up()
+    await page2.waitForTimeout(900)
+    const mouseupCommits = await page2.evaluate(() => window.__plotlineSheetCommits)
+    const afterLabels = await page2.locator('[data-testid="region-area-label"]').count()
+    const afterRock = await rockSqft()
+    const verts = await page2.locator('[data-testid="region-vertex"]').evaluateAll((nodes) =>
+      nodes.map(n => ({ x: Number(n.getAttribute('data-x')), y: Number(n.getAttribute('data-y')) })))
+    await page2.mouse.move(dest.x + 36, dest.y + 24)
+    await page2.waitForTimeout(150)
+    const afterMoveVerts = await page2.locator('[data-testid="region-vertex"]').evaluateAll((nodes) =>
+      nodes.map(n => ({ x: Number(n.getAttribute('data-x')), y: Number(n.getAttribute('data-y')) })))
+    const afterMoveRock = await rockSqft()
+    const ghostStill = afterMoveVerts.length === verts.length
+      && afterMoveVerts.every((v, i) => v.x === verts[i].x && v.y === verts[i].y)
+      && afterMoveRock === afterRock
+    const dragged = verts.find(v => Math.hypot(v.x - 690, v.y - 530) < 8)
+    const stuck = verts.some(v => Math.hypot(v.x - 750, v.y - 450) < 1)
+    const saved = await page2.evaluate(() => {
+      const d = JSON.parse(localStorage.getItem('plotline-appdata') || 'null')
+      const polys = d?.sheets?.['sheet-1']?.regionPolys || {}
+      return Object.values(polys).flat()
+    })
+    const savedHit = saved.some(p => p && Math.hypot(p.x - 690, p.y - 530) < 8)
+    const savedStuck = saved.some(p => p && Math.hypot(p.x - 750, p.y - 450) < 1)
+    let csvRock = null
+    try {
+      const [download] = await Promise.all([
+        page2.waitForEvent('download', { timeout: 8000 }),
+        page2.getByRole('button', { name: 'Export MTO' }).click(),
+      ])
+      const csv = require('fs').readFileSync(await download.path(), 'utf8')
+      const row = csv.split('\n').find(line => /rock/i.test(line))
+      const cells = row ? row.split(',').map(c => c.replace(/^"|"$/g, '')) : []
+      csvRock = Number(cells[4])
+    } catch (err) {
+      csvRock = NaN
+    }
+    const pass = beforeLabels > 0
+      && duringLabels === 0
+      && duringRock === beforeRock
+      && afterLabels > 0
+      && !!dragged
+      && !stuck
+      && savedHit
+      && !savedStuck
+      && Number.isFinite(afterRock)
+      && Math.abs(afterRock - beforeRock) > 1
+      && csvRock === Math.round(afterRock)
+      && ghostStill
+    record('Region vertex released outside the canvas commits the polygon', pass,
+      `labels ${beforeLabels}->${duringLabels}->${afterLabels} rock ${beforeRock}->${duringRock}->${afterRock} csv=${csvRock} mouseupCommits=${mouseupCommits} vert=${dragged ? dragged.x.toFixed(2) + ',' + dragged.y.toFixed(2) : 'missing'} savedHit=${savedHit} ghostStill=${ghostStill}`)
+    console.log(`OUTSIDE_RELEASE mouseupCommits=${mouseupCommits} rockBefore=${beforeRock} rockAfter=${afterRock} csv=${csvRock} ghostStill=${ghostStill}`)
+    await fresh.close()
+  }
+
+  // Esc during a vertex drag must drop the pending polygon. A later move
+  // and release must not bring it back or write it to the sheet.
+  {
+    const fresh = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+    const page2 = await fresh.newPage()
+    await page2.goto(`${BASE}/app/project/proj-1/sheet/sheet-1`, { waitUntil: 'domcontentloaded', timeout: 45000 })
+    const hud = page2.locator('[data-testid="zoom-hud"]')
+    await hud.getByRole('button', { name: 'Zoom in' }).waitFor({ timeout: 20000 })
+    await page2.getByText('Essential only').click().catch(() => {})
+    await page2.locator('button[aria-label="Region count"]').click()
+    await page2.waitForTimeout(200)
+    const clickSheet = async (x, y) => {
+      await page2.evaluate(({ x, y }) => {
+        const svg = [...document.querySelectorAll('svg')].find(s => (s.getAttribute('viewBox') || '').includes('-160'))
+        window.__plotlineSheetPoint = { x, y }
+        const fire = (type) => svg.dispatchEvent(new MouseEvent(type, {
+          bubbles: true, cancelable: true, view: window, button: 0,
+          buttons: type === 'mousedown' ? 1 : 0, detail: 1,
+        }))
+        fire('mousedown'); fire('mouseup'); fire('click')
+        window.__plotlineSheetPoint = null
+      }, { x, y })
+    }
+    for (const [x, y] of [[80, 60], [750, 60], [750, 450], [80, 400]]) {
+      await clickSheet(x, y)
+      await page2.waitForTimeout(40)
+    }
+    await page2.keyboard.press('Enter')
+    await page2.waitForTimeout(500)
+    await page2.getByRole('button', { name: '+ Region' }).click()
+    await page2.waitForTimeout(200)
+    await page2.getByText('Region 1', { exact: true }).click()
+    await page2.waitForTimeout(400)
+    const rockSqft = () => page2.locator('[data-testid="region-folder-sqft"]').evaluateAll((nodes) => {
+      const rock = nodes.find(n => /rock/i.test(n.parentElement?.innerText || ''))
+      return rock ? Number(rock.getAttribute('data-sqft')) : null
+    })
+    const beforeRock = await rockSqft()
+    for (let i = 0; i < 8; i++) {
+      const visible = await page2.evaluate(() => {
+        const hit = [...document.querySelectorAll('[data-testid="region-vertex"]')]
+          .find(el => Math.abs(Number(el.getAttribute('data-x')) - 750) < 1
+            && Math.abs(Number(el.getAttribute('data-y')) - 450) < 1)
+        const main = document.querySelector('main')
+        if (!hit || !main) return false
+        const b = hit.getBoundingClientRect()
+        const m = main.getBoundingClientRect()
+        const x = b.x + b.width / 2
+        const y = b.y + b.height / 2
+        return x > m.left + 8 && x < m.right - 8 && y > m.top + 8 && y < m.bottom - 8
+      })
+      if (visible) break
+      await hud.getByRole('button', { name: 'Zoom out' }).click()
+      await page2.waitForTimeout(40)
+    }
+    const handle = await page2.evaluate(() => {
+      const hit = [...document.querySelectorAll('[data-testid="region-vertex"]')]
+        .find(el => Math.abs(Number(el.getAttribute('data-x')) - 750) < 1
+          && Math.abs(Number(el.getAttribute('data-y')) - 450) < 1)
+      const b = hit.getBoundingClientRect()
+      return { x: b.x + b.width / 2, y: b.y + b.height / 2 }
+    })
+    const sheetPoint = async (sx, sy) => page2.evaluate(({ sx, sy }) => {
+      const svg = [...document.querySelectorAll('svg')].find(s => (s.getAttribute('viewBox') || '').includes('-160'))
+      const rect = svg.getBoundingClientRect()
+      const vb = svg.viewBox.baseVal
+      return {
+        x: rect.left + ((sx - vb.x) / vb.width) * rect.width,
+        y: rect.top + ((sy - vb.y) / vb.height) * rect.height,
+      }
+    }, { sx, sy })
+    const dest = await sheetPoint(690, 530)
+    const later = await sheetPoint(640, 560)
+    await page2.mouse.move(handle.x, handle.y)
+    await page2.mouse.down()
+    await page2.mouse.move(dest.x, dest.y)
+    await page2.waitForTimeout(80)
+    await page2.keyboard.press('Escape')
+    await page2.waitForTimeout(80)
+    await page2.mouse.move(later.x, later.y)
+    await page2.waitForTimeout(80)
+    await page2.mouse.up()
+    await page2.waitForTimeout(900)
+    await page2.locator('button[aria-label="Region count"]').click()
+    await page2.waitForTimeout(250)
+    const liveVerts = await page2.locator('[data-testid="region-vertex"]').count()
+    const liveLabels = await page2.locator('[data-testid="region-area-label"]').count()
+    const afterRock = await rockSqft()
+    const panelText = await page2.locator('aside').innerText()
+    const saved = await page2.evaluate(() => {
+      const d = JSON.parse(localStorage.getItem('plotline-appdata') || 'null')
+      const polys = d?.sheets?.['sheet-1']?.regionPolys || {}
+      return Object.values(polys).filter(p => Array.isArray(p) && p.length >= 3)
+    })
+    const savedOriginal = saved.some(poly => poly.some(p => Math.hypot(p.x - 750, p.y - 450) < 1))
+    const savedDrag = saved.some(poly => poly.some(p => Math.hypot(p.x - 690, p.y - 530) < 12))
+    let csvRock = null
+    try {
+      const [download] = await Promise.all([
+        page2.waitForEvent('download', { timeout: 8000 }),
+        page2.getByRole('button', { name: 'Export MTO' }).click(),
+      ])
+      const csv = require('fs').readFileSync(await download.path(), 'utf8')
+      const row = csv.split('\n').find(line => /rock/i.test(line))
+      const cells = row ? row.split(',').map(c => c.replace(/^"|"$/g, '')) : []
+      csvRock = Number(cells[4])
+    } catch (err) {
+      csvRock = NaN
+    }
+    const clearedPanel = afterRock == null && !/1,?760/.test(panelText)
+    const pass = liveVerts === 0
+      && liveLabels === 0
+      && savedOriginal
+      && !savedDrag
+      && clearedPanel
+      && csvRock === Math.round(beforeRock)
+    record('Esc during a region-vertex drag leaves the region cleared', pass,
+      `verts=${liveVerts} labels=${liveLabels} rock ${beforeRock}->${afterRock} csv=${csvRock} savedOriginal=${savedOriginal} savedDrag=${savedDrag} clearedPanel=${clearedPanel}`)
+    console.log(`ESC_DRAG verts=${liveVerts} labels=${liveLabels} rockBefore=${beforeRock} rockAfter=${afterRock} csv=${csvRock} clearedPanel=${clearedPanel}`)
+    await fresh.close()
+  }
 
   record('No console/page errors', consoleErrors.length === 0 && pageErrors.length === 0,
     `console=${consoleErrors.length} page=${pageErrors.length} ${consoleErrors[0] || pageErrors[0] || ''}`)

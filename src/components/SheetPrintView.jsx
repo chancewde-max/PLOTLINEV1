@@ -216,7 +216,7 @@ export default function SheetPrintView({
                 )}
                 <svg className={s.overlaySvg} viewBox={`0 0 ${SHEET_W} ${SHEET_H}`} preserveAspectRatio="xMidYMid meet">
                   {d.areas.map((a) => (
-                    <path key={a.id} d={buildAreaPath(a.poly, a.arcSegs)}
+                    <path key={a.id} d={buildAreaPath(a.poly, a.arcSegs, a.cubicSegs)}
                       fill={CAT_COLOR[a.type]} fillOpacity="0.22" stroke={CAT_COLOR[a.type]} strokeWidth="2" />
                   ))}
                   {d.lines.map((l) => (

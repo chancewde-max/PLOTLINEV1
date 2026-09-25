@@ -1,4 +1,4 @@
-import { polyAreaPx, linePathLenPx } from '../workspace/geometry.js'
+import { areaShapePx, linePathLenPx } from '../workspace/geometry.js'
 
 // Sheet canvas dimensions
 export const SHEET_W = 900
@@ -283,7 +283,7 @@ export function categoryTotals(allAreas, allLines, allPoints, sqft, lnft) {
   CATS.forEach((c) => { totals[c.id] = { ...c, count: 0, sqft: 0, lnft: 0 } })
   allAreas.forEach((a) => {
     const t = totals[a.type]
-    if (t) { t.count += 1; t.sqft += sqft(polyAreaPx(a.poly)) }
+    if (t) { t.count += 1; t.sqft += sqft(areaShapePx(a)) }
   })
   allLines.forEach((l) => {
     const t = totals[l.type]

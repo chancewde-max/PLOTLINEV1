@@ -4,7 +4,7 @@ import {
   TOPSOIL_OPTIONS, volumeCy, formatCy, mixedValue,
   areaDepthOf, areaTopsoilOf, areaTopsoilCustomOf,
 } from '../workspace/areaProps.js'
-import { polyAreaPx } from '../workspace/geometry.js'
+import { areaShapePx, areaSelfIntersects } from '../workspace/geometry.js'
 
 export default function AreaInspector({
   areas,
@@ -22,9 +22,9 @@ export default function AreaInspector({
   const soilMix = mixedValue(soils)
   const customMix = mixedValue(customs)
 
-  const totalSqFt = areas.reduce((sum, a) => sum + sqft(polyAreaPx(a.poly || [])), 0)
+  const totalSqFt = areas.reduce((sum, a) => sum + sqft(areaShapePx(a)), 0)
   const totalCy = areas.reduce((sum, a) => {
-    const sf = sqft(polyAreaPx(a.poly || []))
+    const sf = sqft(areaShapePx(a))
     return sum + volumeCy(sf, areaDepthOf(a, areaGroups))
   }, 0)
 
@@ -40,6 +40,11 @@ export default function AreaInspector({
       <div data-testid="area-sqft" style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(12px * ${fs})`, fontWeight: 700, color: 'var(--text-strong)' }}>
         {Number.isFinite(totalSqFt) ? `${totalSqFt.toFixed(1)} sq ft` : '0.0 sq ft'}
       </div>
+      {areas.some(areaSelfIntersects) && (
+        <div data-testid="area-self-intersect" style={{ fontSize: `calc(12px * ${fs})`, fontWeight: 600, color: '#b45309' }}>
+          Self-intersecting outline. The sq ft is the net area.
+        </div>
+      )}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <label style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)', fontWeight: 600, minWidth: 56 }}>Depth</label>
