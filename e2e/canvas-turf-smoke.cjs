@@ -1023,6 +1023,7 @@ async function main() {
     const liveVerts = await page2.locator('[data-testid="region-vertex"]').count()
     const liveLabels = await page2.locator('[data-testid="region-area-label"]').count()
     const afterRock = await rockSqft()
+    const panelText = await page2.locator('aside').innerText()
     const saved = await page2.evaluate(() => {
       const d = JSON.parse(localStorage.getItem('plotline-appdata') || 'null')
       const polys = d?.sheets?.['sheet-1']?.regionPolys || {}
@@ -1043,15 +1044,16 @@ async function main() {
     } catch (err) {
       csvRock = NaN
     }
+    const clearedPanel = afterRock == null && !/1,?760/.test(panelText)
     const pass = liveVerts === 0
       && liveLabels === 0
       && savedOriginal
       && !savedDrag
-      && afterRock === beforeRock
+      && clearedPanel
       && csvRock === Math.round(beforeRock)
     record('Esc during a region-vertex drag leaves the region cleared', pass,
-      `verts=${liveVerts} labels=${liveLabels} rock ${beforeRock}->${afterRock} csv=${csvRock} savedOriginal=${savedOriginal} savedDrag=${savedDrag}`)
-    console.log(`ESC_DRAG verts=${liveVerts} labels=${liveLabels} rockBefore=${beforeRock} rockAfter=${afterRock} csv=${csvRock}`)
+      `verts=${liveVerts} labels=${liveLabels} rock ${beforeRock}->${afterRock} csv=${csvRock} savedOriginal=${savedOriginal} savedDrag=${savedDrag} clearedPanel=${clearedPanel}`)
+    console.log(`ESC_DRAG verts=${liveVerts} labels=${liveLabels} rockBefore=${beforeRock} rockAfter=${afterRock} csv=${csvRock} clearedPanel=${clearedPanel}`)
     await fresh.close()
   }
 
