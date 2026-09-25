@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react'
 import { PROJECTS as D_PROJECTS, SHEETS as D_SHEETS } from './sampleData.js'
 import { emptyOcrMemory, addSample as addOcrSample, addCorrection as addOcrCorrection } from './ocrLearning.js'
+import { ownRecord } from './ownRecord.js'
 
 const Ctx = createContext(null)
 const VER = '6'
@@ -253,7 +254,14 @@ export function AppDataProvider({ children }) {
   }
 
   const updateSheet = (sheetId, updates) =>
-    setSheets(s => ({ ...s, [sheetId]: { ...s[sheetId], ...updates } }))
+    setSheets(s => {
+      // Own-property check. Unknown ids and prototype names are a no-op.
+      // `s[sheetId]` would otherwise read Object.prototype / Function, and
+      // spreading that used to store a new sheet under the route id.
+      const current = ownRecord(s, sheetId)
+      if (!current) return s
+      return { ...s, [sheetId]: { ...current, ...updates } }
+    })
 
   // Register one or more shared PDF byte-blobs (keyed by fileId). Merges —
   // never drops assets other sheets/projects still reference.

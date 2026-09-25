@@ -131,7 +131,7 @@ async function main() {
 
     // Identify the new sheet + its pdfUrl scheme
     const sheets = await lsSheets(page)
-    const newSheet = sheets[newIds[0]]
+    const newSheet = sheets && typeof sheets === 'object' && Object.hasOwn(sheets, newIds[0]) ? sheets[newIds[0]] : undefined
     results.newSheetPdfUrlScheme = newSheet?.pdfUrl ? newSheet.pdfUrl.slice(0, 30) : '(none)'
     results.newSheetPdfUrlIsData = (newSheet?.pdfUrl || '').startsWith('data:')
     log(`  new sheet pdfUrl scheme: "${results.newSheetPdfUrlScheme}…" isDataUrl=${results.newSheetPdfUrlIsData}`)

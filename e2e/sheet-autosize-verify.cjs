@@ -98,7 +98,9 @@ async function main() {
   const countAfterOffPlacement = await page.evaluate(() => {
     const raw = localStorage.getItem('plotline-appdata')
     const d = JSON.parse(raw)
-    return (d.sheets['test-sheet'].savedCountGroups || []).reduce((s, g) => s + (g.points || []).length, 0)
+    const bag = d && d.sheets
+    const sheet = bag && typeof bag === 'object' && Object.hasOwn(bag, 'test-sheet') ? bag['test-sheet'] : null
+    return (sheet?.savedCountGroups || []).reduce((s, g) => s + (g.points || []).length, 0)
   })
   record('Off-sheet count placement saved (margin click accepted)', countAfterOffPlacement >= 1, `count=${countAfterOffPlacement}`)
 
@@ -109,7 +111,9 @@ async function main() {
   const countAfterOnPlacement = await page.evaluate(() => {
     const raw = localStorage.getItem('plotline-appdata')
     const d = JSON.parse(raw)
-    return (d.sheets['test-sheet'].savedCountGroups || []).reduce((s, g) => s + (g.points || []).length, 0)
+    const bag = d && d.sheets
+    const sheet = bag && typeof bag === 'object' && Object.hasOwn(bag, 'test-sheet') ? bag['test-sheet'] : null
+    return (sheet?.savedCountGroups || []).reduce((s, g) => s + (g.points || []).length, 0)
   })
   record('On-sheet count placement also saved', countAfterOnPlacement === countAfterOffPlacement + 1, `count=${countAfterOnPlacement}`)
 

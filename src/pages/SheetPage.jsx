@@ -16,6 +16,7 @@ import { Checkbox } from '../components/ui/Checkbox.jsx'
 import { Tabs } from '../components/ui/Tabs.jsx'
 import { Tooltip } from '../components/ui/Tooltip.jsx'
 import { useAppData } from '../data/useAppData.jsx'
+import { ownRecord } from '../data/ownRecord.js'
 import { useSettings, DEFAULT_TOOLBAR_ORDER, MIN_ZOOM_SENSITIVITY, MAX_ZOOM_SENSITIVITY } from '../data/useSettings.jsx'
 import { useAuth } from '../auth/AuthProvider.jsx'
 import { SheetPageSkeleton } from '../components/Skeleton.jsx'
@@ -250,12 +251,30 @@ function singularize(name) {
   return name.replace(/s\s*$/, '').trim()
 }
 
+// Loading and not-found bail out here, before SheetPageBody mounts. That
+// editor calls hooks past the old in-component returns; a later render that
+// got further (signed-in dataLoading flip, or a save that invented a missing
+// sheet) threw React #310 and blanked the page. The body remounts per sheet
+// so its state initializers read the sheet that is actually open.
 export default function SheetPage() {
+  const { projectId, sheetId } = useParams()
+  const { projects, sheets } = useAppData()
+  const { dataLoading } = useAuth()
+  if (dataLoading) return <SheetPageSkeleton />
+  const project = ownRecord(projects, projectId)
+  const sheet = ownRecord(sheets, sheetId)
+  if (!project || !sheet) {
+    return <div style={{ padding: 40, color: 'var(--text-muted)' }}>Sheet not found.</div>
+  }
+  return <SheetPageBody key={sheetId} />
+}
+
+function SheetPageBody() {
   const { projectId, sheetId } = useParams()
   const navigate = useNavigate()
   const { projects, sheets, updateSheet, addRegion, updateRegion, deleteRegion, pdfAssets } = useAppData()
   const { theme, setTheme, accent, setAccent, hotkeys, toolbarOrder, setToolbarOrder, zoomSensitivity, setZoomSensitivity } = useSettings()
-  const { dataLoading, user, orgId, cloudEnabled } = useAuth()
+  const { user, orgId, cloudEnabled } = useAuth()
 
   // ---- UI state ----
   const [fs, setFs]             = useState(1)
@@ -307,8 +326,8 @@ export default function SheetPage() {
   const legendDragRef = useRef(null)  // { id, mode: 'move'|'resize', startX, startY, origX, origY, origW, origH }
 
   // ---- Scale ----
-  const [pxPerFt, setPxPerFt]   = useState(() => sheets[sheetId]?.pxPerFt || DEFAULT_PXFT)
-  const [calib, setCalib]       = useState(() => sheets[sheetId]?.calib || null)
+  const [pxPerFt, setPxPerFt]   = useState(() => ownRecord(sheets, sheetId)?.pxPerFt || DEFAULT_PXFT)
+  const [calib, setCalib]       = useState(() => ownRecord(sheets, sheetId)?.calib || null)
   const [scalePts, setScalePts]     = useState([])
   const [scaleDlg, setScaleDlg]     = useState(null)
   const [scaleVal, setScaleVal]     = useState('40')
@@ -335,7 +354,7 @@ export default function SheetPage() {
   const [areaVerts, setAreaVerts]   = useState([])
   const [areaCursor, setAreaCursor] = useState(null)
   const [areaType, setAreaType]     = useState(AREA_CATS[0]?.id || 'sod')
-  const [addedAreas, setAddedAreas] = useState(() => sheets[sheetId]?.savedAreas || [])
+  const [addedAreas, setAddedAreas] = useState(() => ownRecord(sheets, sheetId)?.savedAreas || [])
   const [areaDepth, setAreaDepth]   = useState('') // inches
   const [topsoilType, setTopsoilType] = useState('none')
   const [topsoilCustom, setTopsoilCustom] = useState('')
@@ -344,13 +363,13 @@ export default function SheetPage() {
   const [linearVerts, setLinearVerts]   = useState([])
   const [linearCursor, setLinearCursor] = useState(null)
   const [linearType, setLinearType]     = useState(LINEAR_CATS[0]?.id || 'lime-wall')
-  const [addedLines, setAddedLines]     = useState(() => sheets[sheetId]?.savedLines || [])
+  const [addedLines, setAddedLines]     = useState(() => ownRecord(sheets, sheetId)?.savedLines || [])
 
   // ---- Text tool ----
   // Text boxes live in the same plan-pixel coordinate space as everything
   // else drawn on the sheet (no zoom-invariant `u` compensation), so they
   // pan/scale together with the plan instead of staying a fixed screen size.
-  const [textAnnotations, setTextAnnotations] = useState(() => sheets[sheetId]?.savedTextAnnotations || [])
+  const [textAnnotations, setTextAnnotations] = useState(() => ownRecord(sheets, sheetId)?.savedTextAnnotations || [])
   const [textStyleDlg, setTextStyleDlg] = useState(null) // id of text annotation being edited, or null
   const [dragToolId, setDragToolId] = useState(null) // toolbar drag-to-reorder
 
@@ -367,15 +386,15 @@ export default function SheetPage() {
 
   // ---- Count tool ----
   const [addCountType, setAddCountType] = useState(COUNT_CATS[0]?.id || 'tree')
-  const [countGroups, setCountGroups]   = useState(() => sheets[sheetId]?.savedCountGroups || [])
+  const [countGroups, setCountGroups]   = useState(() => ownRecord(sheets, sheetId)?.savedCountGroups || [])
   const [activeCountGroupId, setActiveCountGroupId] = useState(null)
   const countGroupNumRef = useRef(0)
   // ---- Linear groups (like count groups) ----
-  const [linearGroups, setLinearGroups] = useState(() => sheets[sheetId]?.savedLinearGroups || [])
+  const [linearGroups, setLinearGroups] = useState(() => ownRecord(sheets, sheetId)?.savedLinearGroups || [])
   const [activeLinearGroupId, setActiveLinearGroupId] = useState(null)
   const linearGroupNumRef = useRef(0)
   // ---- Area groups ----
-  const [areaGroups, setAreaGroups]     = useState(() => sheets[sheetId]?.savedAreaGroups || [])
+  const [areaGroups, setAreaGroups]     = useState(() => ownRecord(sheets, sheetId)?.savedAreaGroups || [])
   const [activeAreaGroupId, setActiveAreaGroupId] = useState(null)
   const areaGroupNumRef = useRef(0)
   // ---- New count/area/linear dialog ----
@@ -502,7 +521,7 @@ export default function SheetPage() {
   }, [activeTool, turfSubmode])
   const [pendingTurfDelete, setPendingTurfDelete] = useState(null) // { ids: string[] }
   const rHeldRef         = useRef(false)
-  const turfNumRef       = useRef((sheets[sheetId]?.savedAreas || []).filter(isTurfArea).length)
+  const turfNumRef       = useRef((ownRecord(sheets, sheetId)?.savedAreas || []).filter(isTurfArea).length)
   const skipStampClickRef = useRef(false)
   const isDraggingRef    = useRef(false)
   const dragStartRef     = useRef(null)
@@ -590,8 +609,8 @@ export default function SheetPage() {
   const svgRef    = useRef(null)
   const canvasRef = useRef(null)
 
-  const project = projects[projectId]
-  const sheet   = sheets[sheetId]
+  const project = ownRecord(projects, projectId)
+  const sheet   = ownRecord(sheets, sheetId)
 
   // ---- Page size (auto-fit to the real PDF page, no letterbox gap) ----
   // The plan-space box used to be a hardcoded SHEET_W x SHEET_H (900x620) for
@@ -606,11 +625,11 @@ export default function SheetPage() {
   // this only shrinks the box to the content's own bounds (never rescales),
   // and the page stays anchored at plan-space (0,0) same as before.
   const [pageAspect, setPageAspect] = useState(() => {
-    const ta = sheets[sheetId]?.thumbAspect
+    const ta = ownRecord(sheets, sheetId)?.thumbAspect
     return ta > 0 ? 1 / ta : null
   })
   useEffect(() => {
-    const ta = sheets[sheetId]?.thumbAspect
+    const ta = ownRecord(sheets, sheetId)?.thumbAspect
     setPageAspect(ta > 0 ? 1 / ta : null)
   }, [sheetId]) // eslint-disable-line react-hooks/exhaustive-deps
   const onPageSize = (w, h) => { if (w > 0 && h > 0) setPageAspect(w / h) }
@@ -805,7 +824,7 @@ export default function SheetPage() {
   // overlayOffset/overlayScale continuously, and re-rendering + pixel-diffing
   // two full PDF pages on every mousemove would make the drag feel frozen).
   useEffect(() => {
-    const overlaySh = overlaySheetId ? sheets[overlaySheetId] : null
+    const overlaySh = overlaySheetId ? ownRecord(sheets, overlaySheetId) : null
     if (overlayMode !== 'diff' || !sheet || !overlaySh || !sheetHasPdf(sheet) || !sheetHasPdf(overlaySh)) {
       setDiffCanvas(null); setDiffLoading(false)
       return
@@ -887,7 +906,10 @@ export default function SheetPage() {
   // (Material List / takeoff) does not drop inspector depth/topsoil.
   const saveTimerRef = useRef(null)
   useEffect(() => {
-    if (!sheetId) return
+    // Own property only. Bracket access would treat __proto__ and constructor
+    // as real sheets, and the debounce would save them.
+    const current = ownRecord(sheets, sheetId)
+    if (!sheetId || !current) return
     const payload = {
       savedCountGroups: countGroups,
       savedLinearGroups: linearGroups,
@@ -1189,11 +1211,6 @@ export default function SheetPage() {
     return { clip, byCat }
   }, [areaGeomSig, regionSig, regionClipStep, regionClipLabels, activeTool, catSig, pxPerFt, sheetReady])
 
-  if (dataLoading) return <SheetPageSkeleton />
-  if (!project || !sheet) {
-    return <div style={{ padding: 40, color: 'var(--text-muted)' }}>Sheet not found.</div>
-  }
-
   // ---- Helpers ----
   const genName = (catId) => {
     const cat = CATS.find(c => c.id === catId)
@@ -1207,7 +1224,7 @@ export default function SheetPage() {
   const allLines  = [...(sheet.lines  || []), ...addedLines]
 
   // Page overlay — the sheet currently ghosted over this one for comparison.
-  const overlaySheet = overlaySheetId ? sheets[overlaySheetId] : null
+  const overlaySheet = overlaySheetId ? ownRecord(sheets, overlaySheetId) : null
 
   const toSheet = (e) => {
     // Chrome quantizes MouseEvent clientX/clientY to whole pixels. The e2e
@@ -2263,7 +2280,7 @@ export default function SheetPage() {
         : (project.sheetIds || []).filter(sid => !sheetSets.some(set => (set.sheetIds || []).includes(sid)))
     const byName = {}
     ;scopedSheetIds.forEach(sid => {
-      const sh = sheets[sid]
+      const sh = ownRecord(sheets, sid)
       if (!sh) return
       ;(sh.savedCountGroups || []).forEach(g => {
         const key = `count::${g.name}`
@@ -2838,7 +2855,7 @@ export default function SheetPage() {
                     <span style={{ width: 10, height: 10, borderRadius: 3, background: r.color, flexShrink: 0 }} />
                     <span style={{ flex: 1, fontSize: 12, fontWeight: r.id === safeFolderId ? 700 : 500, color: 'var(--text-strong)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
                     <span style={{ fontSize: 10, color: 'var(--text-subtle)', fontFamily: 'var(--font-mono)' }}>
-                      {(project.sheetIds || []).filter(sid => sheets[sid]?.regionPolys?.[r.id]?.length >= 3).length} sheets
+                      {(project.sheetIds || []).filter(sid => ownRecord(sheets, sid)?.regionPolys?.[r.id]?.length >= 3).length} sheets
                     </span>
                   </div>
                   {/* Per-sheet flyout */}
@@ -2851,7 +2868,7 @@ export default function SheetPage() {
                       {r.name}
                     </div>
                     {(project.sheetIds || []).map(sid => {
-                      const sh = sheets[sid]
+                      const sh = ownRecord(sheets, sid)
                       if (!sh) return null
                       const hasPoly = (sh.regionPolys?.[r.id] || []).length >= 3
                       return (
@@ -2881,7 +2898,7 @@ export default function SheetPage() {
           ) : (
             <div className={s.scroll}>
               {(project.sheetIds || []).map(sid => {
-                const sh = sheets[sid]
+                const sh = ownRecord(sheets, sid)
                 if (!sh) return null
                 return (
                   <div key={sid}
@@ -4038,7 +4055,7 @@ export default function SheetPage() {
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>Select sheet to overlay</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 180, overflowY: 'auto' }}>
               {(project.sheetIds || []).filter(id => id !== sheetId).map(id => {
-                const sh = sheets[id]
+                const sh = ownRecord(sheets, id)
                 if (!sh) return null
                 return (
                   <button key={id} onClick={() => { setOverlaySheetId(id); setOverlayOffset({ x: 0, y: 0 }); setOverlayScale(1); setOverlayStep(1); setOverlayVisible(true) }}
