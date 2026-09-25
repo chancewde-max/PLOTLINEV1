@@ -454,46 +454,99 @@ check('partial clip label sits inside the clipped C, not the notch',
   && Math.hypot(cClip.c.x - notch.x, cClip.c.y - notch.y) > 8,
   `label=${cClip.c ? cClip.c.x.toFixed(2) + ',' + cClip.c.y.toFixed(2) : 'null'}`)
 
-// box(L,-500,600,600): vertical cut at x=L through the C. L in the notch
-// used to leave the label on the zero-width bridge.
-function sweepCLabel(area) {
+// A flip is a label jump while the piece centroid stays put. Ties may still
+// switch pieces; the gate on these sweeps is inside at every step.
+function sweepLabel(area, samples) {
   let prev = null
   let fails = 0
   let maxHeldJump = 0
+  let maxJump = 0
   let pieceChanges = 0
+  let flips = 0
   const bad = []
-  for (let i = 0; i <= 180; i++) {
-    const L = 30 + i * 0.5
-    const region = [
-      { x: L, y: -500 }, { x: 600, y: -500 }, { x: 600, y: 600 }, { x: L, y: 600 },
-    ]
-    const clip = clipAreaPx2(area, region, 4)
-    const ok = !!(clip.c && pointInArea(clip.c, area) && inside(clip.c, region))
+  const marks = []
+  for (const sample of samples) {
+    const clip = clipAreaPx2(area, sample.region, 4)
+    if (!(clip.px2 > 0)) {
+      prev = clip
+      continue
+    }
+    const ok = !!(clip.c && pointInArea(clip.c, area) && inside(clip.c, sample.region))
     if (!ok) {
       fails++
-      if (bad.length < 3) bad.push(`${L}:${clip.c ? clip.c.x.toFixed(2) + ',' + clip.c.y.toFixed(2) : 'null'}`)
+      if (bad.length < 3) bad.push(`${sample.tag}:${clip.c ? clip.c.x.toFixed(2) + ',' + clip.c.y.toFixed(2) : 'null'}`)
     }
+    if (sample.mark && clip.c) marks.push(`${sample.tag}=(${clip.c.x.toFixed(2)},${clip.c.y.toFixed(2)})`)
     if (prev?.c && clip.c && prev.pieceC && clip.pieceC) {
       const jump = Math.hypot(clip.c.x - prev.c.x, clip.c.y - prev.c.y)
       const pieceJump = Math.hypot(clip.pieceC.x - prev.pieceC.x, clip.pieceC.y - prev.pieceC.y)
+      if (jump > maxJump) maxJump = jump
       if (pieceJump > 5) pieceChanges++
-      else if (jump > maxHeldJump) maxHeldJump = jump
+      else {
+        if (jump > maxHeldJump) maxHeldJump = jump
+        if (jump > 5) flips++
+      }
     }
     prev = clip
   }
-  return { fails, maxHeldJump, pieceChanges, bad }
+  return { fails, maxHeldJump, maxJump, pieceChanges, flips, bad, steps: samples.length, marks }
 }
+function rangeSamples(from, to, step, tagOf, regionOf, markAt) {
+  const samples = []
+  const n = Math.round((to - from) / step)
+  for (let i = 0; i <= n; i++) {
+    const v = from + i * step
+    const tag = tagOf(v)
+    samples.push({
+      tag,
+      region: regionOf(v),
+      mark: !!(markAt && [...markAt].some((m) => Math.abs(m - v) < 1e-6)),
+    })
+  }
+  return samples
+}
+const box = (x0, y0, x1, y1) => [
+  { x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 },
+]
+function logSweep(name, sweep) {
+  const marks = sweep.marks.length ? ` marks=${sweep.marks.join(' ')}` : ''
+  console.log(`${name} steps=${sweep.steps} fails=${sweep.fails} flips=${sweep.flips} maxJump=${sweep.maxJump.toFixed(3)} maxHeldJump=${sweep.maxHeldJump.toFixed(3)} pieceChanges=${sweep.pieceChanges}${marks}`)
+}
+// box(L,-500,600,600): vertical cut at x=L through the C. L in the notch
+// used to leave the label on the zero-width bridge.
+const leftSamples = rangeSamples(30, 120, 0.5, (L) => `L${L}`, (L) => box(L, -500, 600, 600))
 const straightC = { poly: cPoly }
-const curvedSweep = sweepCLabel(cArea)
-const straightSweep = sweepCLabel(straightC)
-console.log(`C label sweep L=30..120 step 0.5 curved fails=${curvedSweep.fails} maxHeldJump=${curvedSweep.maxHeldJump.toFixed(3)} pieceChanges=${curvedSweep.pieceChanges}`)
-console.log(`C label sweep L=30..120 step 0.5 straight fails=${straightSweep.fails} maxHeldJump=${straightSweep.maxHeldJump.toFixed(3)} pieceChanges=${straightSweep.pieceChanges}`)
-check('curved C label stays inside across the region sweep',
+const curvedSweep = sweepLabel(cArea, leftSamples)
+const straightSweep = sweepLabel(straightC, leftSamples)
+logSweep('C label sweep left L=30..120 step 0.5 curved', curvedSweep)
+logSweep('C label sweep left L=30..120 step 0.5 straight', straightSweep)
+check('curved C label stays inside across the left region sweep',
   curvedSweep.fails === 0 && curvedSweep.maxHeldJump <= 5,
-  `fails=${curvedSweep.fails} maxHeldJump=${curvedSweep.maxHeldJump.toFixed(3)} pieceChanges=${curvedSweep.pieceChanges} bad=${curvedSweep.bad.join(' ')}`)
-check('straight C label stays inside across the region sweep',
+  `fails=${curvedSweep.fails} flips=${curvedSweep.flips} maxHeldJump=${curvedSweep.maxHeldJump.toFixed(3)} pieceChanges=${curvedSweep.pieceChanges} bad=${curvedSweep.bad.join(' ')}`)
+check('straight C label stays inside across the left region sweep',
   straightSweep.fails === 0 && straightSweep.maxHeldJump <= 5,
-  `fails=${straightSweep.fails} maxHeldJump=${straightSweep.maxHeldJump.toFixed(3)} pieceChanges=${straightSweep.pieceChanges} bad=${straightSweep.bad.join(' ')}`)
+  `fails=${straightSweep.fails} flips=${straightSweep.flips} maxHeldJump=${straightSweep.maxHeldJump.toFixed(3)} pieceChanges=${straightSweep.pieceChanges} bad=${straightSweep.bad.join(' ')}`)
+
+const triMarks = new Set([3, 3.5, 4.5])
+const triTop = rangeSamples(0, 110, 0.5, (v) => `v${v}`, (v) => box(-500, v, 600, 600), triMarks)
+const triTopSweep = sweepLabel(triArea, triTop)
+logSweep('bowed triangle top sweep v=0..110 step 0.5', triTopSweep)
+check('bowed triangle label stays inside across the top sweep',
+  triTopSweep.fails === 0,
+  `fails=${triTopSweep.fails} flips=${triTopSweep.flips} maxJump=${triTopSweep.maxJump.toFixed(3)} bad=${triTopSweep.bad.join(' ')}`)
+
+const cRight = rangeSamples(0, 200, 0.5, (R) => `R${R}`, (R) => box(-500, -500, R, 600))
+const cTop = rangeSamples(0, 200, 0.5, (T) => `T${T}`, (T) => box(-500, T, 600, 600))
+const cBottom = rangeSamples(0, 200, 0.5, (B) => `B${B}`, (B) => box(-500, -500, 600, B))
+for (const [name, samples] of [['right', cRight], ['top', cTop], ['bottom', cBottom]]) {
+  for (const [shape, area] of [['curved', cArea], ['straight', straightC]]) {
+    const sweep = sweepLabel(area, samples)
+    logSweep(`C label sweep ${name} step 0.5 ${shape}`, sweep)
+    check(`C ${shape} label stays inside across the ${name} sweep`,
+      sweep.fails === 0,
+      `fails=${sweep.fails} flips=${sweep.flips} maxJump=${sweep.maxJump.toFixed(3)} maxHeldJump=${sweep.maxHeldJump.toFixed(3)} pieceChanges=${sweep.pieceChanges} bad=${sweep.bad.join(' ')}`)
+  }
+}
 
 const side = 500.25
 const straightSquare = [

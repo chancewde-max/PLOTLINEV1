@@ -353,6 +353,43 @@ function outlineEdgesCross(flat, region) {
   return false
 }
 
+// Widths within this fraction of the wider span are a tie. A strict
+// `w > best` flips the two equal horns of a bow when float noise swaps
+// which side is wider. Ties go to the span nearest nearX, then the lower x.
+const SPAN_TIE_REL = 1e-4
+
+function chooseSpan(xs, nearX) {
+  let best = null
+  const near = Number.isFinite(nearX) ? nearX : 0
+  for (let i = 0; i + 1 < xs.length; i += 2) {
+    const w = xs[i + 1] - xs[i]
+    if (!(w > 0)) continue
+    const mid = (xs[i] + xs[i + 1]) / 2
+    const cand = { lo: xs[i], hi: xs[i + 1], w, mid }
+    if (!best) { best = cand; continue }
+    const rel = (w - best.w) / Math.max(best.w, w)
+    if (rel > SPAN_TIE_REL) { best = cand; continue }
+    if (rel < -SPAN_TIE_REL) continue
+    const dC = Math.abs(mid - near)
+    const dB = Math.abs(best.mid - near)
+    if (dC < dB - 1e-6 || (Math.abs(dC - dB) <= 1e-6 && mid < best.mid)) best = cand
+  }
+  return best
+}
+
+function spanCrossings(poly, y) {
+  const xs = []
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[j], b = poly[i]
+    if ((a.y > y) === (b.y > y)) continue
+    const denom = b.y - a.y
+    if (denom === 0) continue
+    xs.push(a.x + (b.x - a.x) * (y - a.y) / denom)
+  }
+  xs.sort((p, q) => p - q)
+  return xs
+}
+
 // Area-weighted centroid. Falls back to a point on the widest interior
 // scanline when the centroid lands outside (bowed / self-overlapping outlines).
 export function outlineLabelPoint(poly) {
@@ -370,20 +407,7 @@ export function outlineLabelPoint(poly) {
     : { x: cx / (3 * twice), y: cy / (3 * twice) }
   if (inside(c, poly)) return c
   const spanMid = (y) => {
-    const xs = []
-    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-      const a = poly[j], b = poly[i]
-      if ((a.y > y) === (b.y > y)) continue
-      const denom = b.y - a.y
-      if (denom === 0) continue
-      xs.push(a.x + (b.x - a.x) * (y - a.y) / denom)
-    }
-    xs.sort((p, q) => p - q)
-    let best = null
-    for (let i = 0; i + 1 < xs.length; i += 2) {
-      const w = xs[i + 1] - xs[i]
-      if (w > 0 && (!best || w > best.w)) best = { lo: xs[i], hi: xs[i + 1], w }
-    }
+    const best = chooseSpan(spanCrossings(poly, y), c.x)
     if (!best) return null
     const p = { x: (best.lo + best.hi) / 2, y }
     return inside(p, poly) ? p : null
@@ -661,22 +685,11 @@ function pickLargestPiece(pieces) {
   return best
 }
 
-function interiorScanline(poly, nearY) {
+function interiorScanline(poly, near) {
+  const nearX = near && Number.isFinite(near.x) ? near.x : 0
+  const nearY = near && Number.isFinite(near.y) ? near.y : (Number.isFinite(near) ? near : 0)
   const spanMid = (y) => {
-    const xs = []
-    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-      const a = poly[j], b = poly[i]
-      if ((a.y > y) === (b.y > y)) continue
-      const denom = b.y - a.y
-      if (denom === 0) continue
-      xs.push(a.x + (b.x - a.x) * (y - a.y) / denom)
-    }
-    xs.sort((p, q) => p - q)
-    let best = null
-    for (let i = 0; i + 1 < xs.length; i += 2) {
-      const w = xs[i + 1] - xs[i]
-      if (w > 0 && (!best || w > best.w)) best = { lo: xs[i], hi: xs[i + 1], w }
-    }
+    const best = chooseSpan(spanCrossings(poly, y), nearX)
     if (!best) return null
     const p = { x: (best.lo + best.hi) / 2, y }
     return inside(p, poly) ? p : null
@@ -727,7 +740,7 @@ function labelFromPieces(pieces, outline, region, gridStep) {
     return { c: pieceC, pieceC }
   }
   if (best && pieceC) {
-    const scan = interiorScanline(best.poly, pieceC.y)
+    const scan = interiorScanline(best.poly, pieceC)
     if (labelInOutlineAndRegion(scan, outline, region)) return { c: scan, pieceC }
   }
   return { c: nearestGridHit(outline, region, gridStep, pieceC), pieceC }

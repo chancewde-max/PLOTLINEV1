@@ -512,8 +512,46 @@ export default function SheetPage() {
   const dragAreaIdRef    = useRef(null)
   const dragRegionVertRef = useRef(null) // index of region vertex being dragged
   const [regionVertexDrag, setRegionVertexDrag] = useState(false)
+  const regionVertexDragRef = useRef(false)
   const pendingRegionRef = useRef(null)
   const regionDragRafRef = useRef(null)
+  // Same commit as a canvas mouseup: flush the pending polygon, drop the
+  // drag flag, then the save effect and the exact label clip run. A release
+  // over the side panel never hits <main>, so the window listeners below
+  // call this too. A second event (pointerup then mouseup) no-ops.
+  const endRegionDragRef = useRef(() => {})
+  endRegionDragRef.current = () => {
+    if (dragRegionVertRef.current === null && !regionVertexDragRef.current) return
+    if (regionDragRafRef.current) {
+      cancelAnimationFrame(regionDragRafRef.current)
+      regionDragRafRef.current = null
+    }
+    const pendingRegion = pendingRegionRef.current
+    pendingRegionRef.current = null
+    dragRegionVertRef.current = null
+    regionVertexDragRef.current = false
+    if (pendingRegion) setRegionClosed(pendingRegion)
+    setRegionVertexDrag(false)
+  }
+  useEffect(() => {
+    const end = () => endRegionDragRef.current()
+    window.addEventListener('mouseup', end)
+    window.addEventListener('pointerup', end)
+    window.addEventListener('pointercancel', end)
+    window.addEventListener('blur', end)
+    window.addEventListener('lostpointercapture', end)
+    return () => {
+      window.removeEventListener('mouseup', end)
+      window.removeEventListener('pointerup', end)
+      window.removeEventListener('pointercancel', end)
+      window.removeEventListener('blur', end)
+      window.removeEventListener('lostpointercapture', end)
+      if (regionDragRafRef.current) {
+        cancelAnimationFrame(regionDragRafRef.current)
+        regionDragRafRef.current = null
+      }
+    }
+  }, [])
   // Previous coarse clip during a vertex drag, so a move re-clips only the
   // areas the vertex sweep actually reaches.
   const dragClipRef = useRef(null)
@@ -1776,15 +1814,7 @@ export default function SheetPage() {
     dragVertIdxRef.current = null
     dragCubicRef.current = null
     dragAreaIdRef.current = null
-    if (regionDragRafRef.current) {
-      cancelAnimationFrame(regionDragRafRef.current)
-      regionDragRafRef.current = null
-    }
-    const pendingRegion = pendingRegionRef.current
-    pendingRegionRef.current = null
-    dragRegionVertRef.current = null
-    if (pendingRegion) setRegionClosed(pendingRegion)
-    setRegionVertexDrag(false)
+    endRegionDragRef.current()
     // Finalize box select
     if (boxSelect && activeTool === 'select') {
       const minX = Math.min(boxSelect.x1, boxSelect.x2), maxX = Math.max(boxSelect.x1, boxSelect.x2)
@@ -3211,13 +3241,15 @@ export default function SheetPage() {
                     stroke={activeFolder?.color || 'var(--brand-600)'} strokeWidth={2*u} />
                 ))}
                 {activeTool === 'region' && !isDrawingRegion && regionPoly.map((v, i) => (
-                  <rect key={i} x={v.x - 6*u} y={v.y - 6*u} width={12*u} height={12*u}
+                  <rect key={i} data-testid="region-vertex" data-x={v.x} data-y={v.y}
+                    x={v.x - 6*u} y={v.y - 6*u} width={12*u} height={12*u}
                     fill="#fff" stroke={activeFolder?.color || 'var(--brand-600)'} strokeWidth={2*u}
                     style={{ cursor: 'move' }}
                     onMouseDown={e => {
                       e.stopPropagation()
                       dragRegionVertRef.current = i
                       pendingRegionRef.current = null
+                      regionVertexDragRef.current = true
                       setRegionVertexDrag(true)
                     }}
                   />
