@@ -887,6 +887,14 @@ async function main() {
     const afterRock = await rockSqft()
     const verts = await page2.locator('[data-testid="region-vertex"]').evaluateAll((nodes) =>
       nodes.map(n => ({ x: Number(n.getAttribute('data-x')), y: Number(n.getAttribute('data-y')) })))
+    await page2.mouse.move(dest.x + 36, dest.y + 24)
+    await page2.waitForTimeout(150)
+    const afterMoveVerts = await page2.locator('[data-testid="region-vertex"]').evaluateAll((nodes) =>
+      nodes.map(n => ({ x: Number(n.getAttribute('data-x')), y: Number(n.getAttribute('data-y')) })))
+    const afterMoveRock = await rockSqft()
+    const ghostStill = afterMoveVerts.length === verts.length
+      && afterMoveVerts.every((v, i) => v.x === verts[i].x && v.y === verts[i].y)
+      && afterMoveRock === afterRock
     const dragged = verts.find(v => Math.hypot(v.x - 690, v.y - 530) < 8)
     const stuck = verts.some(v => Math.hypot(v.x - 750, v.y - 450) < 1)
     const saved = await page2.evaluate(() => {
@@ -920,9 +928,130 @@ async function main() {
       && Number.isFinite(afterRock)
       && Math.abs(afterRock - beforeRock) > 1
       && csvRock === Math.round(afterRock)
+      && ghostStill
     record('Region vertex released outside the canvas commits the polygon', pass,
-      `labels ${beforeLabels}->${duringLabels}->${afterLabels} rock ${beforeRock}->${duringRock}->${afterRock} csv=${csvRock} mouseupCommits=${mouseupCommits} vert=${dragged ? dragged.x.toFixed(2) + ',' + dragged.y.toFixed(2) : 'missing'} savedHit=${savedHit}`)
-    console.log(`OUTSIDE_RELEASE mouseupCommits=${mouseupCommits} rockBefore=${beforeRock} rockAfter=${afterRock} csv=${csvRock}`)
+      `labels ${beforeLabels}->${duringLabels}->${afterLabels} rock ${beforeRock}->${duringRock}->${afterRock} csv=${csvRock} mouseupCommits=${mouseupCommits} vert=${dragged ? dragged.x.toFixed(2) + ',' + dragged.y.toFixed(2) : 'missing'} savedHit=${savedHit} ghostStill=${ghostStill}`)
+    console.log(`OUTSIDE_RELEASE mouseupCommits=${mouseupCommits} rockBefore=${beforeRock} rockAfter=${afterRock} csv=${csvRock} ghostStill=${ghostStill}`)
+    await fresh.close()
+  }
+
+  // Esc during a vertex drag must drop the pending polygon. A later move
+  // and release must not bring it back or write it to the sheet.
+  {
+    const fresh = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+    const page2 = await fresh.newPage()
+    await page2.goto(`${BASE}/app/project/proj-1/sheet/sheet-1`, { waitUntil: 'domcontentloaded', timeout: 45000 })
+    const hud = page2.locator('[data-testid="zoom-hud"]')
+    await hud.getByRole('button', { name: 'Zoom in' }).waitFor({ timeout: 20000 })
+    await page2.getByText('Essential only').click().catch(() => {})
+    await page2.locator('button[aria-label="Region count"]').click()
+    await page2.waitForTimeout(200)
+    const clickSheet = async (x, y) => {
+      await page2.evaluate(({ x, y }) => {
+        const svg = [...document.querySelectorAll('svg')].find(s => (s.getAttribute('viewBox') || '').includes('-160'))
+        window.__plotlineSheetPoint = { x, y }
+        const fire = (type) => svg.dispatchEvent(new MouseEvent(type, {
+          bubbles: true, cancelable: true, view: window, button: 0,
+          buttons: type === 'mousedown' ? 1 : 0, detail: 1,
+        }))
+        fire('mousedown'); fire('mouseup'); fire('click')
+        window.__plotlineSheetPoint = null
+      }, { x, y })
+    }
+    for (const [x, y] of [[80, 60], [750, 60], [750, 450], [80, 400]]) {
+      await clickSheet(x, y)
+      await page2.waitForTimeout(40)
+    }
+    await page2.keyboard.press('Enter')
+    await page2.waitForTimeout(500)
+    await page2.getByRole('button', { name: '+ Region' }).click()
+    await page2.waitForTimeout(200)
+    await page2.getByText('Region 1', { exact: true }).click()
+    await page2.waitForTimeout(400)
+    const rockSqft = () => page2.locator('[data-testid="region-folder-sqft"]').evaluateAll((nodes) => {
+      const rock = nodes.find(n => /rock/i.test(n.parentElement?.innerText || ''))
+      return rock ? Number(rock.getAttribute('data-sqft')) : null
+    })
+    const beforeRock = await rockSqft()
+    for (let i = 0; i < 8; i++) {
+      const visible = await page2.evaluate(() => {
+        const hit = [...document.querySelectorAll('[data-testid="region-vertex"]')]
+          .find(el => Math.abs(Number(el.getAttribute('data-x')) - 750) < 1
+            && Math.abs(Number(el.getAttribute('data-y')) - 450) < 1)
+        const main = document.querySelector('main')
+        if (!hit || !main) return false
+        const b = hit.getBoundingClientRect()
+        const m = main.getBoundingClientRect()
+        const x = b.x + b.width / 2
+        const y = b.y + b.height / 2
+        return x > m.left + 8 && x < m.right - 8 && y > m.top + 8 && y < m.bottom - 8
+      })
+      if (visible) break
+      await hud.getByRole('button', { name: 'Zoom out' }).click()
+      await page2.waitForTimeout(40)
+    }
+    const handle = await page2.evaluate(() => {
+      const hit = [...document.querySelectorAll('[data-testid="region-vertex"]')]
+        .find(el => Math.abs(Number(el.getAttribute('data-x')) - 750) < 1
+          && Math.abs(Number(el.getAttribute('data-y')) - 450) < 1)
+      const b = hit.getBoundingClientRect()
+      return { x: b.x + b.width / 2, y: b.y + b.height / 2 }
+    })
+    const sheetPoint = async (sx, sy) => page2.evaluate(({ sx, sy }) => {
+      const svg = [...document.querySelectorAll('svg')].find(s => (s.getAttribute('viewBox') || '').includes('-160'))
+      const rect = svg.getBoundingClientRect()
+      const vb = svg.viewBox.baseVal
+      return {
+        x: rect.left + ((sx - vb.x) / vb.width) * rect.width,
+        y: rect.top + ((sy - vb.y) / vb.height) * rect.height,
+      }
+    }, { sx, sy })
+    const dest = await sheetPoint(690, 530)
+    const later = await sheetPoint(640, 560)
+    await page2.mouse.move(handle.x, handle.y)
+    await page2.mouse.down()
+    await page2.mouse.move(dest.x, dest.y)
+    await page2.waitForTimeout(80)
+    await page2.keyboard.press('Escape')
+    await page2.waitForTimeout(80)
+    await page2.mouse.move(later.x, later.y)
+    await page2.waitForTimeout(80)
+    await page2.mouse.up()
+    await page2.waitForTimeout(900)
+    await page2.locator('button[aria-label="Region count"]').click()
+    await page2.waitForTimeout(250)
+    const liveVerts = await page2.locator('[data-testid="region-vertex"]').count()
+    const liveLabels = await page2.locator('[data-testid="region-area-label"]').count()
+    const afterRock = await rockSqft()
+    const saved = await page2.evaluate(() => {
+      const d = JSON.parse(localStorage.getItem('plotline-appdata') || 'null')
+      const polys = d?.sheets?.['sheet-1']?.regionPolys || {}
+      return Object.values(polys).filter(p => Array.isArray(p) && p.length >= 3)
+    })
+    const savedOriginal = saved.some(poly => poly.some(p => Math.hypot(p.x - 750, p.y - 450) < 1))
+    const savedDrag = saved.some(poly => poly.some(p => Math.hypot(p.x - 690, p.y - 530) < 12))
+    let csvRock = null
+    try {
+      const [download] = await Promise.all([
+        page2.waitForEvent('download', { timeout: 8000 }),
+        page2.getByRole('button', { name: 'Export MTO' }).click(),
+      ])
+      const csv = require('fs').readFileSync(await download.path(), 'utf8')
+      const row = csv.split('\n').find(line => /rock/i.test(line))
+      const cells = row ? row.split(',').map(c => c.replace(/^"|"$/g, '')) : []
+      csvRock = Number(cells[4])
+    } catch (err) {
+      csvRock = NaN
+    }
+    const pass = liveVerts === 0
+      && liveLabels === 0
+      && savedOriginal
+      && !savedDrag
+      && afterRock === beforeRock
+      && csvRock === Math.round(beforeRock)
+    record('Esc during a region-vertex drag leaves the region cleared', pass,
+      `verts=${liveVerts} labels=${liveLabels} rock ${beforeRock}->${afterRock} csv=${csvRock} savedOriginal=${savedOriginal} savedDrag=${savedDrag}`)
+    console.log(`ESC_DRAG verts=${liveVerts} labels=${liveLabels} rockBefore=${beforeRock} rockAfter=${afterRock} csv=${csvRock}`)
     await fresh.close()
   }
 

@@ -515,6 +515,9 @@ export default function SheetPage() {
   const regionVertexDragRef = useRef(false)
   const pendingRegionRef = useRef(null)
   const regionDragRafRef = useRef(null)
+  // Previous coarse clip during a vertex drag, so a move re-clips only the
+  // areas the vertex sweep actually reaches.
+  const dragClipRef = useRef(null)
   // Same commit as a canvas mouseup: flush the pending polygon, drop the
   // drag flag, then the save effect and the exact label clip run. A release
   // over the side panel never hits <main>, so the window listeners below
@@ -530,8 +533,24 @@ export default function SheetPage() {
     pendingRegionRef.current = null
     dragRegionVertRef.current = null
     regionVertexDragRef.current = false
+    dragClipRef.current = null
     if (pendingRegion) setRegionClosed(pendingRegion)
     setRegionVertexDrag(false)
+  }
+  // Esc drops the live region. Forget the in-progress vertex so a later
+  // move or window mouseup cannot write that polygon back.
+  const cancelRegionDragRef = useRef(() => {})
+  cancelRegionDragRef.current = () => {
+    if (regionDragRafRef.current) {
+      cancelAnimationFrame(regionDragRafRef.current)
+      regionDragRafRef.current = null
+    }
+    const active = dragRegionVertRef.current !== null || regionVertexDragRef.current || pendingRegionRef.current
+    pendingRegionRef.current = null
+    dragRegionVertRef.current = null
+    regionVertexDragRef.current = false
+    dragClipRef.current = null
+    if (active) setRegionVertexDrag(false)
   }
   useEffect(() => {
     const end = () => endRegionDragRef.current()
@@ -552,9 +571,6 @@ export default function SheetPage() {
       }
     }
   }, [])
-  // Previous coarse clip during a vertex drag, so a move re-clips only the
-  // areas the vertex sweep actually reaches.
-  const dragClipRef = useRef(null)
   const panStartRef      = useRef(null) // fixed mousedown point — only for the "was this a real drag" threshold below
   // Last mouse/touch position seen during an active pan drag. Panning is
   // computed as an INCREMENTAL delta from this (not "mousedown origin +
@@ -1016,6 +1032,7 @@ export default function SheetPage() {
           setCurvePhase(null); setPendingC1(null); setPendingC2(null)
           return
         }
+        cancelRegionDragRef.current()
         setRegionVerts([]); setRegionClosed(null); setRegionCursor(null)
         setScalePts([]); setScaleDlg(null)
         setMeasurePts([]); setMeasureDone(false); setMeasureCursor(null); setMeasureSessions([])
@@ -1620,6 +1637,7 @@ export default function SheetPage() {
         if (!regionDragRafRef.current) {
           regionDragRafRef.current = requestAnimationFrame(() => {
             regionDragRafRef.current = null
+            if (!regionVertexDragRef.current) return
             const next = pendingRegionRef.current
             if (next) setRegionClosed(next)
           })
