@@ -103,9 +103,7 @@ export default function ResetPasswordPage() {
 
   const submitPassword = async (e) => {
     e.preventDefault()
-    const next = password.trim()
-    const again = confirm.trim()
-    const problem = validateNewPassword(next, again)
+    const problem = validateNewPassword(password, confirm)
     if (problem) {
       setFormError(problem)
       return
@@ -117,7 +115,7 @@ export default function ResetPasswordPage() {
     setFormError(null)
     setPhase('saving')
     try {
-      const { error } = await supabase.auth.updateUser({ password: next })
+      const { error } = await supabase.auth.updateUser({ password })
       if (error) throw error
       clearPasswordRecovery?.()
       setPhase('success')

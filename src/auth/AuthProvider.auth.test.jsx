@@ -212,6 +212,74 @@ describe('AuthProvider signup and recovery helpers', () => {
     expect(screen.queryByRole('button', { name: 'Continue with email' })).toBeNull()
   })
 
+  it('sends the typed sign-up password to signUp, including surrounding spaces', async () => {
+    client.auth.signUp.mockResolvedValue({
+      data: { user: { id: 'user-1', identities: [{ id: 'identity-1' }] }, session: null },
+      error: null,
+    })
+    function ModalHarness() {
+      const { authOpen, openAuth, closeAuth } = useAuth()
+      return (
+        <>
+          <button type="button" onClick={() => openAuth('signup')}>open-signup</button>
+          <AuthModal open={authOpen} onClose={closeAuth} />
+        </>
+      )
+    }
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <ModalHarness />
+        </AuthProvider>
+      </MemoryRouter>
+    )
+    await user.click(screen.getByRole('button', { name: 'open-signup' }))
+    await user.type(await screen.findByLabelText('Email'), 'ada@example.com')
+    await user.type(screen.getByLabelText('Password'), '  secret1  ')
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+    await waitFor(() => {
+      expect(client.auth.signUp).toHaveBeenCalledWith({
+        email: 'ada@example.com',
+        password: '  secret1  ',
+      })
+    })
+  })
+
+  it('sends the typed sign-in password to signInWithPassword, including surrounding spaces', async () => {
+    client.auth.signInWithPassword.mockResolvedValue({
+      data: { user: null, session: null },
+      error: null,
+    })
+    function ModalHarness() {
+      const { authOpen, openAuth, closeAuth } = useAuth()
+      return (
+        <>
+          <button type="button" onClick={() => openAuth('signin')}>open-signin</button>
+          <AuthModal open={authOpen} onClose={closeAuth} />
+        </>
+      )
+    }
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <ModalHarness />
+        </AuthProvider>
+      </MemoryRouter>
+    )
+    await user.click(screen.getByRole('button', { name: 'open-signin' }))
+    await user.type(await screen.findByLabelText('Email'), 'ada@example.com')
+    await user.type(screen.getByLabelText('Password'), '  secret1  ')
+    await user.click(screen.getByRole('button', { name: 'Continue with email' }))
+    await waitFor(() => {
+      expect(client.auth.signInWithPassword).toHaveBeenCalledWith({
+        email: 'ada@example.com',
+        password: '  secret1  ',
+      })
+    })
+  })
+
   it('stores the friendly invalid_credentials message', async () => {
     client.auth.signInWithPassword.mockResolvedValue({
       data: { user: null, session: null },

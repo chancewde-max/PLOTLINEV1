@@ -132,7 +132,7 @@ export function AuthModal({ open, onClose }) {
           setErr(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`)
           return
         }
-        const result = await signUp(email.trim(), password.trim())
+        const result = await signUp(email.trim(), password)
         if (result?.existingAccount) {
           setNotice('exists')
           return

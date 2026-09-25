@@ -57,6 +57,10 @@ describe('validateNewPassword', () => {
   it('rejects a password that is only spaces', () => {
     expect(validateNewPassword('      ', '      ')).toMatch(/at least 6/)
   })
+
+  it('rejects a confirm value that differs only by surrounding spaces', () => {
+    expect(validateNewPassword('NewPass1', ' NewPass1 ')).toBe('Passwords do not match.')
+  })
 })
 
 describe('friendlySignInMessage', () => {

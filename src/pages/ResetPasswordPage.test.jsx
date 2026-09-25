@@ -97,6 +97,37 @@ describe('ResetPasswordPage', () => {
     expect(await screen.findByLabelText('New password')).toBeTruthy()
   })
 
+  it('sends the typed reset password to updateUser, including surrounding spaces', async () => {
+    supabase.auth.onAuthStateChange.mockImplementation((cb) => {
+      cb('PASSWORD_RECOVERY', { user: { id: 'user-1' } })
+      return { data: { subscription: { unsubscribe: vi.fn() } } }
+    })
+    const user = userEvent.setup()
+    render(<ResetPasswordPage />)
+    await user.type(await screen.findByLabelText('New password'), '  secret1  ')
+    await user.type(screen.getByLabelText('Confirm password'), '  secret1  ')
+    await user.click(screen.getByRole('button', { name: 'Update password' }))
+    await waitFor(() => {
+      expect(supabase.auth.updateUser).toHaveBeenCalledWith({ password: '  secret1  ' })
+    })
+  })
+
+  it('rejects a confirm password that differs only by surrounding spaces', async () => {
+    supabase.auth.onAuthStateChange.mockImplementation((cb) => {
+      cb('PASSWORD_RECOVERY', { user: { id: 'user-1' } })
+      return { data: { subscription: { unsubscribe: vi.fn() } } }
+    })
+    const user = userEvent.setup()
+    render(<ResetPasswordPage />)
+    await user.type(await screen.findByLabelText('New password'), 'NewPass1')
+    await user.type(screen.getByLabelText('Confirm password'), ' NewPass1 ')
+    await user.click(screen.getByRole('button', { name: 'Update password' }))
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toBe('Passwords do not match.')
+    })
+    expect(supabase.auth.updateUser).not.toHaveBeenCalled()
+  })
+
   it('rejects a whitespace-only password before updateUser', async () => {
     supabase.auth.onAuthStateChange.mockImplementation((cb) => {
       cb('PASSWORD_RECOVERY', { user: { id: 'user-1' } })

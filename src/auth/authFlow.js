@@ -103,12 +103,14 @@ export function isRepeatedSignupUser(data) {
 }
 
 export function validateNewPassword(password, confirm) {
-  const next = String(password ?? '').trim()
-  const again = String(confirm ?? '').trim()
-  if (next.length < MIN_PASSWORD_LENGTH) {
+  const value = String(password ?? '')
+  const again = String(confirm ?? '')
+  // Trim is only the whitespace-only / length check. The saved password and
+  // the confirm comparison use the characters as typed.
+  if (value.trim().length < MIN_PASSWORD_LENGTH || again.trim().length < MIN_PASSWORD_LENGTH) {
     return `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`
   }
-  if (next !== again) return 'Passwords do not match.'
+  if (value !== again) return 'Passwords do not match.'
   return null
 }
 
