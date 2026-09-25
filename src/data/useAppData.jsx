@@ -11,6 +11,46 @@ const VER = '6'
 // instantly."
 const dataCache = { loaded: false, snapshot: null }
 
+// Signed-out saves stay on the historical `plotline-appdata` key. Signed-in
+// saves use a per-user key so one account's snapshot cannot be read back as
+// another's. `localOwner` on the historical key records who it is safe to
+// treat that blob as:
+//   - 'anonymous': written while signed out, after this scoping. Eligible
+//     for the first-sign-in migration (pre-signin work on this browser).
+//   - 'legacy' or missing: the pre-scoping blob. That key was shared by
+//     every signed-in user, so it cannot be proved to belong to the account
+//     now signing in. It is still shown for a signed-out local session, and
+//     it is never migrated into app_data / org_data.
+const APPDATA_ANON_KEY = 'plotline-appdata'
+function appDataStorageKey(userId) {
+  return userId ? `plotline-appdata:user:${userId}` : APPDATA_ANON_KEY
+}
+
+function readStoredAppData(key) {
+  try {
+    const d = JSON.parse(localStorage.getItem(key) || 'null')
+    if (!d || typeof d !== 'object' || typeof d.projects !== 'object') return null
+    return d
+  } catch {
+    return null
+  }
+}
+
+function storedHasContent(snap) {
+  if (!snap) return false
+  const projects = snap.projects && typeof snap.projects === 'object' ? Object.keys(snap.projects).length : 0
+  const sheets = snap.sheets && typeof snap.sheets === 'object' ? Object.keys(snap.sheets).length : 0
+  return projects > 0 || sheets > 0
+}
+
+// 'anonymous' | 'legacy' | null (nothing stored). Set by load().
+let initialLocalOwner = null
+function noteStoredOwner(snap) {
+  if (snap && snap.localOwner === 'anonymous') initialLocalOwner = 'anonymous'
+  else if (snap) initialLocalOwner = 'legacy'
+  else initialLocalOwner = null
+}
+
 // Migrate the legacy single `project.mto` shape into the new versioned array.
 // Old:  project.mto = { fileName, uploadedAt, headers, rows, columnMap }
 // New:  project.mtoVersions = [ { id, v:1, templateId:null, ..., isCurrent:true } ]
@@ -64,10 +104,13 @@ function migrateProjects(projects) {
 }
 
 function load() {
-  if (dataCache.loaded) return dataCache.snapshot
+  if (dataCache.loaded) {
+    noteStoredOwner(dataCache.snapshot)
+    return dataCache.snapshot
+  }
   let snap = null
   try {
-    const d = JSON.parse(localStorage.getItem('plotline-appdata') || 'null')
+    const d = JSON.parse(localStorage.getItem(APPDATA_ANON_KEY) || 'null')
     // Accept any snapshot that carries a recognizable projects object; migrate
     // the legacy `mto` shape regardless of the stored version stamp so data is
     // never silently dropped, then stamp it with the current VER on save.
@@ -84,6 +127,7 @@ function load() {
       }
     }
   } catch {}
+  noteStoredOwner(snap)
   dataCache.loaded = true
   dataCache.snapshot = snap
   return snap
@@ -123,15 +167,14 @@ export function AppDataProvider({ children }) {
   // back to 'saved' once the background (debounced) persist resolves.
   const [saveStatus, setSaveStatus] = useState('saved')
 
-  // Tracks whether THIS browser has ever actually persisted a real edit —
-  // seeded true if a snapshot already existed in localStorage at mount (a
-  // returning anonymous session), and flipped true the moment a save
-  // actually happens. AuthProvider reads this (via hasLocalEdits() below) on
-  // a user's very first sign-in to decide whether local state is real
-  // pre-signin work worth migrating into their new cloud account, or just
-  // the untouched sample/demo data that ships with a fresh browser — which
-  // should NOT get pushed into a real account.
-  const hasLocalEditsRef = useRef(!!saved)
+  // True only for a signed-out save stamped localOwner 'anonymous'. A legacy
+  // unscoped blob (no stamp) must not count: see APPDATA_ANON_KEY above.
+  const hasLocalEditsRef = useRef(initialLocalOwner === 'anonymous')
+  const legacyUnscopedRef = useRef(initialLocalOwner === 'legacy')
+  // null = signed out. A string is the user id whose key future saves use.
+  const storageOwnerRef = useRef(null)
+  // In-memory anonymous edits that have not been flushed to the anon key yet.
+  const pendingAnonMigrationRef = useRef(false)
 
   const lsTimerRef = useRef(null)
   const firstRunRef = useRef(true)
@@ -140,24 +183,28 @@ export function AppDataProvider({ children }) {
     if (firstRunRef.current) { firstRunRef.current = false; return }
     setSaveStatus('saving')
     if (lsTimerRef.current) clearTimeout(lsTimerRef.current)
+    const scheduledOwner = storageOwnerRef.current
+    const key = appDataStorageKey(scheduledOwner)
     lsTimerRef.current = setTimeout(() => {
+      // A user switch clears this timer; if one still fires, don't write the
+      // previous owner's rows into the new key.
+      if (storageOwnerRef.current !== scheduledOwner) return
       const snapshot = { v: VER, projects, sheets, customCats, clients, mtoTemplates, proposalTemplates, phrases, company, pdfAssets, ocrMemory, vendors }
-      localStorage.setItem('plotline-appdata', JSON.stringify(snapshot))
-      // Keep the module cache in sync so remounts reuse fresh data.
-      dataCache.loaded = true
-      dataCache.snapshot = snapshot
-      hasLocalEditsRef.current = true
+      if (!scheduledOwner) snapshot.localOwner = legacyUnscopedRef.current ? 'legacy' : 'anonymous'
+      localStorage.setItem(key, JSON.stringify(snapshot))
+      if (!scheduledOwner) {
+        // The module cache is the signed-out snapshot only. Putting a
+        // signed-in user's rows here would reload them as anonymous.
+        dataCache.loaded = true
+        dataCache.snapshot = snapshot
+        if (snapshot.localOwner === 'anonymous') legacyUnscopedRef.current = false
+      }
+      const content = storedHasContent(snapshot)
+      hasLocalEditsRef.current = scheduledOwner ? content : snapshot.localOwner === 'anonymous' && content
       setSaveStatus('saved')
     }, 500)
     return () => clearTimeout(lsTimerRef.current)
   }, [projects, sheets, customCats, clients, mtoTemplates, proposalTemplates, phrases, company, pdfAssets, ocrMemory, vendors])
-
-  // Real signal for "is there anything here worth migrating to the cloud":
-  // a save has actually happened at some point AND there's currently
-  // non-empty content (so a just-reset — e.g. post sign-out — local state
-  // doesn't look like "real data" just because a save event fired for it).
-  const hasLocalEdits = () =>
-    hasLocalEditsRef.current && (Object.keys(projects).length > 0 || Object.keys(sheets).length > 0)
 
   const addProject = (proj) =>
     setProjects(p => ({ ...p, [proj.id]: proj }))
@@ -541,6 +588,74 @@ export function AppDataProvider({ children }) {
     setVendors([])
   }
 
+  const memoryHasContent = () =>
+    Object.keys(projects).length > 0 || Object.keys(sheets).length > 0
+
+  // True when this user id has its own local snapshot, or this browser has
+  // anonymous (localOwner 'anonymous') pre-signin edits. Never true for
+  // another user's key or for the legacy unscoped blob.
+  const hasLocalEdits = (userId) => {
+    if (!userId) return false
+    if (storedHasContent(readStoredAppData(appDataStorageKey(userId)))) return true
+    const anon = readStoredAppData(APPDATA_ANON_KEY)
+    if (anon && anon.localOwner === 'anonymous' && storedHasContent(anon)) return true
+    return pendingAnonMigrationRef.current && storageOwnerRef.current === userId
+  }
+
+  // Point localStorage at this user (null = signed out) and drop any other
+  // account's in-memory rows before they can be saved under the new key.
+  // The first signed-out call (app boot) does not wipe the sample/legacy
+  // snapshot load() already restored.
+  const prepareForUser = (userId) => {
+    if (lsTimerRef.current) { clearTimeout(lsTimerRef.current); lsTimerRef.current = null }
+    const prev = storageOwnerRef.current
+    storageOwnerRef.current = userId || null
+
+    if (!userId) {
+      if (prev == null) return
+      const anon = readStoredAppData(APPDATA_ANON_KEY)
+      pendingAnonMigrationRef.current = false
+      if (anon && anon.localOwner === 'anonymous') {
+        legacyUnscopedRef.current = false
+        hasLocalEditsRef.current = storedHasContent(anon)
+        hydrate(anon, false)
+      } else if (anon) {
+        legacyUnscopedRef.current = true
+        hasLocalEditsRef.current = false
+        hydrate(anon, false)
+      } else {
+        legacyUnscopedRef.current = false
+        hasLocalEditsRef.current = false
+        reset()
+      }
+      return
+    }
+
+    const own = readStoredAppData(appDataStorageKey(userId))
+    if (storedHasContent(own)) {
+      legacyUnscopedRef.current = false
+      hasLocalEditsRef.current = true
+      pendingAnonMigrationRef.current = false
+      hydrate(own, false)
+      return
+    }
+
+    if (prev && prev !== userId) {
+      const anon = readStoredAppData(APPDATA_ANON_KEY)
+      const migrateAnon = !!(anon && anon.localOwner === 'anonymous' && storedHasContent(anon))
+      pendingAnonMigrationRef.current = migrateAnon
+      legacyUnscopedRef.current = false
+      hasLocalEditsRef.current = migrateAnon
+      if (migrateAnon) hydrate(anon, false)
+      else reset()
+      return
+    }
+
+    const migrateMemory = !legacyUnscopedRef.current && hasLocalEditsRef.current && memoryHasContent()
+    pendingAnonMigrationRef.current = migrateMemory
+    if (!migrateMemory) hasLocalEditsRef.current = false
+  }
+
   return (
     <Ctx.Provider value={{
       projects, sheets, customCats, clients, mtoTemplates, proposalTemplates,
@@ -560,7 +675,7 @@ export function AppDataProvider({ children }) {
       addProposalVersion, setCurrentProposalVersion, removeProposalVersion, updateProposalVersion,
       addProposalTemplate, updateProposalTemplate,
       phrases, addPhrase, deletePhrase,
-      hydrate, reset, hasLocalEdits,
+      hydrate, reset, hasLocalEdits, prepareForUser,
     }}>
       {children}
     </Ctx.Provider>
