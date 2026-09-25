@@ -34,7 +34,7 @@ import React, {
   useState,
   useCallback,
 } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useAppData } from '../data/useAppData.jsx'
 import { supabase, supabaseEnabled } from '../lib/supabaseClient.js'
 import { loadUserSnapshot, saveUserSnapshot, emptySnapshot } from '../data/cloudSync.js'
@@ -48,6 +48,24 @@ import {
   loadOrgSnapshot,
   saveOrgSnapshot,
 } from '../data/orgSync.js'
+import {
+  authCallbackAtLoad,
+  friendlySignInMessage,
+  isExistingAccountError,
+  isRecoveryPending,
+  isRepeatedSignupUser,
+  setRecoveryPending,
+  subscribeRecoveryPending,
+} from './authFlow.js'
+
+// Subscribe as soon as this module loads. PASSWORD_RECOVERY is emitted from a
+// timeout (implicit) or the init queue (PKCE) and is easy to miss if the only
+// listener is a useEffect that runs after paint.
+if (supabase) {
+  supabase.auth.onAuthStateChange((event) => {
+    if (event === 'PASSWORD_RECOVERY') setRecoveryPending(true)
+  })
+}
 
 const AuthCtx = createContext(null)
 
@@ -86,7 +104,9 @@ function flattenMemberships(rows) {
 export function AuthProvider({ children }) {
   const app = useAppData()
   const navigate = useNavigate()
+  const location = useLocation()
   const [user, setUser] = useState(null)
+  const [recoveryPending, setRecoveryPendingState] = useState(isRecoveryPending)
   const [loading, setLoading] = useState(supabaseEnabled)
   const [authError, setAuthError] = useState(null)
   // Non-null when the most recent cloud save (flushCurrent) failed — e.g. the
@@ -227,6 +247,20 @@ export function AuthProvider({ children }) {
     }
   }, [user, app, memberships, flushCurrent])
 
+  useEffect(() => {
+    setRecoveryPendingState(isRecoveryPending())
+    return subscribeRecoveryPending(setRecoveryPendingState)
+  }, [])
+
+  // A recovery session must stay on the reset form. LandingRoute also refuses
+  // to send that session to /app; this covers every other path, including a
+  // link that was exchanged before the router rendered /reset-password.
+  useEffect(() => {
+    if (!recoveryPending) return
+    if (location.pathname === '/reset-password') return
+    navigate('/reset-password', { replace: true })
+  }, [recoveryPending, location.pathname, navigate])
+
   // ---- Track auth session ----
   useEffect(() => {
     if (!supabaseEnabled || !supabase) {
@@ -238,13 +272,18 @@ export function AuthProvider({ children }) {
 
     supabase.auth.getSession().then(({ data }) => {
       if (!active) return
-      setUser(data.session?.user ?? null)
+      const session = data.session ?? null
+      if (session && (authCallbackAtLoad.indicatesRecovery || isRecoveryPending())) {
+        setRecoveryPending(true)
+      }
+      setUser(session?.user ?? null)
       setLoading(false)
     }).catch(() => {
       if (active) setLoading(false)
     })
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') setRecoveryPending(true)
       setUser(session?.user ?? null)
     })
 
@@ -369,7 +408,7 @@ export function AuthProvider({ children }) {
     setAuthError(null)
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) {
-      setAuthError(error.message)
+      setAuthError(friendlySignInMessage(error))
       throw error
     }
   }, [])
@@ -379,11 +418,40 @@ export function AuthProvider({ children }) {
       throw new Error('Cloud not configured')
     }
     setAuthError(null)
-    const { error } = await supabase.auth.signUp({ email, password })
+    const { data, error } = await supabase.auth.signUp({ email, password })
     if (error) {
+      if (isExistingAccountError(error)) return { existingAccount: true }
       setAuthError(error.message)
       throw error
     }
+    if (isRepeatedSignupUser(data)) return { existingAccount: true }
+    return { existingAccount: false, data }
+  }, [])
+
+  const requestPasswordReset = useCallback(async (email) => {
+    if (!supabaseEnabled || !supabase) {
+      throw new Error('Cloud not configured')
+    }
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    })
+    if (error) throw error
+  }, [])
+
+  const resendSignupConfirmation = useCallback(async (email) => {
+    if (!supabaseEnabled || !supabase) {
+      throw new Error('Cloud not configured')
+    }
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email,
+      options: { emailRedirectTo: window.location.origin },
+    })
+    if (error) throw error
+  }, [])
+
+  const clearPasswordRecovery = useCallback(() => {
+    setRecoveryPending(false)
   }, [])
 
   // Personal profile fields (name, job title) — stored on the Supabase auth
@@ -410,6 +478,7 @@ export function AuthProvider({ children }) {
     setOrgName(null)
     app.reset?.()
     setAuthError(null)
+    setRecoveryPending(false)
     setCloudSyncError(null)
     navigate('/', { replace: true })
   }, [app, navigate])
@@ -539,6 +608,10 @@ export function AuthProvider({ children }) {
     signUp,
     signOut,
     updateProfile,
+    requestPasswordReset,
+    resendSignupConfirmation,
+    recoveryPending,
+    clearPasswordRecovery,
     cloudEnabled: supabaseEnabled,
     // Organization / team / workspace context
     memberships,

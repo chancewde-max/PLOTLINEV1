@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "test": "vitest run",
     "test:e2e": "node e2e/run-all.cjs"
   },
   "dependencies": {
@@ -22,7 +23,11 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
     "@vitejs/plugin-react": "^4.3.1",
-    "vite": "^5.4.2"
+    "jsdom": "^26.1.0",
+    "vite": "^5.4.2",
+    "vitest": "^3.2.7"
   }
 }
