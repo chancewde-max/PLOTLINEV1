@@ -40,6 +40,11 @@ export default function AreaInspector({
       <div data-testid="area-sqft" style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(12px * ${fs})`, fontWeight: 700, color: 'var(--text-strong)' }}>
         {Number.isFinite(totalSqFt) ? `${totalSqFt.toFixed(1)} sq ft` : '0.0 sq ft'}
       </div>
+      {areas.some(a => a.selfIntersecting) && (
+        <div data-testid="area-self-intersect" style={{ fontSize: `calc(12px * ${fs})`, fontWeight: 600, color: '#b45309' }}>
+          Self-intersecting outline. The sq ft is the net area.
+        </div>
+      )}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <label style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)', fontWeight: 600, minWidth: 56 }}>Depth</label>

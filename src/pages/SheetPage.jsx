@@ -25,7 +25,7 @@ import { resolveSheetPdfUrl, sheetHasPdf } from '../components/pdfCache.js'
 import { computeOverlayDiff } from '../components/pdfDiff.js'
 import { uploadPdfAsset, personalPdfPath, orgPdfPath } from '../data/pdfStorage.js'
 import { CATS, CAT_COLOR, SHEET_W, SHEET_H, categoryTotals } from '../data/sampleData.js'
-import { inside, polyAreaPx, perimPx, centroid, clipAreaPx2, dist, buildAreaPath, buildChainPath, buildLinePath, linePathLenPx, circularArcSeg, cubicPreviewCmd, bbox, areaShapePx, shapeAreaPx, cloneCubicSegs, translateCubicSegs, shiftCubicSegsForInsert, pointInArea, nearestAreaEdge, splitCubicEdge, measuredAreaPx2, areasPreferLatest, areaOutlineCentroid, areaTouchesRect, firstAreaHit } from '../workspace/geometry.js'
+import { inside, polyAreaPx, perimPx, centroid, clipAreaPx2, dist, buildAreaPath, buildChainPath, buildLinePath, linePathLenPx, circularArcSeg, cubicPreviewCmd, bbox, areaShapePx, shapeAreaPx, cloneCubicSegs, translateCubicSegs, shiftCubicSegsForInsert, pointInArea, nearestAreaEdge, splitCubicEdge, measuredAreaPx2, areasPreferLatest, areaOutlineCentroid, areaTouchesRect, firstAreaHit, outlineSelfIntersects } from '../workspace/geometry.js'
 import {
   TOPSOIL_OPTIONS, isTurfArea, areaExportNotes, areaDepthOf, areaTopsoilOf,
   areaTopsoilCustomOf, quoteHeaderFields, areaOwnVolumeCy, isUngroupedSoilArea,
@@ -995,9 +995,9 @@ export default function SheetPage() {
   const overlaySheet = overlaySheetId ? sheets[overlaySheetId] : null
 
   const toSheet = (e) => {
-    // Chrome quantizes MouseEvent clientX/clientY to whole pixels. The cubic
-    // repro drives exact sheet points through this hook; real clicks leave it unset.
-    const forced = typeof window !== 'undefined' ? window.__plotlineSheetPoint : null
+    // Chrome quantizes MouseEvent clientX/clientY to whole pixels. The e2e
+    // repro sets this hook; production builds ignore it.
+    const forced = import.meta.env.DEV && typeof window !== 'undefined' ? window.__plotlineSheetPoint : null
     if (forced && Number.isFinite(forced.x) && Number.isFinite(forced.y)) {
       return { x: forced.x, y: forced.y }
     }
@@ -1047,6 +1047,7 @@ export default function SheetPage() {
     const grp = areaGroups.find(g => g.id === activeAreaGroupId)
     const id = `ua-${Date.now()}`
     const closedSqFt = sqft(shapeAreaPx(capturedVerts, capturedCubic))
+    const crossing = outlineSelfIntersects(capturedVerts, capturedCubic)
     pushUndo()
     setAddedAreas(prev => {
       return [...prev, {
@@ -1059,6 +1060,7 @@ export default function SheetPage() {
         arcSegs: {},
         cubicSegs: capturedCubic,
         deduct: deductMode,
+        selfIntersecting: crossing,
       }]
     })
     setAreaVerts([]); setAreaCursor(null)
@@ -1066,7 +1068,8 @@ export default function SheetPage() {
     arcSegsRef.current = {}
     cubicSegsRef.current = {}
     setSelectedId(id); setSelectedKind('area'); setSelectedIds([id])
-    setAreaCloseHint(`${Number.isFinite(closedSqFt) ? closedSqFt.toFixed(1) : '0.0'} sq ft`)
+    const sfText = Number.isFinite(closedSqFt) ? closedSqFt.toFixed(1) : '0.0'
+    setAreaCloseHint(crossing ? `${sfText} sq ft · self-intersecting outline` : `${sfText} sq ft`)
   }
 
   const finishTurfArea = () => {
@@ -1766,7 +1769,7 @@ export default function SheetPage() {
       if (curvePhase === 'p1' && pendingC1 && pendingC2) {
         const p0 = areaVerts[areaVerts.length - 1]
         // P1 on P0 would store a zero-length edge and a duplicate vertex.
-        if (p0 && dist(p, p0) < 1) return
+        if (p0 && dist(p, p0) < NEAR) return
         const closing = areaVerts.length >= 3 && dist(p, areaVerts[0]) < NEAR
         cubicSegsRef.current[areaVerts.length - 1] = {
           c1: { x: pendingC1.x, y: pendingC1.y },
@@ -1920,6 +1923,15 @@ export default function SheetPage() {
   const fLn  = (n)   => precision === 0
     ? Math.round(n).toLocaleString()
     : n.toLocaleString(undefined, { minimumFractionDigits: precision, maximumFractionDigits: precision })
+  // Whole sq ft stay on the nearest-5 display. Halves such as 737.5 stay visible.
+  const fRegionSq = (n) => {
+    if (!Number.isFinite(n)) return fSq(0)
+    const tenth = Math.round(n * 10) / 10
+    if (Math.abs(tenth - Math.round(tenth)) > 1e-6) {
+      return tenth.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+    }
+    return fSq(tenth)
+  }
   // Scale marker sizes proportionally to plan scale so they look right at any calibration
   const mk = pxPerFt * 0.25
   // Zoom-invariant unit: 1 screen pixel in SVG coords regardless of CSS zoom
@@ -2144,7 +2156,7 @@ export default function SheetPage() {
       CATS.forEach(c => {
         const r = res[c.id]
         if (r.count > 0 || r.sqft > 0 || r.lnft > 0)
-          rows.push([folder.name, c.kind, c.name, r.count || '', r.sqft > 0 ? Math.round(r.sqft) : '', r.lnft > 0 ? Math.round(r.lnft) : ''])
+          rows.push([folder.name, c.kind, c.name, r.count || '', r.sqft > 0 ? fRegionSq(r.sqft) : '', r.lnft > 0 ? Math.round(r.lnft) : ''])
       })
     })
     const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n')
@@ -2908,6 +2920,7 @@ export default function SheetPage() {
                     'data-cubic-count': String(hasCubics ? cubicCount : 0),
                     'data-area-px2': String(areaShapePx(a)),
                     'data-chord-px2': String(polyAreaPx(a.poly || [])),
+                    'data-self-intersect': a.selfIntersecting ? 'true' : 'false',
                   }
                   if (!a.deduct) return <g key={a.id} {...areaTest}>{shape}</g>
                   const c = areaOutlineCentroid(a)
@@ -3381,9 +3394,9 @@ export default function SheetPage() {
                 const a = allAreas.find(x => x.id === id)
                 if (!a || !cp.c) return null
                 return (
-                  <div key={id} className={s.areaLabel}
+                  <div key={id} className={s.areaLabel} data-testid="region-area-label" data-sqft={String(sqft(cp.px2))}
                     style={{ left: `${((cp.c.x - deskX)/deskW)*100}%`, top: `${((cp.c.y - deskY)/deskH)*100}%`, color: CAT_COLOR[a.type] }}>
-                    {fSq(sqft(cp.px2))} sq ft
+                    {fRegionSq(sqft(cp.px2))} sq ft
                   </div>
                 )
               })}
@@ -3570,7 +3583,7 @@ export default function SheetPage() {
               onSwitch={switchFolder} onAdd={addFolder} onDelete={deleteFolder}
               onStartRename={startRename} onCommitRename={commitRename} onRenameVal={setRenameVal}
               regionRes={regionRes} hasRegion={hasRegion} regionSqft={regionSqft} regionPerim={regionPerim}
-              fSq={fSq} fLn={fLn} isDrawingRegion={isDrawingRegion}
+              fSq={fSq} fRegionSq={fRegionSq} fLn={fLn} isDrawingRegion={isDrawingRegion}
               onExportMTO={exportRegionMTO}
               countGroups={countGroups} areaGroups={areaGroups} linearGroups={linearGroups}
               addedAreas={addedAreas} addedLines={addedLines}
@@ -4431,7 +4444,7 @@ function _OldRegionPanel_UNUSED({ hasRegion, regionSqft, regionPerim, totalPoint
 // ---- Area draw panel -------------------------------------------------------
 function RegionPanel({ folders, activeFolderId, renamingId, renameVal, onSwitch, onAdd, onDelete,
   onStartRename, onCommitRename, onRenameVal, hasRegion, regionSqft, regionPerim,
-  fSq, fLn, isDrawingRegion, onExportMTO,
+  fSq, fRegionSq, fLn, isDrawingRegion, onExportMTO,
   countGroups, areaGroups, linearGroups, addedAreas, addedLines, sqft, lnft }) {
   const activeFolder = folders.find(f => f.id === activeFolderId)
   const poly = activeFolder?.poly
@@ -4549,7 +4562,7 @@ function RegionPanel({ folders, activeFolderId, renamingId, renameVal, onSwitch,
                 <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border-subtle)' }}>
                   <div style={{ width: 8, height: 8, borderRadius: 2, background: r.color || 'var(--brand-500)', flexShrink: 0 }} />
                   <span style={{ flex: 1, fontSize: 12, color: 'var(--text-body)' }}>{r.name}</span>
-                  <span style={{ fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text-strong)' }}>{fSq(r.sqft)} sf</span>
+                  <span data-testid="region-folder-sqft" data-sqft={String(r.sqft)} style={{ fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text-strong)' }}>{(fRegionSq || fSq)(r.sqft)} sf</span>
                 </div>
               ))}
             </>}

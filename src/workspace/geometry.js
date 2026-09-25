@@ -219,19 +219,150 @@ export function pointInArea(pt, area) {
   return inside(pt, flattenAreaPoly(poly, cubics))
 }
 
-// Region/folder overlap. A curved area fully inside the region uses the exact
-// cubic integral; a partial overlap grid-samples the flattened outline.
+function properSegCross(p1, p2, p3, p4) {
+  const cross = (a, b, c) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+  const d1 = cross(p3, p4, p1), d2 = cross(p3, p4, p2)
+  const d3 = cross(p1, p2, p3), d4 = cross(p1, p2, p4)
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))
+}
+
+function ringKey(poly) {
+  let s = ''
+  for (let i = 0; i < poly.length; i++) s += `${poly[i].x},${poly[i].y};`
+  return s
+}
+
+function cubicKey(cubicSegs) {
+  if (!cubicSegs) return ''
+  const keys = Object.keys(cubicSegs).sort((a, b) => Number(a) - Number(b))
+  let s = ''
+  for (const k of keys) {
+    const seg = cubicSegs[k]
+    if (!isCubicSeg(seg)) continue
+    s += `${k}:${seg.c1.x},${seg.c1.y},${seg.c2.x},${seg.c2.y};`
+  }
+  return s
+}
+
+const flattenCache = new Map()
+const clipCache = new Map()
+const CACHE_MAX = 80
+
+function remember(map, key, value) {
+  if (map.has(key)) map.delete(key)
+  map.set(key, value)
+  if (map.size > CACHE_MAX) {
+    const oldest = map.keys().next().value
+    map.delete(oldest)
+  }
+  return value
+}
+
+// Flattened outlines are reused by the canvas clip and the folder panel.
+export function cachedFlattenAreaPoly(poly, cubicSegs = {}, steps = 32) {
+  const key = `${steps}|${ringKey(poly || [])}|${cubicKey(cubicSegs)}`
+  const hit = flattenCache.get(key)
+  if (hit) {
+    flattenCache.delete(key)
+    flattenCache.set(key, hit)
+    return hit
+  }
+  return remember(flattenCache, key, flattenAreaPoly(poly, cubicSegs, steps))
+}
+
+function outlineEdgesCross(flat, region) {
+  const n = flat.length
+  const m = region.length
+  for (let i = 0; i < n; i++) {
+    const a = flat[i]
+    const b = flat[(i + 1) % n]
+    for (let j = 0; j < m; j++) {
+      if (properSegCross(a, b, region[j], region[(j + 1) % m])) return true
+    }
+  }
+  return false
+}
+
+// Area-weighted centroid. Falls back to a point on the widest interior
+// scanline when the centroid lands outside (bowed / self-overlapping outlines).
+export function outlineLabelPoint(poly) {
+  if (!poly || poly.length === 0) return { x: 0, y: 0 }
+  if (poly.length < 3) return centroid(poly)
+  let twice = 0, cx = 0, cy = 0
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const cross = poly[j].x * poly[i].y - poly[i].x * poly[j].y
+    twice += cross
+    cx += (poly[j].x + poly[i].x) * cross
+    cy += (poly[j].y + poly[i].y) * cross
+  }
+  const c = Math.abs(twice) < 1e-8
+    ? centroid(poly)
+    : { x: cx / (3 * twice), y: cy / (3 * twice) }
+  if (inside(c, poly)) return c
+  const spanMid = (y) => {
+    const xs = []
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const a = poly[j], b = poly[i]
+      if ((a.y > y) === (b.y > y)) continue
+      const denom = b.y - a.y
+      if (denom === 0) continue
+      xs.push(a.x + (b.x - a.x) * (y - a.y) / denom)
+    }
+    xs.sort((p, q) => p - q)
+    let best = null
+    for (let i = 0; i + 1 < xs.length; i += 2) {
+      const w = xs[i + 1] - xs[i]
+      if (w > 0 && (!best || w > best.w)) best = { lo: xs[i], hi: xs[i + 1], w }
+    }
+    if (!best) return null
+    const p = { x: (best.lo + best.hi) / 2, y }
+    return inside(p, poly) ? p : null
+  }
+  const through = spanMid(c.y)
+  if (through) return through
+  const box = bbox(poly)
+  let best = null
+  const rows = 28
+  for (let i = 1; i < rows; i++) {
+    const y = box.minY + (box.maxY - box.minY) * (i / rows)
+    const p = spanMid(y)
+    if (!p) continue
+    if (!best || Math.abs(p.y - c.y) < Math.abs(best.y - c.y)) best = p
+  }
+  return best || c
+}
+
+// Region/folder overlap. The exact cubic integral is used only when the
+// flattened outline does not cross the region and no region vertex sits
+// inside the shape. A concave bite fails that test and grid-samples the
+// outline instead. Closed clips (step <= 4) use a 2px grid so a notch like
+// QA's U lands near the fine-grid area; coarser steps stay coarse while drawing.
 // Areas with only circular arcSegs stay on the chord polygon.
 export function clipAreaPx2(area, region, step = 4) {
   const poly = area?.poly || []
   const cubics = area?.cubicSegs
   const curved = cubics && Object.values(cubics).some(isCubicSeg)
   if (!curved) return clipPx2(poly, region, step)
-  const flat = flattenAreaPoly(poly, cubics)
-  if (region && region.length >= 3 && flat.length >= 3 && flat.every(p => inside(p, region))) {
-    return { px2: shapeAreaPx(poly, cubics), c: centroid(flat) }
+  const flat = cachedFlattenAreaPoly(poly, cubics)
+  const gridStep = step <= 4 ? 2 : step
+  const clipKey = `${gridStep}|${ringKey(flat)}|${ringKey(region || [])}`
+  const cached = clipCache.get(clipKey)
+  if (cached) {
+    clipCache.delete(clipKey)
+    clipCache.set(clipKey, cached)
+    return cached
   }
-  return clipPx2(flat, region, step)
+  let result
+  const samplesInside = region && region.length >= 3 && flat.length >= 3 && flat.every(p => inside(p, region))
+  const fullyInside = samplesInside
+    && !outlineEdgesCross(flat, region)
+    && !region.some(v => inside(v, flat))
+  if (fullyInside) {
+    result = { px2: shapeAreaPx(poly, cubics), c: outlineLabelPoint(flat) }
+  } else {
+    result = clipPx2(flat, region, gridStep)
+  }
+  return remember(clipCache, clipKey, result)
 }
 
 // Sheet MTO and takeoff pass no region and get the full curve. A region MTO
@@ -257,10 +388,25 @@ export function areasPreferLatest(areas) {
 
 export function areaOutlineCentroid(area) {
   const poly = area?.poly || []
+  if (poly.length < 3) return centroid(poly)
   const cubics = area?.cubicSegs
   const curved = cubics && Object.values(cubics).some(isCubicSeg)
-  if (!curved || poly.length < 3) return centroid(poly)
-  return centroid(flattenAreaPoly(poly, cubics))
+  const ring = curved ? cachedFlattenAreaPoly(poly, cubics) : poly
+  return outlineLabelPoint(ring)
+}
+
+// True when non-adjacent edges of the flattened outline properly cross.
+export function outlineSelfIntersects(poly, cubicSegs) {
+  const flat = (!poly || poly.length < 4) ? poly : cachedFlattenAreaPoly(poly, cubicSegs || {})
+  if (!flat || flat.length < 4) return false
+  const n = flat.length
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 2; j < n; j++) {
+      if (i === 0 && j === n - 1) continue
+      if (properSegCross(flat[i], flat[(i + 1) % n], flat[j], flat[(j + 1) % n])) return true
+    }
+  }
+  return false
 }
 
 function ptInRect(p, r) {

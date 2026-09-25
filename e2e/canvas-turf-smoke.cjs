@@ -410,6 +410,24 @@ async function main() {
     record('Inspector sq ft of the bulged square is 925',
       !!drawn && drawn.count === '1' && drawnInsp === '925.0 sq ft',
       `insp=${drawnInsp} area=${JSON.stringify(drawn)}`)
+    await page.locator('button[aria-label="Region count"]').click()
+    await page.waitForTimeout(150)
+    const uShape = [[-50, -50], [20, -50], [20, 50], [80, 50], [80, -50], [250, -50], [250, 250], [-50, 250]]
+    for (const [x, y] of uShape) {
+      await clickSheet(x, y)
+      await page.waitForTimeout(40)
+    }
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(400)
+    const uLabels = await page.locator('[data-testid="region-area-label"]').evaluateAll((nodes) =>
+      nodes.map(n => ({ sqft: Number(n.getAttribute('data-sqft')), text: n.textContent })))
+    const uPanel = await page.locator('[data-testid="region-folder-sqft"]').evaluateAll((nodes) =>
+      nodes.map(n => ({ sqft: Number(n.getAttribute('data-sqft')), text: n.textContent })))
+    const near737 = (row) => row && Number.isFinite(row.sqft) && Math.abs(row.sqft - 737.5) < 1
+      && String(row.text).includes('737.5')
+    record('Concave U region clips the bulge to about 737.5 sf',
+      uLabels.some(near737) && uPanel.some(near737),
+      `labels=${JSON.stringify(uLabels)} panel=${JSON.stringify(uPanel)}`)
     await page.keyboard.press('Escape')
     await page.waitForTimeout(150)
     record('Deselected area has no vertex handles', await page.locator('[data-testid="area-vertex"]').count() === 0)
@@ -702,19 +720,33 @@ async function main() {
   // Sheet save is 400ms and app data hits localStorage 500ms after that.
   await page.waitForTimeout(1000)
   await page.reload({ waitUntil: 'networkidle' })
-  await page.waitForTimeout(600)
+  await page.getByText('Essential only').click().catch(() => {})
+  await page.waitForTimeout(700)
   const reloaded = await page.locator('[data-testid="soil-area"]').evaluateAll((nodes) => {
     const hit = nodes
       .map(n => ({
         count: Number(n.getAttribute('data-cubic-count') || 0),
         px2: Number(n.getAttribute('data-area-px2')),
       }))
-      .filter(n => Number.isFinite(n.px2) && Math.abs(n.px2 - 14800) < 1 && n.count >= 1)
-    return hit[0] || null
+      .find(n => Number.isFinite(n.px2) && Math.abs(n.px2 - 14800) < 1 && n.count >= 1)
+    return hit || null
   }).catch(() => null)
+  await page.locator('button[aria-label="Select"]').click()
+  await page.waitForTimeout(150)
+  await page.evaluate(() => {
+    const svg = [...document.querySelectorAll('svg')].find(s => (s.getAttribute('viewBox') || '').includes('-160'))
+    window.__plotlineSheetPoint = { x: 50, y: 50 }
+    const fire = (type) => svg.dispatchEvent(new MouseEvent(type, {
+      bubbles: true, cancelable: true, view: window, button: 0,
+      buttons: type === 'mousedown' ? 1 : 0, detail: 1,
+    }))
+    fire('mousedown'); fire('mouseup'); fire('click')
+    window.__plotlineSheetPoint = null
+  })
+  await page.waitForTimeout(250)
   const reloadedInsp = await page.locator('[data-testid="area-sqft"]').innerText().catch(() => '')
   record('Save and reload keeps the cubic segments and 925 sf',
-    !!reloaded && reloaded.count >= 1 && (reloadedInsp === '925.0 sq ft' || Math.abs(reloaded.px2 - 14800) < 1),
+    !!reloaded && reloaded.count >= 1 && reloadedInsp === '925.0 sq ft',
     `area=${JSON.stringify(reloaded)} insp=${reloadedInsp}`)
 
   record('No console/page errors', consoleErrors.length === 0 && pageErrors.length === 0,

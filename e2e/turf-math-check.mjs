@@ -6,6 +6,7 @@ import {
   shiftCubicSegsForInsert, translateCubicSegs, clipPx2, clipAreaPx2, inside, pointInArea,
   nearestAreaEdge, nearestOnCubic, splitCubicEdge,
   measuredAreaPx2, areasPreferLatest, areaOutlineCentroid, areaTouchesRect, firstAreaHit,
+  outlineSelfIntersects, flattenAreaPoly, bbox,
 } from '../src/workspace/geometry.js'
 import {
   rollCorners, rollFitsInArea, turfCoverage, parseRollFt,
@@ -369,10 +370,73 @@ const bulgeBox = { minX: 120, minY: 30, maxX: 170, maxY: 70 }
 check('marquee over the bulge hits the curve and misses the chord',
   areaTouchesRect(curvedArea, bulgeBox) && !areaTouchesRect({ poly: unitSquare }, bulgeBox))
 const outlineC = areaOutlineCentroid(curvedArea)
-const chordC = { x: 50, y: 50 }
-check('area label anchor follows the curved outline, not the chord centroid',
-  outlineC.x > chordC.x + 5 && Math.abs(outlineC.y - 50) < 5,
+check('area label uses the area-weighted outline centroid',
+  pointInArea(outlineC, curvedArea)
+  && Math.abs(outlineC.x - 74.56) < 0.5
+  && Math.abs(outlineC.y - 50) < 0.5,
   `outline=${outlineC.x.toFixed(2)},${outlineC.y.toFixed(2)}`)
+
+const triPoly = [{ x: 0, y: 0 }, { x: 200, y: 0 }, { x: 100, y: 120 }]
+const triCubics = { 0: { c1: { x: 0, y: 200 }, c2: { x: 200, y: 200 } } }
+const triArea = { poly: triPoly, cubicSegs: triCubics }
+const triLabel = areaOutlineCentroid(triArea)
+check('bowed triangle label point stays inside the shape',
+  pointInArea(triLabel, triArea),
+  `label=${triLabel.x.toFixed(2)},${triLabel.y.toFixed(2)}`)
+
+// Independent of clipAreaPx2: count cell centers that sit in both polygons.
+function fineGridPx2(subject, region, step) {
+  const a = bbox(subject)
+  const b = bbox(region)
+  const x0 = Math.max(a.minX, b.minX)
+  const y0 = Math.max(a.minY, b.minY)
+  const x1 = Math.min(a.maxX, b.maxX)
+  const y1 = Math.min(a.maxY, b.maxY)
+  let hits = 0
+  for (let y = y0 + step / 2; y < y1; y += step) {
+    for (let x = x0 + step / 2; x < x1; x += step) {
+      const p = { x, y }
+      if (inside(p, subject) && inside(p, region)) hits++
+    }
+  }
+  return hits * step * step
+}
+const uRegion = [
+  { x: -50, y: -50 }, { x: 20, y: -50 }, { x: 20, y: 50 }, { x: 80, y: 50 },
+  { x: 80, y: -50 }, { x: 250, y: -50 }, { x: 250, y: 250 }, { x: -50, y: 250 },
+]
+const flatBulge = flattenAreaPoly(unitSquare, bulge, 32)
+const uExpectedSf = fineGridPx2(flatBulge, uRegion, 0.5) / 16
+const uClipSf = clipAreaPx2(curvedArea, uRegion, 4).px2 / 16
+check('concave U region drops the fully-inside shortcut',
+  Math.abs(uClipSf - 925) > 50
+  && Math.abs(uClipSf - uExpectedSf) < 1.5
+  && Math.abs(uClipSf - 737.5) < 1,
+  `clip=${uClipSf.toFixed(2)} independent=${uExpectedSf.toFixed(2)}`)
+const halfRegion = [
+  { x: -10, y: -10 }, { x: 50, y: -10 }, { x: 50, y: 150 }, { x: -10, y: 150 },
+]
+const halfExpectedSf = fineGridPx2(flatBulge, halfRegion, 0.5) / 16
+const halfClipSf = clipAreaPx2(curvedArea, halfRegion, 4).px2 / 16
+check('partial region matches an independent fine grid',
+  Math.abs(halfClipSf - halfExpectedSf) < 1.5 && halfClipSf < 400,
+  `clip=${halfClipSf.toFixed(2)} independent=${halfExpectedSf.toFixed(2)}`)
+check('self-intersecting outline is detected and a plain square is not',
+  outlineSelfIntersects(unitSquare, { 1: { c1: { x: 300, y: 200 }, c2: { x: 300, y: -100 } } })
+  && !outlineSelfIntersects(unitSquare, bulge))
+
+const warmAreas = Array.from({ length: 20 }, (_, i) => ({
+  poly: unitSquare.map(p => ({ x: p.x + i * 30, y: p.y })),
+  cubicSegs: { 1: { c1: { x: 180 + i * 30, y: 0 }, c2: { x: 180 + i * 30, y: 100 } } },
+}))
+const warmRegions = warmAreas.map((_, i) => uRegion.map(p => ({ x: p.x + i * 30, y: p.y })))
+for (let i = 0; i < warmAreas.length; i++) clipAreaPx2(warmAreas[i], warmRegions[i], 4)
+const warmStart = performance.now()
+for (let n = 0; n < 20; n++) {
+  for (let i = 0; i < warmAreas.length; i++) clipAreaPx2(warmAreas[i], warmRegions[i], 4)
+}
+const warmMs = performance.now() - warmStart
+check('repeat region clips hit the flatten/clip cache', warmMs < 30, `warm=${warmMs.toFixed(2)}ms`)
 
 const onP0 = { id: 'bed', poly: unitSquare, cubicSegs: { 0: { c1: { x: 0, y: 0 }, c2: { x: 40, y: -20 } } } }
 const vertexFirst = firstAreaHit([onP0], { x: 0, y: 0 }, 8, { handleAreaId: 'bed' })
