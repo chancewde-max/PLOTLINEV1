@@ -250,12 +250,30 @@ function singularize(name) {
   return name.replace(/s\s*$/, '').trim()
 }
 
+// Loading and not-found bail out here, before SheetPageBody mounts. That
+// editor calls hooks past the old in-component returns; a later render that
+// got further (signed-in dataLoading flip, or a save that invented a missing
+// sheet) threw React #310 and blanked the page. The body remounts per sheet
+// so its state initializers read the sheet that is actually open.
 export default function SheetPage() {
+  const { projectId, sheetId } = useParams()
+  const { projects, sheets } = useAppData()
+  const { dataLoading } = useAuth()
+  if (dataLoading) return <SheetPageSkeleton />
+  const project = projects[projectId]
+  const sheet = sheets[sheetId]
+  if (!project || !sheet) {
+    return <div style={{ padding: 40, color: 'var(--text-muted)' }}>Sheet not found.</div>
+  }
+  return <SheetPageBody key={sheetId} />
+}
+
+function SheetPageBody() {
   const { projectId, sheetId } = useParams()
   const navigate = useNavigate()
   const { projects, sheets, updateSheet, addRegion, updateRegion, deleteRegion, pdfAssets } = useAppData()
   const { theme, setTheme, accent, setAccent, hotkeys, toolbarOrder, setToolbarOrder, zoomSensitivity, setZoomSensitivity } = useSettings()
-  const { dataLoading, user, orgId, cloudEnabled } = useAuth()
+  const { user, orgId, cloudEnabled } = useAuth()
 
   // ---- UI state ----
   const [fs, setFs]             = useState(1)
@@ -887,7 +905,9 @@ export default function SheetPage() {
   // (Material List / takeoff) does not drop inspector depth/topsoil.
   const saveTimerRef = useRef(null)
   useEffect(() => {
-    if (!sheetId) return
+    // A missing id must stay missing. updateSheet spreads undefined into a
+    // new object, which used to make the next render skip "Sheet not found".
+    if (!sheetId || !sheet) return
     const payload = {
       savedCountGroups: countGroups,
       savedLinearGroups: linearGroups,
@@ -1188,11 +1208,6 @@ export default function SheetPage() {
     }
     return { clip, byCat }
   }, [areaGeomSig, regionSig, regionClipStep, regionClipLabels, activeTool, catSig, pxPerFt, sheetReady])
-
-  if (dataLoading) return <SheetPageSkeleton />
-  if (!project || !sheet) {
-    return <div style={{ padding: 40, color: 'var(--text-muted)' }}>Sheet not found.</div>
-  }
 
   // ---- Helpers ----
   const genName = (catId) => {

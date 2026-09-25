@@ -253,7 +253,13 @@ export function AppDataProvider({ children }) {
   }
 
   const updateSheet = (sheetId, updates) =>
-    setSheets(s => ({ ...s, [sheetId]: { ...s[sheetId], ...updates } }))
+    setSheets(s => {
+      const current = s[sheetId]
+      // Never invent a sheet. `{ ...undefined, ...updates }` used to create
+      // sheets[id] for an unknown route, and the next SheetPage render crashed.
+      if (!current) return s
+      return { ...s, [sheetId]: { ...current, ...updates } }
+    })
 
   // Register one or more shared PDF byte-blobs (keyed by fileId). Merges —
   // never drops assets other sheets/projects still reference.
