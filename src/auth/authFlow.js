@@ -20,6 +20,18 @@ export const EXISTING_ACCOUNT_MESSAGE =
 
 export const RESEND_COOLDOWN_SECONDS = 60
 
+export const GENERIC_AUTH_ERROR =
+  'Something went wrong. Please check your connection and try again.'
+
+export const RATE_LIMIT_MESSAGE =
+  'Too many attempts, please wait a few minutes and try again.'
+
+// Messages this app throws itself. Everything else from the network or the
+// auth server is replaced so a raw payload never reaches the screen.
+const APP_AUTHORED_MESSAGES = new Set([
+  'Cloud not configured',
+])
+
 export function isEmailNotConfirmed(error) {
   return error?.code === 'email_not_confirmed' || error?.message === 'Email not confirmed'
 }
@@ -28,14 +40,56 @@ export function isInvalidCredentials(error) {
   return error?.code === 'invalid_credentials' || error?.message === 'Invalid login credentials'
 }
 
-export function friendlySignInMessage(error) {
-  if (isEmailNotConfirmed(error)) return EMAIL_NOT_CONFIRMED_MESSAGE
-  if (isInvalidCredentials(error)) return INVALID_CREDENTIALS_MESSAGE
-  return error?.message || 'Something went wrong'
+export function isExistingAccountError(error) {
+  return error?.code === 'user_already_exists'
+    || error?.code === 'email_exists'
+    || error?.message === 'User already registered'
 }
 
-export function isExistingAccountError(error) {
-  return error?.code === 'user_already_exists' || error?.code === 'email_exists'
+function errorText(error) {
+  if (typeof error === 'string') return error
+  if (error && typeof error.message === 'string') return error.message
+  return ''
+}
+
+export function isRateLimitError(error) {
+  const code = error?.code
+  if (
+    code === 'over_email_send_rate_limit' ||
+    code === 'over_request_rate_limit' ||
+    code === 'over_sms_send_rate_limit'
+  ) return true
+  if (error?.status === 429) return true
+  const message = errorText(error)
+  return /rate limit/i.test(message) || /for security purposes/i.test(message)
+}
+
+function knownPasswordMessage(error) {
+  if (error?.code === 'weak_password') {
+    return `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`
+  }
+  if (error?.code === 'same_password') return 'Choose a different password than your current one.'
+  if (error?.code === 'reauthentication_needed') return 'Please sign in again and retry.'
+  return null
+}
+
+// One mapper for every auth surface. Known cases get specific copy. Any
+// other server, network, or unknown error gets GENERIC_AUTH_ERROR — never
+// error.message and never a JSON dump.
+export function friendlyAuthMessage(error) {
+  if (isEmailNotConfirmed(error)) return EMAIL_NOT_CONFIRMED_MESSAGE
+  if (isInvalidCredentials(error)) return INVALID_CREDENTIALS_MESSAGE
+  if (isExistingAccountError(error)) return EXISTING_ACCOUNT_MESSAGE
+  if (isRateLimitError(error)) return RATE_LIMIT_MESSAGE
+  const passwordMessage = knownPasswordMessage(error)
+  if (passwordMessage) return passwordMessage
+  const message = errorText(error).trim()
+  if (APP_AUTHORED_MESSAGES.has(message)) return message
+  return GENERIC_AUTH_ERROR
+}
+
+export function friendlySignInMessage(error) {
+  return friendlyAuthMessage(error)
 }
 
 // Email confirmation on: Supabase returns 200 with an empty identities array
@@ -49,10 +103,12 @@ export function isRepeatedSignupUser(data) {
 }
 
 export function validateNewPassword(password, confirm) {
-  if ((password || '').length < MIN_PASSWORD_LENGTH) {
+  const next = String(password ?? '').trim()
+  const again = String(confirm ?? '').trim()
+  if (next.length < MIN_PASSWORD_LENGTH) {
     return `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`
   }
-  if (password !== confirm) return 'Passwords do not match.'
+  if (next !== again) return 'Passwords do not match.'
   return null
 }
 
@@ -71,14 +127,9 @@ export function captureAuthCallback(href) {
     url.searchParams.get('error') ||
     url.searchParams.get('error_code')
   )
-  const hasCode = url.searchParams.has('code')
-  const path = url.pathname.replace(/\/$/, '') || '/'
-  // Implicit recovery links carry type=recovery. PKCE recovery links land on
-  // /reset-password?code=… (the redirect type itself is stored with the verifier).
-  const indicatesRecovery = !hasError && (
-    type === 'recovery' ||
-    (hasCode && path === '/reset-password')
-  )
+  // Implicit flow only. A recovery email is a hash with type=recovery.
+  // ?code= is not a recovery signal: this client never exchanges a PKCE code.
+  const indicatesRecovery = !hasError && type === 'recovery'
   return { indicatesRecovery, hasError, type }
 }
 
@@ -86,7 +137,7 @@ export const authCallbackAtLoad = captureAuthCallback(
   typeof window !== 'undefined' ? window.location.href : 'http://localhost/'
 )
 
-// The recovery hash/code is removed once the client parses it. Remember the
+// The recovery hash is removed once the client parses it. Remember the
 // in-progress recovery for this tab so a refresh still shows the new-password
 // form instead of treating the restored session as a normal sign-in.
 const RECOVERY_KEY = 'plotline-password-recovery'

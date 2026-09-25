@@ -20,7 +20,7 @@ import {
   MIN_PASSWORD_LENGTH,
   RESET_SENT_MESSAGE,
   RESEND_COOLDOWN_SECONDS,
-  friendlySignInMessage,
+  friendlyAuthMessage,
   isEmailNotConfirmed,
 } from './authFlow.js'
 import s from './AuthModal.module.css'
@@ -28,7 +28,7 @@ import s from './AuthModal.module.css'
 export function AuthModal({ open, onClose }) {
   const {
     user, loading, signIn, signUp, signOut, authError, clearAuthError, cloudEnabled,
-    requestPasswordReset, resendSignupConfirmation,
+    requestPasswordReset, resendSignupConfirmation, authMode,
   } = useAuth()
   const [mode, setMode] = useState('signin') // 'signin' | 'signup' | 'reset' | 'reset-sent'
   const [email, setEmail] = useState('')
@@ -40,26 +40,29 @@ export function AuthModal({ open, onClose }) {
   const [resendState, setResendState] = useState('idle') // idle | sending | sent | error
   const [resendError, setResendError] = useState(null)
   const [cooldown, setCooldown] = useState(0)
+  // The address that produced email_not_confirmed. Resend uses this, not the
+  // live field, so editing the email cannot send the link somewhere else.
+  const [unconfirmedEmail, setUnconfirmedEmail] = useState(null)
   const viewRef = useRef(null)
   const modeRef = useRef(mode)
 
-  // Drop sign-in errors when the dialog closes. Switching views clears them
-  // in goToMode; this covers a parent that sets open to false directly.
-  // Opening only resets the in-flight flag so a previous submit can't leave
-  // the button stuck.
+  // Opening starts at the requested mode (signin or signup) with a clean
+  // view. Closing drops reset-sent, notices, and in-flight state so the next
+  // Sign in click cannot reopen on the success screen. Switching views
+  // clears the same transients in goToMode, which also zeroes the resend
+  // cooldown.
   useEffect(() => {
-    if (open) {
-      setBusy(false)
-      modeRef.current = mode
-      return
-    }
+    const next = authMode === 'signup' ? 'signup' : 'signin'
+    setMode(open ? next : 'signin')
+    setBusy(false)
     setErr(null)
     setNotice(null)
     setResendState('idle')
     setResendError(null)
     setCooldown(0)
+    setUnconfirmedEmail(null)
     clearAuthError?.()
-  }, [open]) // mode and clearAuthError are read only when open changes
+  }, [open, authMode]) // clearAuthError is read only when open or mode changes
 
   // Move focus into the newly shown view. The dialog's own focus effect runs
   // only when it opens, so switching sign-in / sign-up / reset would otherwise
@@ -82,6 +85,19 @@ export function AuthModal({ open, onClose }) {
   const clearTransient = () => {
     setErr(null)
     setNotice(null)
+    setResendState('idle')
+    setResendError(null)
+    setCooldown(0)
+    setUnconfirmedEmail(null)
+    clearAuthError?.()
+  }
+
+  const onEmailChange = (e) => {
+    const next = e.target.value
+    setEmail(next)
+    if (notice !== 'confirm') return
+    setNotice(null)
+    setUnconfirmedEmail(null)
     setResendState('idle')
     setResendError(null)
     setCooldown(0)
@@ -112,7 +128,11 @@ export function AuthModal({ open, onClose }) {
       if (mode === 'signin') {
         await signIn(email.trim(), password)
       } else {
-        const result = await signUp(email.trim(), password)
+        if (password.trim().length < MIN_PASSWORD_LENGTH) {
+          setErr(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`)
+          return
+        }
+        const result = await signUp(email.trim(), password.trim())
         if (result?.existingAccount) {
           setNotice('exists')
           return
@@ -122,11 +142,11 @@ export function AuthModal({ open, onClose }) {
     } catch (error) {
       if (mode === 'signin' && isEmailNotConfirmed(error)) {
         setNotice('confirm')
+        setUnconfirmedEmail(email.trim())
         setErr(null)
-      } else if (mode === 'signin') {
-        setErr(friendlySignInMessage(error))
+        clearAuthError?.()
       } else {
-        setErr(error?.message || 'Something went wrong')
+        setErr(friendlyAuthMessage(error))
       }
     } finally {
       setBusy(false)
@@ -134,14 +154,15 @@ export function AuthModal({ open, onClose }) {
   }
 
   const resend = async () => {
+    if (!unconfirmedEmail) return
     setResendError(null)
     setResendState('sending')
     try {
-      await resendSignupConfirmation(email.trim())
+      await resendSignupConfirmation(unconfirmedEmail)
       setResendState('sent')
       setCooldown(RESEND_COOLDOWN_SECONDS)
     } catch (error) {
-      setResendError(error?.message || 'Something went wrong')
+      setResendError(friendlyAuthMessage(error))
       setResendState('error')
     }
   }
@@ -252,7 +273,7 @@ export function AuthModal({ open, onClose }) {
                 type="email"
                 placeholder="you@company.com"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={onEmailChange}
                 leadingIcon={<Mail size={14} />}
                 autoComplete="email"
                 required

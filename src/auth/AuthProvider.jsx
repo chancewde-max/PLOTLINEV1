@@ -50,7 +50,7 @@ import {
 } from '../data/orgSync.js'
 import {
   authCallbackAtLoad,
-  friendlySignInMessage,
+  friendlyAuthMessage,
   isExistingAccountError,
   isRecoveryPending,
   isRepeatedSignupUser,
@@ -116,7 +116,9 @@ export function AuthProvider({ children }) {
   const [cloudSyncError, setCloudSyncError] = useState(null)
   // Global modal open-state, so any component can trigger the auth modal.
   const [authOpen, setAuthOpen] = useState(false)
+  const [authMode, setAuthMode] = useState('signin')
   const openAuth = useCallback((mode) => {
+    setAuthMode(mode === 'signup' ? 'signup' : 'signin')
     setAuthOpen(true)
   }, [])
   const closeAuth = useCallback(() => setAuthOpen(false), [])
@@ -408,7 +410,7 @@ export function AuthProvider({ children }) {
     setAuthError(null)
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) {
-      setAuthError(friendlySignInMessage(error))
+      setAuthError(friendlyAuthMessage(error))
       throw error
     }
   }, [])
@@ -421,7 +423,7 @@ export function AuthProvider({ children }) {
     const { data, error } = await supabase.auth.signUp({ email, password })
     if (error) {
       if (isExistingAccountError(error)) return { existingAccount: true }
-      setAuthError(error.message)
+      setAuthError(friendlyAuthMessage(error))
       throw error
     }
     if (isRepeatedSignupUser(data)) return { existingAccount: true }
@@ -605,6 +607,7 @@ export function AuthProvider({ children }) {
     clearAuthError,
     cloudSyncError,
     authOpen,
+    authMode,
     openAuth,
     closeAuth,
     signIn,

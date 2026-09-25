@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -121,13 +122,147 @@ describe('AuthModal recovery and sign-in errors', () => {
     expect((await screen.findByRole('alert')).textContent).toBe('Email or password is incorrect.')
   })
 
-  it('leaves other sign-in errors unchanged', async () => {
+  it('shows the fallback for a 500 and for Failed to fetch, with no raw text', async () => {
+    const fallback = 'Something went wrong. Please check your connection and try again.'
+    const user = userEvent.setup()
+    render(<AuthModal open onClose={vi.fn()} />)
+    await fillCredentials(user)
+
+    auth.signIn.mockRejectedValueOnce({ status: 500, code: 'unexpected_failure', message: '{}' })
+    await user.click(screen.getByRole('button', { name: 'Continue with email' }))
+    let alert = await screen.findByRole('alert')
+    expect(alert.textContent).toBe(fallback)
+    expect(alert.textContent).not.toContain('{}')
+    expect(alert.textContent).not.toContain('unexpected_failure')
+
+    auth.signIn.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    await user.click(screen.getByRole('button', { name: 'Continue with email' }))
+    alert = await screen.findByRole('alert')
+    expect(alert.textContent).toBe(fallback)
+    expect(alert.textContent).not.toContain('Failed to fetch')
+    expect(screen.queryByText('{}')).toBeNull()
+  })
+
+  it('rejects a whitespace-only signup password', async () => {
+    const user = userEvent.setup()
+    render(<AuthModal open onClose={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: 'Create one' }))
+    await user.type(screen.getByLabelText('Email'), 'ada@example.com')
+    await user.type(screen.getByLabelText('Password'), '      ')
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('Password must be at least 6 characters.')
+    expect(auth.signUp).not.toHaveBeenCalled()
+  })
+
+  it('hides a network TypeError behind the connection fallback', async () => {
+    auth.signIn.mockRejectedValue(new TypeError('Failed to fetch'))
+    const user = userEvent.setup()
+    render(<AuthModal open onClose={vi.fn()} />)
+    await fillCredentials(user)
+    await user.click(screen.getByRole('button', { name: 'Continue with email' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toBe('Something went wrong. Please check your connection and try again.')
+    expect(alert.textContent).not.toContain('Failed to fetch')
+  })
+
+  it('hides an empty server payload behind the connection fallback', async () => {
+    auth.signUp.mockRejectedValue({ message: '{}' })
+    const user = userEvent.setup()
+    render(<AuthModal open onClose={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: 'Create one' }))
+    await user.type(screen.getByLabelText('Email'), 'ada@example.com')
+    await user.type(screen.getByLabelText('Password'), 'secret12')
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toBe('Something went wrong. Please check your connection and try again.')
+    expect(alert.textContent).not.toContain('{}')
+  })
+
+  it('hides a banned-user message behind the connection fallback', async () => {
+    auth.requestPasswordReset.mockRejectedValue(new Error('User is banned'))
+    const user = userEvent.setup()
+    render(<AuthModal open onClose={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: 'Forgot password?' }))
+    await user.type(screen.getByLabelText('Email'), 'person@example.com')
+    await user.click(screen.getByRole('button', { name: 'Send reset link' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toBe('Something went wrong. Please check your connection and try again.')
+    expect(alert.textContent).not.toContain('User is banned')
+  })
+
+  it('maps an email rate-limit message to the wait copy', async () => {
+    auth.signIn.mockRejectedValue(new Error('email rate limit exceeded'))
+    const user = userEvent.setup()
+    render(<AuthModal open onClose={vi.fn()} />)
+    await fillCredentials(user)
+    await user.click(screen.getByRole('button', { name: 'Continue with email' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toBe('Too many attempts, please wait a few minutes and try again.')
+    expect(alert.textContent).not.toContain('email rate limit exceeded')
+  })
+
+  it('resends confirmation to the email that failed and clears the notice when that field changes', async () => {
+    const message = 'Please confirm your email first. Check your inbox for the confirmation link.'
+    rejectSignIn(
+      Object.assign(new Error('Email not confirmed'), { code: 'email_not_confirmed' }),
+      message,
+    )
+    auth.resendSignupConfirmation.mockResolvedValue(undefined)
+    const user = userEvent.setup()
+    render(<AuthModal open onClose={vi.fn()} />)
+    await fillCredentials(user, 'first@example.com')
+    await user.click(screen.getByRole('button', { name: 'Continue with email' }))
+    expect(await screen.findByText(/Please confirm your email first/)).toBeTruthy()
+
+    const email = screen.getByLabelText('Email')
+    await user.clear(email)
+    await user.type(email, 'other@example.com')
+    expect(screen.queryByText(/Please confirm your email first/)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Resend confirmation email' })).toBeNull()
+
+    await user.clear(email)
+    await user.type(email, 'first@example.com')
+    await user.click(screen.getByRole('button', { name: 'Continue with email' }))
+    await user.click(await screen.findByRole('button', { name: 'Resend confirmation email' }))
+    expect(auth.resendSignupConfirmation).toHaveBeenCalledWith('first@example.com')
+  })
+
+  it('returns to the sign-in view after Escape and Sign in', async () => {
+    auth.requestPasswordReset.mockResolvedValue(undefined)
+    const user = userEvent.setup()
+    function Harness() {
+      const [open, setOpen] = useState(true)
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>Sign in</button>
+          <AuthModal open={open} onClose={() => setOpen(false)} />
+        </>
+      )
+    }
+    render(<Harness />)
+    await user.click(screen.getByRole('button', { name: 'Forgot password?' }))
+    await user.type(screen.getByLabelText('Email'), 'person@example.com')
+    await user.click(screen.getByRole('button', { name: 'Send reset link' }))
+    expect(await screen.findByText(/If an account exists for that email/)).toBeTruthy()
+
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Sign in' }))
+
+    expect(screen.getByRole('button', { name: 'Continue with email' })).toBeTruthy()
+    expect(screen.getByLabelText('Email')).toBeTruthy()
+    expect(screen.queryByText(/If an account exists for that email/)).toBeNull()
+  })
+
+  it('replaces an unknown sign-in error with the connection fallback', async () => {
     auth.signIn.mockRejectedValue(new Error('Network down'))
     const user = userEvent.setup()
     render(<AuthModal open onClose={vi.fn()} />)
     await fillCredentials(user)
     await user.click(screen.getByRole('button', { name: 'Continue with email' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('Network down')
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toBe('Something went wrong. Please check your connection and try again.')
+    expect(alert.textContent).not.toContain('Network down')
   })
 
   it('shows resend errors and keeps the button enabled', async () => {
@@ -138,7 +273,8 @@ describe('AuthModal recovery and sign-in errors', () => {
     await fillCredentials(user)
     await user.click(screen.getByRole('button', { name: 'Continue with email' }))
     await user.click(await screen.findByRole('button', { name: 'Resend confirmation email' }))
-    expect(await screen.findByText('Rate limit')).toBeTruthy()
+    expect(await screen.findByText('Too many attempts, please wait a few minutes and try again.')).toBeTruthy()
+    expect(screen.queryByText('Rate limit')).toBeNull()
     expect(screen.getByRole('button', { name: 'Resend confirmation email' }).disabled).toBe(false)
   })
 

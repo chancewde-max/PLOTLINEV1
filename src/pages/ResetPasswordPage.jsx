@@ -1,10 +1,13 @@
 // Public /reset-password page.
 //
-// Supabase redirects the recovery email here (hash tokens or ?code=). The
-// client emits PASSWORD_RECOVERY after it parses that URL, and may already
-// have a session by the time this page subscribes — both are treated as a
-// recovery session. Anything else (expired link, ordinary visit) asks for a
-// new link instead of dropping the person into /app.
+// The Supabase client uses the default implicit flow. A recovery email lands
+// as a hash (#access_token=…&type=recovery). The client parses that hash,
+// strips it, and emits PASSWORD_RECOVERY; a session may already exist by the
+// time this page subscribes. Both of those are the recovery form.
+//
+// A ?code= query is ignored. This client does not exchange PKCE codes, so
+// that parameter does not count as recovery. Expired links and ordinary
+// visits show the request form.
 
 import React, { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -17,6 +20,7 @@ import {
   RESET_SENT_MESSAGE,
   authCallbackAtLoad,
   isRecoveryPending,
+  friendlyAuthMessage,
   validateNewPassword,
 } from '../auth/authFlow.js'
 import s from './ResetPasswordPage.module.css'
@@ -99,7 +103,9 @@ export default function ResetPasswordPage() {
 
   const submitPassword = async (e) => {
     e.preventDefault()
-    const problem = validateNewPassword(password, confirm)
+    const next = password.trim()
+    const again = confirm.trim()
+    const problem = validateNewPassword(next, again)
     if (problem) {
       setFormError(problem)
       return
@@ -111,12 +117,12 @@ export default function ResetPasswordPage() {
     setFormError(null)
     setPhase('saving')
     try {
-      const { error } = await supabase.auth.updateUser({ password })
+      const { error } = await supabase.auth.updateUser({ password: next })
       if (error) throw error
       clearPasswordRecovery?.()
       setPhase('success')
     } catch (err) {
-      setFormError(err?.message || 'Could not update your password.')
+      setFormError(friendlyAuthMessage(err))
       setPhase('form')
     }
   }
@@ -129,7 +135,7 @@ export default function ResetPasswordPage() {
       await requestPasswordReset(requestEmail.trim())
       setRequestState('sent')
     } catch (err) {
-      setRequestError(err?.message || 'Something went wrong')
+      setRequestError(friendlyAuthMessage(err))
       setRequestState('error')
     }
   }

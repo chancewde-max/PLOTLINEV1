@@ -97,6 +97,20 @@ describe('ResetPasswordPage', () => {
     expect(await screen.findByLabelText('New password')).toBeTruthy()
   })
 
+  it('rejects a whitespace-only password before updateUser', async () => {
+    supabase.auth.onAuthStateChange.mockImplementation((cb) => {
+      cb('PASSWORD_RECOVERY', { user: { id: 'user-1' } })
+      return { data: { subscription: { unsubscribe: vi.fn() } } }
+    })
+    const user = userEvent.setup()
+    render(<ResetPasswordPage />)
+    await user.type(await screen.findByLabelText('New password'), '      ')
+    await user.type(screen.getByLabelText('Confirm password'), '      ')
+    await user.click(screen.getByRole('button', { name: 'Update password' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('Password must be at least 6 characters.')
+    expect(supabase.auth.updateUser).not.toHaveBeenCalled()
+  })
+
   it('rejects a short password and a mismatch before updateUser', async () => {
     supabase.auth.onAuthStateChange.mockImplementation((cb) => {
       cb('PASSWORD_RECOVERY', { user: { id: 'user-1' } })
@@ -132,6 +146,42 @@ describe('ResetPasswordPage', () => {
     await user.click(screen.getByRole('button', { name: 'Send a new link' }))
     expect(auth.requestPasswordReset).toHaveBeenCalledWith('person@example.com')
     expect(await screen.findByText('If an account exists for that email, we sent a reset link.')).toBeTruthy()
+  })
+
+  it('hides a network failure and a dumped server payload', async () => {
+    supabase.auth.onAuthStateChange.mockImplementation((cb) => {
+      cb('PASSWORD_RECOVERY', { user: { id: 'user-1' } })
+      return { data: { subscription: { unsubscribe: vi.fn() } } }
+    })
+    supabase.auth.updateUser.mockResolvedValue({
+      data: { user: null },
+      error: new TypeError('Failed to fetch'),
+    })
+    const user = userEvent.setup()
+    const view = render(<ResetPasswordPage />)
+    await user.type(await screen.findByLabelText('New password'), 'secret1')
+    await user.type(screen.getByLabelText('Confirm password'), 'secret1')
+    await user.click(screen.getByRole('button', { name: 'Update password' }))
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toBe('Something went wrong. Please check your connection and try again.')
+    })
+    expect(screen.getByRole('alert').textContent).not.toContain('Failed to fetch')
+
+    view.unmount()
+    supabase.auth.onAuthStateChange.mockImplementation((cb) => {
+      supabase.listeners.push(cb)
+      return { data: { subscription: { unsubscribe: vi.fn() } } }
+    })
+    supabase.auth.getSession.mockResolvedValue({ data: { session: null } })
+    auth.requestPasswordReset.mockRejectedValue({ message: '{}' })
+    render(<ResetPasswordPage />)
+    await user.type(await screen.findByLabelText('Email'), 'person@example.com')
+    await user.click(screen.getByRole('button', { name: 'Send a new link' }))
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toBe('Something went wrong. Please check your connection and try again.')
+    })
+    expect(screen.queryByText('{}')).toBeNull()
+    expect(screen.queryByText('User is banned')).toBeNull()
   })
 
   it('does not treat an ordinary signed-in session as recovery', async () => {

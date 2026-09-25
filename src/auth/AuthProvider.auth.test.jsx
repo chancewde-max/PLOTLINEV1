@@ -4,6 +4,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { AuthProvider, useAuth } from './AuthProvider.jsx'
+import { AuthModal } from './AuthModal.jsx'
 import { setRecoveryPending } from './authFlow.js'
 
 const stableApp = {
@@ -123,6 +124,20 @@ describe('AuthProvider signup and recovery helpers', () => {
     }
   })
 
+  it('treats a message-only User already registered error as an existing account', async () => {
+    client.auth.signUp.mockResolvedValue({
+      data: { user: null, session: null },
+      error: { message: 'User already registered' },
+    })
+    const user = userEvent.setup()
+    renderAuth()
+    await user.click(screen.getByRole('button', { name: 'signup' }))
+    await waitFor(() => {
+      expect(JSON.parse(screen.getByTestId('out').textContent).existingAccount).toBe(true)
+    })
+    expect(screen.getByTestId('auth-error').textContent).toBe('')
+  })
+
   it('does not flag a first-time signup that returns an identity', async () => {
     client.auth.signUp.mockResolvedValue({
       data: { user: { id: 'user-1', identities: [{ id: 'identity-1' }] }, session: null },
@@ -170,6 +185,31 @@ describe('AuthProvider signup and recovery helpers', () => {
     await user.click(screen.getByRole('button', { name: 'resend' }))
     await waitFor(() => expect(screen.getByTestId('out').textContent).toBe('ERR:Cloud not configured'))
     expect(client.auth.resend).not.toHaveBeenCalled()
+  })
+
+  it('openAuth signup opens the create-account view', async () => {
+    function ModeHarness() {
+      const { openAuth, authOpen, closeAuth } = useAuth()
+      return (
+        <>
+          <button type="button" onClick={() => openAuth('signup')}>open-signup</button>
+          <AuthModal open={authOpen} onClose={closeAuth} />
+        </>
+      )
+    }
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <ModeHarness />
+        </AuthProvider>
+      </MemoryRouter>
+    )
+    await user.click(screen.getByRole('button', { name: 'open-signup' }))
+    expect(await screen.findByRole('button', { name: 'Create account' })).toBeTruthy()
+    expect(screen.getByText('Create your account')).toBeTruthy()
+    expect(screen.getByLabelText('Email')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Continue with email' })).toBeNull()
   })
 
   it('stores the friendly invalid_credentials message', async () => {
