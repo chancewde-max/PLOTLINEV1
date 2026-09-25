@@ -4,7 +4,7 @@ import {
   TOPSOIL_OPTIONS, volumeCy, formatCy, mixedValue,
   areaDepthOf, areaTopsoilOf, areaTopsoilCustomOf,
 } from '../workspace/areaProps.js'
-import { areaShapePx } from '../workspace/geometry.js'
+import { areaShapePx, areaSelfIntersects } from '../workspace/geometry.js'
 
 export default function AreaInspector({
   areas,
@@ -40,7 +40,7 @@ export default function AreaInspector({
       <div data-testid="area-sqft" style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(12px * ${fs})`, fontWeight: 700, color: 'var(--text-strong)' }}>
         {Number.isFinite(totalSqFt) ? `${totalSqFt.toFixed(1)} sq ft` : '0.0 sq ft'}
       </div>
-      {areas.some(a => a.selfIntersecting) && (
+      {areas.some(areaSelfIntersects) && (
         <div data-testid="area-self-intersect" style={{ fontSize: `calc(12px * ${fs})`, fontWeight: 600, color: '#b45309' }}>
           Self-intersecting outline. The sq ft is the net area.
         </div>

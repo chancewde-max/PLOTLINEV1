@@ -423,8 +423,10 @@ async function main() {
       nodes.map(n => ({ sqft: Number(n.getAttribute('data-sqft')), text: n.textContent })))
     const uPanel = await page.locator('[data-testid="region-folder-sqft"]').evaluateAll((nodes) =>
       nodes.map(n => ({ sqft: Number(n.getAttribute('data-sqft')), text: n.textContent })))
+    const nearest5 = (n) => String(Math.round(n / 5) * 5)
     const near737 = (row) => row && Number.isFinite(row.sqft) && Math.abs(row.sqft - 737.5) < 1
-      && String(row.text).includes('737.5')
+      && String(row.text).includes(nearest5(row.sqft))
+      && !String(row.text).includes('737.5')
     record('Concave U region clips the bulge to about 737.5 sf',
       uLabels.some(near737) && uPanel.some(near737),
       `labels=${JSON.stringify(uLabels)} panel=${JSON.stringify(uPanel)}`)
@@ -473,6 +475,44 @@ async function main() {
     record('Region enclosing the bulge shows 925 sf',
       labels.some(t => t.replace(/\s+/g, ' ').includes('925 sq ft')) || /925 sf/.test(panel),
       `labels=${JSON.stringify(labels)} panel=${panel.replace(/\s+/g, ' ').slice(0, 400)}`)
+    await page.locator('button[aria-label="Area"]').click()
+    await page.waitForTimeout(150)
+    const shortDlg = page.getByRole('heading', { name: /New area/i })
+    if (await shortDlg.isVisible().catch(() => false)) {
+      await page.getByRole('button', { name: /Start drawing/i }).click()
+      await page.waitForTimeout(150)
+    }
+    for (let i = 0; i < 40 && await parseHud() < 400; i++) {
+      await hud.getByLabel('Zoom in').click()
+      await page.waitForTimeout(20)
+    }
+    await clickSheet(420, 420)
+    await page.waitForTimeout(40)
+    await page.keyboard.press('a')
+    await page.waitForTimeout(40)
+    await clickSheet(428, 400)
+    await page.waitForTimeout(30)
+    await clickSheet(428, 440)
+    await page.waitForTimeout(30)
+    await clickSheet(428, 420)
+    await page.waitForTimeout(50)
+    const shortPhase = await phase()
+    const shortZoom = await parseHud()
+    await clickSheet(428, 460)
+    await page.waitForTimeout(30)
+    await clickSheet(420, 460)
+    await page.waitForTimeout(30)
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(200)
+    record('High zoom short cubic P1 finishes',
+      shortPhase !== 'p1' && shortZoom >= 400,
+      `phase=${shortPhase} zoom=${shortZoom}`)
+    for (let i = 0; i < 40; i++) {
+      const z = await parseHud()
+      if (z >= 95 && z <= 130) break
+      await hud.getByLabel(z > 130 ? 'Zoom out' : 'Zoom in').click()
+      await page.waitForTimeout(20)
+    }
     await page.evaluate(() => { window.__plotlineSheetPoint = null })
   }
 

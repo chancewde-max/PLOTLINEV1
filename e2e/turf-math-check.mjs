@@ -1,12 +1,13 @@
 // Fast node smoke for turf / volume math (no browser).
 import { volumeCy, formatCy, mixedValue, DEPTH_PRESETS, areaExportNotes, quoteHeaderFields, areaOwnVolumeCy, isUngroupedSoilArea } from '../src/workspace/areaProps.js'
-import { takeoffMaterialItems } from '../src/data/takeoff.js'
+import { takeoffMaterialItems, mtoSqFtCell } from '../src/data/takeoff.js'
 import {
   polyAreaPx, shapeAreaPx, areaShapePx, buildAreaPath, buildChainPath, cubicPreviewCmd,
   shiftCubicSegsForInsert, translateCubicSegs, clipPx2, clipAreaPx2, inside, pointInArea,
   nearestAreaEdge, nearestOnCubic, splitCubicEdge,
   measuredAreaPx2, areasPreferLatest, areaOutlineCentroid, areaTouchesRect, firstAreaHit,
   outlineSelfIntersects, flattenAreaPoly, bbox,
+  cubicP1DuplicatesP0, syncGeometryCache, geometryCacheStats, resetGeometryWorkCounters,
 } from '../src/workspace/geometry.js'
 import {
   rollCorners, rollFitsInArea, turfCoverage, parseRollFt,
@@ -437,6 +438,131 @@ for (let n = 0; n < 20; n++) {
 }
 const warmMs = performance.now() - warmStart
 check('repeat region clips hit the flatten/clip cache', warmMs < 30, `warm=${warmMs.toFixed(2)}ms`)
+
+const cPoly = [
+  { x: 0, y: 0 }, { x: 200, y: 0 }, { x: 200, y: 40 }, { x: 40, y: 40 },
+  { x: 40, y: 160 }, { x: 200, y: 160 }, { x: 200, y: 200 }, { x: 0, y: 200 },
+]
+const cArea = { poly: cPoly, cubicSegs: { 7: { c1: { x: -60, y: 150 }, c2: { x: -60, y: 50 } } } }
+const cRegion = [{ x: -100, y: -100 }, { x: 300, y: -100 }, { x: 300, y: 199 }, { x: -100, y: 199 }]
+const cClip = clipAreaPx2(cArea, cRegion, 4)
+const notch = { x: 57.4, y: 98.5 }
+check('partial clip label sits inside the clipped C, not the notch',
+  !!cClip.c
+  && pointInArea(cClip.c, cArea)
+  && inside(cClip.c, cRegion)
+  && Math.hypot(cClip.c.x - notch.x, cClip.c.y - notch.y) > 8,
+  `label=${cClip.c ? cClip.c.x.toFixed(2) + ',' + cClip.c.y.toFixed(2) : 'null'}`)
+
+const side = 500.25
+const straightSquare = [
+  { x: 10, y: 10 }, { x: 10 + side, y: 10 }, { x: 10 + side, y: 10 + side }, { x: 10, y: 10 + side },
+]
+const straightRegion = [{ x: -40, y: -40 }, { x: 700, y: -40 }, { x: 700, y: 700 }, { x: -40, y: 700 }]
+const straightClip = clipAreaPx2({ poly: straightSquare }, straightRegion, 4)
+const straightShoe = polyAreaPx(straightSquare)
+check('fully enclosed large straight square equals its shoelace area exactly',
+  straightClip.px2 === straightShoe && Math.abs(straightShoe - side * side) < 1e-6,
+  `clip=${straightClip.px2} shoelace=${straightShoe}`)
+
+const partialStraight = [{ x: 0, y: 0 }, { x: 1000, y: 0 }, { x: 1000, y: 800 }, { x: 0, y: 800 }]
+const partialRegion = [{ x: 30.5, y: -20 }, { x: 640.2, y: -20 }, { x: 640.2, y: 900 }, { x: 30.5, y: 900 }]
+const partialClip = clipAreaPx2({ poly: partialStraight }, partialRegion, 4).px2
+const partialExact = (640.2 - 30.5) * 800
+const partialPct = ((partialClip - partialExact) / partialExact) * 100
+console.log(`partial straight overlap grid vs shoelace: ${partialPct.toFixed(3)}% (clip=${partialClip} exact=${partialExact})`)
+
+const bowPoly = unitSquare.map(p => ({ x: p.x + 3, y: p.y + 7 }))
+const bowSeg = { 1: { c1: { x: 303, y: 207 }, c2: { x: 303, y: -93 } } }
+const calmSeg = { 1: { c1: { x: 183, y: 7 }, c2: { x: 183, y: 107 } } }
+resetGeometryWorkCounters()
+const bowFlag = outlineSelfIntersects(bowPoly, bowSeg)
+const bowWork = geometryCacheStats().flattenWork
+const bowAgain = outlineSelfIntersects(bowPoly, bowSeg)
+check('self-intersect flag is derived once per geometry version',
+  bowFlag === true && bowAgain === true && bowWork === 1 && geometryCacheStats().flattenWork === 1,
+  `work=${geometryCacheStats().flattenWork}`)
+check('an edit that removes a crossing clears the flag', outlineSelfIntersects(bowPoly, calmSeg) === false)
+check('an edit that creates a crossing sets the flag', outlineSelfIntersects(bowPoly, bowSeg) === true)
+const triCross = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 50, y: 100 }]
+check('a curved triangle is flagged from the flattened outline',
+  outlineSelfIntersects(triCross, { 1: { c1: { x: 300, y: 200 }, c2: { x: -200, y: -100 } } }) === true
+  && outlineSelfIntersects(triCross, {}) === false)
+
+const FIT = 0.72
+const highZoom = 400
+const shortSheetPx = 8
+const shortScreenPx = shortSheetPx * (highZoom / 100) * FIT
+check('high zoom short cubic P1 is not a duplicate of P0',
+  shortScreenPx > 10
+  && !cubicP1DuplicatesP0({ x: shortSheetPx, y: 0 }, { x: 0, y: 0 })
+  && !cubicP1DuplicatesP0({ x: 16, y: 0 }, { x: 0, y: 0 })
+  && cubicP1DuplicatesP0({ x: 0, y: 0 }, { x: 0, y: 0 })
+  && cubicP1DuplicatesP0({ x: 0.2, y: 0 }, { x: 0, y: 0 })
+  && !cubicP1DuplicatesP0({ x: 0.6, y: 0 }, { x: 0, y: 0 }),
+  `screenPx@400%=${shortScreenPx.toFixed(2)}`)
+
+const csvCells = [1023, 2, 806.25, 737.4].map(n => String(mtoSqFtCell(n)))
+check('region CSV sq ft matches exportMTO Math.round with no separators',
+  csvCells.join(',') === '1023,2,806,737'
+  && !csvCells.some(c => c.includes(',') || c.includes('.'))
+  && mtoSqFtCell(737.4) !== 735
+  && mtoSqFtCell(737.4) !== 740
+  && mtoSqFtCell(1023) !== 1025,
+  csvCells.join(','))
+
+const cacheN = 120
+const cacheAreas = Array.from({ length: cacheN }, (_, i) => {
+  const col = i % 12
+  const row = Math.floor(i / 12)
+  const ox = 1000 + col * 140
+  const oy = 1000 + row * 140
+  return {
+    id: `cache-${i}`,
+    poly: unitSquare.map(p => ({ x: p.x + ox, y: p.y + oy })),
+    cubicSegs: { 1: { c1: { x: 180 + ox, y: oy }, c2: { x: 180 + ox, y: 100 + oy } } },
+  }
+})
+const cacheLive = [{ x: 800, y: 800 }, { x: 4000, y: 800 }, { x: 4000, y: 4000 }, { x: 800, y: 4000 }]
+const cacheFolder = [{ x: 820, y: 820 }, { x: 3900, y: 820 }, { x: 3900, y: 3900 }, { x: 820, y: 3900 }]
+const cachePlans = [{ region: cacheLive, step: 4 }, { region: cacheFolder, step: 4 }]
+syncGeometryCache(cacheAreas, cachePlans)
+resetGeometryWorkCounters()
+const coldStart = performance.now()
+for (const a of cacheAreas) {
+  clipAreaPx2(a, cacheLive, 4)
+  clipAreaPx2(a, cacheFolder, 4)
+}
+const coldMs = performance.now() - coldStart
+const coldStats = geometryCacheStats()
+console.log(`first uncached render cost (120 curved areas, live region + different folder): ${coldMs.toFixed(2)}ms flatten=${coldStats.flattenWork} clip=${coldStats.clipWork}`)
+resetGeometryWorkCounters()
+syncGeometryCache(cacheAreas, cachePlans)
+for (const a of cacheAreas) {
+  clipAreaPx2(a, cacheLive, 4)
+  clipAreaPx2(a, cacheFolder, 4)
+}
+const steady = geometryCacheStats()
+check('120 curved areas do no clip or flatten work on a steady re-render',
+  steady.flattenWork === 0 && steady.clipWork === 0 && steady.clipEntries === cacheN * 2,
+  `flatten=${steady.flattenWork} clip=${steady.clipWork} entries=${steady.clipEntries}`)
+let maxClipEntries = steady.clipEntries
+resetGeometryWorkCounters()
+for (let step = 0; step < 25; step++) {
+  const drag = cacheLive.map(p => ({ x: p.x + step * 5, y: p.y + step * 2 }))
+  syncGeometryCache(cacheAreas, [{ region: drag, step: 6 }, { region: cacheFolder, step: 4 }])
+  for (const a of cacheAreas) clipAreaPx2(a, drag, 6)
+  maxClipEntries = Math.max(maxClipEntries, geometryCacheStats().clipEntries)
+}
+const dragStats = geometryCacheStats()
+check('region drag keeps the clip cache bounded to live areas',
+  dragStats.flattenWork === 0 && maxClipEntries <= cacheN * 2 && dragStats.clipEntries <= cacheN * 2,
+  `flatten=${dragStats.flattenWork} maxEntries=${maxClipEntries} entries=${dragStats.clipEntries}`)
+syncGeometryCache(cacheAreas.slice(0, 10), [{ region: cacheFolder, step: 4 }])
+const evicted = geometryCacheStats()
+check('deleted areas are evicted from the geometry cache',
+  evicted.flattenEntries <= 10 && evicted.clipEntries <= 10 && evicted.areaEntries <= 10,
+  `flattenEntries=${evicted.flattenEntries} clipEntries=${evicted.clipEntries}`)
 
 const onP0 = { id: 'bed', poly: unitSquare, cubicSegs: { 0: { c1: { x: 0, y: 0 }, c2: { x: 40, y: -20 } } } }
 const vertexFirst = firstAreaHit([onP0], { x: 0, y: 0 }, 8, { handleAreaId: 'bed' })

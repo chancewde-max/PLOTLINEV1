@@ -11,6 +11,14 @@ import { areaExportNotes, isUngroupedSoilArea } from '../workspace/areaProps.js'
 const DEFAULT_PXFT = 4
 const sign = (it) => (it && it.deduct ? -1 : 1)
 
+// Sq ft written to export MTO, Region MTO, and takeoff. Plain rounded
+// integer: 1023 → 1023, 2 → 2, 806.25 → 806. No thousands separators.
+export function mtoSqFtCell(sqft) {
+  const n = Number(sqft)
+  if (!Number.isFinite(n)) return 0
+  return Math.round(n)
+}
+
 // `sheetIds`, if given, restricts the aggregation to just those sheets
 // (e.g. one plan/version set) instead of every sheet in the project — so
 // quantities from different revision sets don't get summed together.
@@ -65,6 +73,6 @@ export function takeoffMaterialItems(project, sheets, sheetIds) {
 
   return Object.values(byKey)
     // Round display quantities; keep tiny non-zero areas from showing as 0 loss.
-    .map(it => ({ ...it, qty: it.unit === 'EA' ? it.qty : Math.round(it.qty) }))
+    .map(it => ({ ...it, qty: it.unit === 'EA' ? it.qty : mtoSqFtCell(it.qty) }))
     .filter(it => it.description)
 }

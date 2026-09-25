@@ -25,7 +25,8 @@ import { resolveSheetPdfUrl, sheetHasPdf } from '../components/pdfCache.js'
 import { computeOverlayDiff } from '../components/pdfDiff.js'
 import { uploadPdfAsset, personalPdfPath, orgPdfPath } from '../data/pdfStorage.js'
 import { CATS, CAT_COLOR, SHEET_W, SHEET_H, categoryTotals } from '../data/sampleData.js'
-import { inside, polyAreaPx, perimPx, centroid, clipAreaPx2, dist, buildAreaPath, buildChainPath, buildLinePath, linePathLenPx, circularArcSeg, cubicPreviewCmd, bbox, areaShapePx, shapeAreaPx, cloneCubicSegs, translateCubicSegs, shiftCubicSegsForInsert, pointInArea, nearestAreaEdge, splitCubicEdge, measuredAreaPx2, areasPreferLatest, areaOutlineCentroid, areaTouchesRect, firstAreaHit, outlineSelfIntersects } from '../workspace/geometry.js'
+import { inside, polyAreaPx, perimPx, centroid, clipAreaPx2, dist, buildAreaPath, buildChainPath, buildLinePath, linePathLenPx, circularArcSeg, cubicPreviewCmd, bbox, areaShapePx, shapeAreaPx, cloneCubicSegs, translateCubicSegs, shiftCubicSegsForInsert, pointInArea, nearestAreaEdge, splitCubicEdge, measuredAreaPx2, areasPreferLatest, areaOutlineCentroid, areaTouchesRect, firstAreaHit, outlineSelfIntersects, areaSelfIntersects, areaGeometryKey, polygonKey, syncGeometryCache, cubicP1DuplicatesP0 } from '../workspace/geometry.js'
+import { mtoSqFtCell } from '../data/takeoff.js'
 import {
   TOPSOIL_OPTIONS, isTurfArea, areaExportNotes, areaDepthOf, areaTopsoilOf,
   areaTopsoilCustomOf, quoteHeaderFields, areaOwnVolumeCy, isUngroupedSoilArea,
@@ -974,6 +975,43 @@ export default function SheetPage() {
     }
   }, [project, sheet, activeTool, turfSubmode, regionVerts, measureDone, measurePts, areaVerts, areaType, linearVerts, linearType, arcMode, curvePhase, selectedId, selectedKind, selectedIds, hotkeys, addedAreas])
 
+  // Region clips are memoized on area geometry + region polygon so a mouse
+  // move while drawing (cursor only) does not clip again. The geometry cache
+  // still has to drop the previous drag polygon; that is syncGeometryCache.
+  const sheetReady = !!(project && sheet)
+  const clipAreas = sheetReady ? areasPreferLatest([...(sheet.areas || []), ...addedAreas]) : []
+  const clipRegion = regionClosed || regionVerts
+  const clipHasRegion = clipRegion.length >= 3
+  const clipStep = (activeTool === 'region' && !regionClosed) ? 6 : 4
+  const savedFolderPolys = (sheetReady && project.regions)
+    ? project.regions.map(r => sheet.regionPolys?.[r.id]).filter(p => p && p.length >= 3)
+    : []
+  const keepClips = []
+  if (clipHasRegion) keepClips.push({ region: clipRegion, step: clipStep })
+  for (const poly of savedFolderPolys) keepClips.push({ region: poly, step: 4 })
+  if (sheetReady) syncGeometryCache(clipAreas, keepClips)
+  const areaGeomSig = clipAreas.map(a => `${a.id}\t${a.type}\t${a.deduct ? 1 : 0}\t${areaGeometryKey(a)}`).join('\n')
+  const regionSig = clipHasRegion ? polygonKey(clipRegion) : ''
+  const catSig = [...catActive].sort().join(',')
+  const areaRegionClip = useMemo(() => {
+    const clip = {}
+    const byCat = {}
+    if (!sheetReady || !clipHasRegion || activeTool !== 'region') return { clip, byCat }
+    const sq = (px2) => px2 / (pxPerFt * pxPerFt)
+    for (const a of clipAreas) {
+      if (!catActive.has(a.type)) continue
+      const cp = clipAreaPx2(a, clipRegion, clipStep)
+      if (cp.px2 > 0) {
+        clip[a.id] = cp
+        const sign = itemSign(a)
+        const slot = byCat[a.type] || (byCat[a.type] = { count: 0, sqft: 0 })
+        slot.count += sign
+        slot.sqft += sq(cp.px2) * sign
+      }
+    }
+    return { clip, byCat }
+  }, [areaGeomSig, regionSig, clipStep, activeTool, catSig, pxPerFt, sheetReady])
+
   if (dataLoading) return <SheetPageSkeleton />
   if (!project || !sheet) {
     return <div style={{ padding: 40, color: 'var(--text-muted)' }}>Sheet not found.</div>
@@ -987,7 +1025,7 @@ export default function SheetPage() {
     return `${singularize(cat.name)} ${nameCountRef.current[catId]}`
   }
 
-  const allAreas  = areasPreferLatest([...(sheet.areas || []), ...addedAreas])
+  const allAreas  = clipAreas
   const allPoints = [...(sheet.points || []), ...addedPoints]
   const allLines  = [...(sheet.lines  || []), ...addedLines]
 
@@ -1769,7 +1807,7 @@ export default function SheetPage() {
       if (curvePhase === 'p1' && pendingC1 && pendingC2) {
         const p0 = areaVerts[areaVerts.length - 1]
         // P1 on P0 would store a zero-length edge and a duplicate vertex.
-        if (p0 && dist(p, p0) < NEAR) return
+        if (p0 && cubicP1DuplicatesP0(p, p0)) return
         const closing = areaVerts.length >= 3 && dist(p, areaVerts[0]) < NEAR
         cubicSegsRef.current[areaVerts.length - 1] = {
           c1: { x: pendingC1.x, y: pendingC1.y },
@@ -1923,15 +1961,6 @@ export default function SheetPage() {
   const fLn  = (n)   => precision === 0
     ? Math.round(n).toLocaleString()
     : n.toLocaleString(undefined, { minimumFractionDigits: precision, maximumFractionDigits: precision })
-  // Whole sq ft stay on the nearest-5 display. Halves such as 737.5 stay visible.
-  const fRegionSq = (n) => {
-    if (!Number.isFinite(n)) return fSq(0)
-    const tenth = Math.round(n * 10) / 10
-    if (Math.abs(tenth - Math.round(tenth)) > 1e-6) {
-      return tenth.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })
-    }
-    return fSq(tenth)
-  }
   // Scale marker sizes proportionally to plan scale so they look right at any calibration
   const mk = pxPerFt * 0.25
   // Zoom-invariant unit: 1 screen pixel in SVG coords regardless of CSS zoom
@@ -1939,11 +1968,9 @@ export default function SheetPage() {
 
   const regionRes = {}
   const inPoints  = {}
-  const areaClip  = {}
+  const areaClip  = (hasRegion && activeTool === 'region') ? areaRegionClip.clip : {}
   const inLines   = {}
   CATS.forEach(c => { regionRes[c.id] = { count: 0, sqft: 0, lnft: 0 } })
-
-  const clipStep = isDrawingRegion ? 6 : 4
 
   if (hasRegion && activeTool === 'region') {
     allPoints.forEach(p => {
@@ -1951,11 +1978,11 @@ export default function SheetPage() {
         regionRes[p.type].count += itemSign(p); inPoints[p.id] = true
       }
     })
-    allAreas.forEach(a => {
-      if (!catActive.has(a.type)) return
-      const cp = clipAreaPx2(a, regionPoly, clipStep)
-      if (cp.px2 > 0) { regionRes[a.type].count += itemSign(a); regionRes[a.type].sqft += sqft(cp.px2) * itemSign(a); areaClip[a.id] = cp }
-    })
+    for (const [type, slot] of Object.entries(areaRegionClip.byCat)) {
+      if (!regionRes[type]) continue
+      regionRes[type].count += slot.count
+      regionRes[type].sqft += slot.sqft
+    }
     allLines.forEach(l => {
       const lc = centroid(l.pts)
       if (catActive.has(l.type) && inside(lc, regionPoly)) {
@@ -2111,7 +2138,7 @@ export default function SheetPage() {
       const groupAreas = addedAreas.filter(a => a.groupId === g.id)
       const totalSqFt = groupAreas.reduce((s, a) => s + sqft(measuredAreaPx2(a)) * itemSign(a), 0)
       const notes = areaExportNotes(groupAreas, areaGroups, sqft)
-      rows.push(['Area', g.name, groupAreas.length, Math.round(totalSqFt), '', notes])
+      rows.push(['Area', g.name, groupAreas.length, mtoSqFtCell(totalSqFt), '', notes])
     })
     const ungroupedByName = {}
     for (const a of addedAreas.filter(a => isUngroupedSoilArea(a, areaGroups))) {
@@ -2121,7 +2148,7 @@ export default function SheetPage() {
     }
     for (const [name, areas] of Object.entries(ungroupedByName)) {
       const totalSqFt = areas.reduce((s, a) => s + sqft(measuredAreaPx2(a)) * itemSign(a), 0)
-      rows.push(['Area', name, areas.length, Math.round(totalSqFt), '', areaExportNotes(areas, areaGroups, sqft)])
+      rows.push(['Area', name, areas.length, mtoSqFtCell(totalSqFt), '', areaExportNotes(areas, areaGroups, sqft)])
     }
     // Linear groups
     linearGroups.forEach(g => {
@@ -2156,7 +2183,7 @@ export default function SheetPage() {
       CATS.forEach(c => {
         const r = res[c.id]
         if (r.count > 0 || r.sqft > 0 || r.lnft > 0)
-          rows.push([folder.name, c.kind, c.name, r.count || '', r.sqft > 0 ? fRegionSq(r.sqft) : '', r.lnft > 0 ? Math.round(r.lnft) : ''])
+          rows.push([folder.name, c.kind, c.name, r.count || '', r.sqft > 0 ? mtoSqFtCell(r.sqft) : '', r.lnft > 0 ? Math.round(r.lnft) : ''])
       })
     })
     const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n')
@@ -2920,7 +2947,7 @@ export default function SheetPage() {
                     'data-cubic-count': String(hasCubics ? cubicCount : 0),
                     'data-area-px2': String(areaShapePx(a)),
                     'data-chord-px2': String(polyAreaPx(a.poly || [])),
-                    'data-self-intersect': a.selfIntersecting ? 'true' : 'false',
+                    'data-self-intersect': areaSelfIntersects(a) ? 'true' : 'false',
                   }
                   if (!a.deduct) return <g key={a.id} {...areaTest}>{shape}</g>
                   const c = areaOutlineCentroid(a)
@@ -3396,7 +3423,7 @@ export default function SheetPage() {
                 return (
                   <div key={id} className={s.areaLabel} data-testid="region-area-label" data-sqft={String(sqft(cp.px2))}
                     style={{ left: `${((cp.c.x - deskX)/deskW)*100}%`, top: `${((cp.c.y - deskY)/deskH)*100}%`, color: CAT_COLOR[a.type] }}>
-                    {fRegionSq(sqft(cp.px2))} sq ft
+                    {fSq(sqft(cp.px2))} sq ft
                   </div>
                 )
               })}
@@ -3583,7 +3610,7 @@ export default function SheetPage() {
               onSwitch={switchFolder} onAdd={addFolder} onDelete={deleteFolder}
               onStartRename={startRename} onCommitRename={commitRename} onRenameVal={setRenameVal}
               regionRes={regionRes} hasRegion={hasRegion} regionSqft={regionSqft} regionPerim={regionPerim}
-              fSq={fSq} fRegionSq={fRegionSq} fLn={fLn} isDrawingRegion={isDrawingRegion}
+              fSq={fSq} fLn={fLn} isDrawingRegion={isDrawingRegion}
               onExportMTO={exportRegionMTO}
               countGroups={countGroups} areaGroups={areaGroups} linearGroups={linearGroups}
               addedAreas={addedAreas} addedLines={addedLines}
@@ -4444,24 +4471,31 @@ function _OldRegionPanel_UNUSED({ hasRegion, regionSqft, regionPerim, totalPoint
 // ---- Area draw panel -------------------------------------------------------
 function RegionPanel({ folders, activeFolderId, renamingId, renameVal, onSwitch, onAdd, onDelete,
   onStartRename, onCommitRename, onRenameVal, hasRegion, regionSqft, regionPerim,
-  fSq, fRegionSq, fLn, isDrawingRegion, onExportMTO,
+  fSq, fLn, isDrawingRegion, onExportMTO,
   countGroups, areaGroups, linearGroups, addedAreas, addedLines, sqft, lnft }) {
   const activeFolder = folders.find(f => f.id === activeFolderId)
   const poly = activeFolder?.poly
+  const geomSig = (addedAreas || []).map(a => `${a.id}|${a.groupId}|${a.deduct ? 1 : 0}|${areaGeometryKey(a)}`).join('\n')
+  const polySig = poly && poly.length >= 3 ? polygonKey(poly) : ''
+  const groupSig = (areaGroups || []).map(g => `${g.id}|${g.name}|${g.color}`).join('\n')
+  const scale = sqft(1)
 
-  // Per-group breakdown for the active region polygon
+  // Per-group breakdown for the active region polygon. Memoized so a live
+  // region redraw does not reclip a different saved folder polygon.
+  const areaResults = useMemo(() => {
+    return (areaGroups || []).map(g => {
+      const groupAreas = (addedAreas || []).filter(a => a.groupId === g.id)
+      const totalSqft = polySig
+        ? groupAreas.reduce((s, a) => { const cp = clipAreaPx2(a, poly, 4); return s + sqft(cp.px2) * itemSign(a) }, 0)
+        : 0
+      return { id: g.id, name: g.name, color: g.color, sqft: totalSqft }
+    }).filter(r => r.sqft !== 0)
+  }, [geomSig, polySig, groupSig, scale])
+
   const countResults = (countGroups || []).map(g => ({
     id: g.id, name: g.name, color: g.color,
     count: poly && poly.length >= 3 ? signedPointCount(g.points.filter(p => inside(p, poly))) : 0,
   })).filter(r => r.count !== 0)
-
-  const areaResults = (areaGroups || []).map(g => {
-    const groupAreas = (addedAreas || []).filter(a => a.groupId === g.id)
-    const totalSqft = poly && poly.length >= 3
-      ? groupAreas.reduce((s, a) => { const cp = clipAreaPx2(a, poly, 4); return s + sqft(cp.px2) * itemSign(a) }, 0)
-      : 0
-    return { id: g.id, name: g.name, color: g.color, sqft: totalSqft }
-  }).filter(r => r.sqft !== 0)
 
   const linearResults = (linearGroups || []).map(g => {
     const groupLines = (addedLines || []).filter(l => l.groupId === g.id)
@@ -4562,7 +4596,7 @@ function RegionPanel({ folders, activeFolderId, renamingId, renameVal, onSwitch,
                 <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border-subtle)' }}>
                   <div style={{ width: 8, height: 8, borderRadius: 2, background: r.color || 'var(--brand-500)', flexShrink: 0 }} />
                   <span style={{ flex: 1, fontSize: 12, color: 'var(--text-body)' }}>{r.name}</span>
-                  <span data-testid="region-folder-sqft" data-sqft={String(r.sqft)} style={{ fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text-strong)' }}>{(fRegionSq || fSq)(r.sqft)} sf</span>
+                  <span data-testid="region-folder-sqft" data-sqft={String(r.sqft)} style={{ fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text-strong)' }}>{fSq(r.sqft)} sf</span>
                 </div>
               ))}
             </>}

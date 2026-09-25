@@ -244,30 +244,99 @@ function cubicKey(cubicSegs) {
   return s
 }
 
+// Geometry identity for one area: polygon plus cubic handles. No step prefix.
+function geomId(poly, cubicSegs) {
+  return `${ringKey(poly || [])}|${cubicKey(cubicSegs)}`
+}
+
+export function areaGeometryKey(area) {
+  return geomId(area?.poly || [], area?.cubicSegs)
+}
+
+export function polygonKey(poly) {
+  return ringKey(poly || [])
+}
+
+// Per-geometry flatten records and per-geometry clip results. There is no
+// global cap: a fixed cap evicts live areas once the sheet (or a second
+// folder polygon) exceeds it. syncGeometryCache drops deleted areas and
+// clip keys for regions that are no longer on screen.
 const flattenCache = new Map()
 const clipCache = new Map()
-const CACHE_MAX = 80
+let flattenWork = 0
+let clipWork = 0
 
-function remember(map, key, value) {
-  if (map.has(key)) map.delete(key)
-  map.set(key, value)
-  if (map.size > CACHE_MAX) {
-    const oldest = map.keys().next().value
-    map.delete(oldest)
-  }
-  return value
+function areaIsCurved(area) {
+  const cubics = area?.cubicSegs
+  return !!(cubics && Object.values(cubics).some(isCubicSeg))
+}
+
+function gridStepFor(area, step) {
+  return areaIsCurved(area) && step <= 4 ? 2 : step
+}
+
+function clipStoreKey(area, region, step) {
+  return `${gridStepFor(area, step)}|${ringKey(region || [])}`
+}
+
+function cachedFlatRecord(poly, cubicSegs, steps = 32) {
+  const key = `${steps}|${geomId(poly, cubicSegs)}`
+  const hit = flattenCache.get(key)
+  if (hit) return hit
+  flattenWork++
+  const rec = { flat: flattenAreaPoly(poly, cubicSegs, steps), selfX: null }
+  flattenCache.set(key, rec)
+  return rec
 }
 
 // Flattened outlines are reused by the canvas clip and the folder panel.
 export function cachedFlattenAreaPoly(poly, cubicSegs = {}, steps = 32) {
-  const key = `${steps}|${ringKey(poly || [])}|${cubicKey(cubicSegs)}`
-  const hit = flattenCache.get(key)
-  if (hit) {
-    flattenCache.delete(key)
-    flattenCache.set(key, hit)
-    return hit
+  return cachedFlatRecord(poly, cubicSegs, steps).flat
+}
+
+export function geometryCacheStats() {
+  let clipEntries = 0
+  for (const regions of clipCache.values()) clipEntries += regions.size
+  return {
+    flattenWork,
+    clipWork,
+    flattenEntries: flattenCache.size,
+    clipEntries,
+    areaEntries: clipCache.size,
   }
-  return remember(flattenCache, key, flattenAreaPoly(poly, cubicSegs, steps))
+}
+
+export function resetGeometryWorkCounters() {
+  flattenWork = 0
+  clipWork = 0
+}
+
+// Keep flatten/clip entries for these areas only, and only the clip regions
+// listed (live region plus saved folder polygons). A region drag passes the
+// polygon for this mouse position; the previous drag polygon is dropped.
+export function syncGeometryCache(areas, keepClips) {
+  const live = new Set()
+  const keep = new Set()
+  for (const a of areas || []) {
+    const id = geomId(a?.poly || [], a?.cubicSegs)
+    live.add(id)
+    for (const c of keepClips || []) {
+      const region = c?.region
+      if (!region || region.length < 3) continue
+      keep.add(`${id}||${clipStoreKey(a, region, c.step ?? 4)}`)
+    }
+  }
+  for (const key of [...flattenCache.keys()]) {
+    const id = key.slice(key.indexOf('|') + 1)
+    if (!live.has(id)) flattenCache.delete(key)
+  }
+  for (const [id, regions] of [...clipCache.entries()]) {
+    if (!live.has(id)) { clipCache.delete(id); continue }
+    for (const ck of [...regions.keys()]) {
+      if (!keep.has(`${id}||${ck}`)) regions.delete(ck)
+    }
+    if (regions.size === 0) clipCache.delete(id)
+  }
 }
 
 function outlineEdgesCross(flat, region) {
@@ -332,37 +401,207 @@ export function outlineLabelPoint(poly) {
   return best || c
 }
 
-// Region/folder overlap. The exact cubic integral is used only when the
-// flattened outline does not cross the region and no region vertex sits
-// inside the shape. A concave bite fails that test and grid-samples the
-// outline instead. Closed clips (step <= 4) use a 2px grid so a notch like
-// QA's U lands near the fine-grid area; coarser steps stay coarse while drawing.
+function ringSignedArea(poly) {
+  let a = 0
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    a += poly[j].x * poly[i].y - poly[i].x * poly[j].y
+  }
+  return a / 2
+}
+
+function cleanRing(poly) {
+  const out = []
+  for (const p of poly) {
+    const prev = out[out.length - 1]
+    if (prev && Math.hypot(prev.x - p.x, prev.y - p.y) < 1e-6) continue
+    out.push({ x: p.x, y: p.y })
+  }
+  if (out.length > 1 && Math.hypot(out[0].x - out[out.length - 1].x, out[0].y - out[out.length - 1].y) < 1e-6) out.pop()
+  return out
+}
+
+function isConvexRing(poly) {
+  if (!poly || poly.length < 3) return false
+  let sign = 0
+  const n = poly.length
+  for (let i = 0; i < n; i++) {
+    const a = poly[i], b = poly[(i + 1) % n], c = poly[(i + 2) % n]
+    const cross = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x)
+    if (Math.abs(cross) < 1e-8) continue
+    const s = cross > 0 ? 1 : -1
+    if (!sign) sign = s
+    else if (s !== sign) return false
+  }
+  return sign !== 0
+}
+
+function segmentLineHit(s, e, a, b) {
+  const dx1 = e.x - s.x, dy1 = e.y - s.y
+  const dx2 = b.x - a.x, dy2 = b.y - a.y
+  const den = dx1 * dy2 - dy1 * dx2
+  if (Math.abs(den) < 1e-12) return { x: e.x, y: e.y }
+  const t = ((a.x - s.x) * dy2 - (a.y - s.y) * dx2) / den
+  return { x: s.x + t * dx1, y: s.y + t * dy1 }
+}
+
+// Convex clip polygon. The subject may be concave (a C, or a flattened cubic).
+function sutherlandHodgman(subject, clip) {
+  let output = cleanRing(subject)
+  if (output.length < 3 || !clip || clip.length < 3) return []
+  const cw = ringSignedArea(clip) < 0
+  const insideH = (p, a, b) => {
+    const cross = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)
+    return cw ? cross <= 1e-7 : cross >= -1e-7
+  }
+  for (let i = 0; i < clip.length; i++) {
+    const a = clip[i], b = clip[(i + 1) % clip.length]
+    const input = output
+    output = []
+    if (input.length < 1) break
+    for (let j = 0; j < input.length; j++) {
+      const s = input[j]
+      const e = input[(j + 1) % input.length]
+      const ein = insideH(e, a, b)
+      const sin = insideH(s, a, b)
+      if (ein) {
+        if (!sin) output.push(segmentLineHit(s, e, a, b))
+        output.push({ x: e.x, y: e.y })
+      } else if (sin) {
+        output.push(segmentLineHit(s, e, a, b))
+      }
+    }
+    output = cleanRing(output)
+  }
+  return output.length >= 3 ? output : []
+}
+
+function pointInTri(p, a, b, c) {
+  const s = (p1, p2, p3) => (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y)
+  const d1 = s(p, a, b), d2 = s(p, b, c), d3 = s(p, c, a)
+  const hasNeg = d1 < -1e-8 || d2 < -1e-8 || d3 < -1e-8
+  const hasPos = d1 > 1e-8 || d2 > 1e-8 || d3 > 1e-8
+  return !(hasNeg && hasPos)
+}
+
+function triangulateRing(poly) {
+  const pts = poly.map(p => ({ x: p.x, y: p.y }))
+  if (pts.length < 3) return []
+  if (pts.length === 3) return [pts]
+  if (ringSignedArea(pts) < 0) pts.reverse()
+  const idx = pts.map((_, i) => i)
+  const tris = []
+  let guard = pts.length * pts.length
+  while (idx.length > 3 && guard-- > 0) {
+    let clipped = false
+    for (let i = 0; i < idx.length; i++) {
+      const i0 = idx[(i + idx.length - 1) % idx.length]
+      const i1 = idx[i]
+      const i2 = idx[(i + 1) % idx.length]
+      const a = pts[i0], b = pts[i1], c = pts[i2]
+      const cross = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+      if (cross <= 1e-8) continue
+      let contains = false
+      for (let k = 0; k < idx.length; k++) {
+        const ik = idx[k]
+        if (ik === i0 || ik === i1 || ik === i2) continue
+        if (pointInTri(pts[ik], a, b, c)) { contains = true; break }
+      }
+      if (contains) continue
+      tris.push([a, b, c])
+      idx.splice(i, 1)
+      clipped = true
+      break
+    }
+    if (!clipped) break
+  }
+  if (idx.length === 3) tris.push([pts[idx[0]], pts[idx[1]], pts[idx[2]]])
+  return tris
+}
+
+function intersectionPieces(subject, region) {
+  if (!subject || subject.length < 3 || !region || region.length < 3) return []
+  if (isConvexRing(region)) {
+    const piece = sutherlandHodgman(subject, region)
+    return piece.length >= 3 ? [piece] : []
+  }
+  const pieces = []
+  for (const tri of triangulateRing(region)) {
+    const piece = sutherlandHodgman(subject, tri)
+    if (piece.length >= 3 && Math.abs(ringSignedArea(piece)) > 1e-4) pieces.push(piece)
+  }
+  return pieces
+}
+
+function labelOnPieces(pieces) {
+  if (!pieces.length) return null
+  if (pieces.length === 1) return outlineLabelPoint(pieces[0])
+  let twiceSum = 0, cx = 0, cy = 0
+  let largest = pieces[0], largestA = 0
+  for (const poly of pieces) {
+    let twice = 0, pcx = 0, pcy = 0
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const cross = poly[j].x * poly[i].y - poly[i].x * poly[j].y
+      twice += cross
+      pcx += (poly[j].x + poly[i].x) * cross
+      pcy += (poly[j].y + poly[i].y) * cross
+    }
+    const a = Math.abs(twice)
+    if (a > largestA) { largestA = a; largest = poly }
+    twiceSum += twice
+    cx += pcx
+    cy += pcy
+  }
+  if (Math.abs(twiceSum) < 1e-6) return outlineLabelPoint(largest)
+  const c = { x: cx / (3 * twiceSum), y: cy / (3 * twiceSum) }
+  if (pieces.some(p => inside(c, p))) return c
+  return outlineLabelPoint(largest)
+}
+
+function fullyInsideRing(flat, region) {
+  if (!region || region.length < 3 || !flat || flat.length < 3) return false
+  if (!flat.every(p => inside(p, region))) return false
+  if (outlineEdgesCross(flat, region)) return false
+  if (region.some(v => inside(v, flat))) return false
+  return true
+}
+
+// Region/folder overlap. Exact shoelace (straight) or the cubic integral is
+// used only when the outline does not cross the region and no region vertex
+// sits inside the shape. A concave bite fails that test and grid-samples the
+// outline. Closed curved clips (step <= 4) use a 2px grid; straight partial
+// overlaps stay on the caller's step. The label of a partial clip is the
+// area-weighted centroid of the clipped piece, not the grid-cell average.
 // Areas with only circular arcSegs stay on the chord polygon.
 export function clipAreaPx2(area, region, step = 4) {
   const poly = area?.poly || []
   const cubics = area?.cubicSegs
-  const curved = cubics && Object.values(cubics).some(isCubicSeg)
-  if (!curved) return clipPx2(poly, region, step)
-  const flat = cachedFlattenAreaPoly(poly, cubics)
-  const gridStep = step <= 4 ? 2 : step
-  const clipKey = `${gridStep}|${ringKey(flat)}|${ringKey(region || [])}`
-  const cached = clipCache.get(clipKey)
-  if (cached) {
-    clipCache.delete(clipKey)
-    clipCache.set(clipKey, cached)
-    return cached
-  }
+  if (!region || region.length < 3 || poly.length < 3) return { px2: 0, c: null }
+  const curved = areaIsCurved(area)
+  const id = geomId(poly, cubics)
+  const storeKey = clipStoreKey(area, region, step)
+  let byRegion = clipCache.get(id)
+  const cached = byRegion?.get(storeKey)
+  if (cached) return cached
+  clipWork++
+  const flat = curved ? cachedFlatRecord(poly, cubics).flat : poly
+  const gridStep = gridStepFor(area, step)
   let result
-  const samplesInside = region && region.length >= 3 && flat.length >= 3 && flat.every(p => inside(p, region))
-  const fullyInside = samplesInside
-    && !outlineEdgesCross(flat, region)
-    && !region.some(v => inside(v, flat))
-  if (fullyInside) {
-    result = { px2: shapeAreaPx(poly, cubics), c: outlineLabelPoint(flat) }
+  if (fullyInsideRing(flat, region)) {
+    result = {
+      px2: curved ? shapeAreaPx(poly, cubics) : polyAreaPx(poly),
+      c: outlineLabelPoint(flat),
+    }
   } else {
-    result = clipPx2(flat, region, gridStep)
+    const grid = clipPx2(flat, region, gridStep)
+    const pieces = intersectionPieces(flat, region)
+    result = { px2: grid.px2, c: (pieces.length ? labelOnPieces(pieces) : null) || grid.c }
   }
-  return remember(clipCache, clipKey, result)
+  if (!byRegion) {
+    byRegion = new Map()
+    clipCache.set(id, byRegion)
+  }
+  byRegion.set(storeKey, result)
+  return result
 }
 
 // Sheet MTO and takeoff pass no region and get the full curve. A region MTO
@@ -395,10 +634,7 @@ export function areaOutlineCentroid(area) {
   return outlineLabelPoint(ring)
 }
 
-// True when non-adjacent edges of the flattened outline properly cross.
-export function outlineSelfIntersects(poly, cubicSegs) {
-  const flat = (!poly || poly.length < 4) ? poly : cachedFlattenAreaPoly(poly, cubicSegs || {})
-  if (!flat || flat.length < 4) return false
+function flatEdgesSelfIntersect(flat) {
   const n = flat.length
   for (let i = 0; i < n; i++) {
     for (let j = i + 2; j < n; j++) {
@@ -407,6 +643,33 @@ export function outlineSelfIntersects(poly, cubicSegs) {
     }
   }
   return false
+}
+
+// True when non-adjacent edges of the flattened outline properly cross.
+// A cubic can cross at any vertex count, so the outline is flattened before
+// the 4-vertex check. The boolean is stored on the geometry record.
+export function outlineSelfIntersects(poly, cubicSegs) {
+  if (!poly || poly.length < 2) return false
+  const cubics = cubicSegs || {}
+  const curved = Object.values(cubics).some(isCubicSeg)
+  if (!curved && poly.length < 4) return false
+  const rec = cachedFlatRecord(poly, cubics)
+  const flat = rec.flat
+  if (!flat || flat.length < 4) return false
+  if (rec.selfX == null) rec.selfX = flatEdgesSelfIntersect(flat)
+  return rec.selfX
+}
+
+export function areaSelfIntersects(area) {
+  return outlineSelfIntersects(area?.poly, area?.cubicSegs)
+}
+
+// P1 on P0 is a zero-length edge. Reject only that coincidence (under half
+// a sheet pixel). A 16px sheet radius is 4 ft at the default scale and
+// silently drops a real click at every zoom.
+export function cubicP1DuplicatesP0(p, p0) {
+  if (!p || !p0) return false
+  return dist(p, p0) < 0.5
 }
 
 function ptInRect(p, r) {
