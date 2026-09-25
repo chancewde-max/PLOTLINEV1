@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Button } from './ui/Button.jsx'
 import PdfCanvas from './PdfCanvas.jsx'
 import { CAT_COLOR, SHEET_W, SHEET_H, categoryTotals } from '../data/sampleData.js'
+import { ownRecord } from '../data/ownRecord.js'
 import { buildAreaPath, buildLinePath } from '../workspace/geometry.js'
 import { resolveSheetPdfUrl, sheetHasPdf } from './pdfCache.js'
 import s from './SheetPrintView.module.css'
@@ -104,7 +105,7 @@ export default function SheetPrintView({
         sqft, lnft, fSq, fLn, calib,
       }
     }
-    const sh = sheets?.[id]
+    const sh = ownRecord(sheets, id)
     if (!sh) return null
     const { allAreas: a, allLines: l, allPoints: p } = deriveSheetData(sh)
     const f = makeFormatters(precision)
@@ -163,7 +164,7 @@ export default function SheetPrintView({
           {scope === 'choose' && (
             <div className={s.chooseList}>
               {order.map((id) => {
-                const sh = id === sheetId ? sheet : sheets?.[id]
+                const sh = id === sheetId ? sheet : ownRecord(sheets, id)
                 if (!sh) return null
                 return (
                   <label key={id} className={s.chooseItem}>

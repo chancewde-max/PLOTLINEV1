@@ -8,6 +8,7 @@ import { Dialog } from '../components/ui/Dialog.jsx'
 import { Select } from '../components/ui/Select.jsx'
 import { Tabs } from '../components/ui/Tabs.jsx'
 import { useAppData } from '../data/useAppData.jsx'
+import { ownRecord } from '../data/ownRecord.js'
 import { useAuth } from '../auth/AuthProvider.jsx'
 import { useSettings, HOTKEY_LABELS } from '../data/useSettings.jsx'
 import { STATUS_LABEL, STATUS_VARIANT } from '../data/sampleData.js'
@@ -389,7 +390,7 @@ export default function ProjectsPage() {
               <div className={s.preview}>
                 {(() => {
                   const firstSheetId = (project.sheetIds || [])[0]
-                  const firstSheet = firstSheetId ? sheets[firstSheetId] : null
+                  const firstSheet = firstSheetId ? ownRecord(sheets, firstSheetId) : null
                   if (sheetHasPdf(firstSheet)) {
                     return <PdfCanvas url={resolveSheetPdfUrl(firstSheet, pdfAssets)} width={220} height={160} pageNumber={firstSheet.pdfPage || 1} />
                   }

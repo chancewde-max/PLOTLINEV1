@@ -7,6 +7,7 @@
 // Units: counts -> EA, areas -> SF, linear -> LF. Deduction items subtract.
 import { linePathLenPx, measuredAreaPx2 } from '../workspace/geometry.js'
 import { areaExportNotes, isUngroupedSoilArea } from '../workspace/areaProps.js'
+import { ownRecord } from './ownRecord.js'
 
 const DEFAULT_PXFT = 4
 const sign = (it) => (it && it.deduct ? -1 : 1)
@@ -28,13 +29,13 @@ export function takeoffMaterialItems(project, sheets, sheetIds) {
 
   const add = (name, unit, qty, code, kind) => {
     const key = `${(name || '').trim().toLowerCase()}::${unit}`
-    if (!byKey[key]) byKey[key] = { key, code: code || '', description: name || '', unit, qty: 0, kind }
+    if (!Object.hasOwn(byKey, key)) byKey[key] = { key, code: code || '', description: name || '', unit, qty: 0, kind }
     byKey[key].qty += qty
     if (!byKey[key].code && code) byKey[key].code = code
   }
 
   for (const sid of sheetIds || project.sheetIds || []) {
-    const sh = sheets?.[sid]
+    const sh = ownRecord(sheets, sid)
     if (!sh) continue
     const pxft = sh.pxPerFt || DEFAULT_PXFT
     const sqft = (px2) => px2 / (pxft * pxft)
@@ -56,7 +57,7 @@ export function takeoffMaterialItems(project, sheets, sheetIds) {
     const ungroupedByName = {}
     for (const a of ungroupedSoil) {
       const name = (a.name || 'Area').trim() || 'Area'
-      if (!ungroupedByName[name]) ungroupedByName[name] = []
+      if (!Object.hasOwn(ungroupedByName, name)) ungroupedByName[name] = []
       ungroupedByName[name].push(a)
     }
     for (const [name, areas] of Object.entries(ungroupedByName)) {
