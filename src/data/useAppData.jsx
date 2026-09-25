@@ -163,8 +163,18 @@ export function AppDataProvider({ children }) {
   const addProject = (proj) =>
     setProjects(p => ({ ...p, [proj.id]: proj }))
 
+  // Unknown and prototype project ids are a no-op. Bracket access would read
+  // Object.prototype / Function and spreading that stored a new project.
+  const withOwnProject = (projectId, mutate) => (p) => {
+    const proj = ownRecord(p, projectId)
+    if (!proj) return p
+    const next = mutate(proj)
+    if (!next) return p
+    return { ...p, [projectId]: next }
+  }
+
   const updateProject = (projectId, updates) =>
-    setProjects(p => ({ ...p, [projectId]: { ...p[projectId], ...updates } }))
+    setProjects(withOwnProject(projectId, proj => ({ ...proj, ...updates })))
 
   // Account-level vendors (shared across projects). Adds a vendor if a
   // case-insensitive match doesn't already exist; returns the vendor id either
@@ -184,14 +194,12 @@ export function AppDataProvider({ children }) {
   // "Pricebook" editor autosaves here on every field change). No-op if the
   // job has no proposal version yet — callers should addProposalVersion first.
   const updateProposal = (projectId, updates) =>
-    setProjects(p => {
-      const proj = p[projectId]
-      if (!proj) return p
+    setProjects(withOwnProject(projectId, proj => {
       const list = proj.proposalVersions || []
-      if (!list.some(x => x.isCurrent)) return p
+      if (!list.some(x => x.isCurrent)) return null
       const next = list.map(x => (x.isCurrent ? { ...x, ...updates } : x))
-      return { ...p, [projectId]: { ...proj, proposalVersions: next } }
-    })
+      return { ...proj, proposalVersions: next }
+    }))
 
   // --- Proposal templates (account-level, reusable proposal structures) ---
   const addProposalTemplate = (tpl) => {
@@ -208,7 +216,11 @@ export function AppDataProvider({ children }) {
   }
 
   const updateProposalTemplate = (tplId, updates) =>
-    setProposalTemplates(t => ({ ...t, [tplId]: { ...t[tplId], ...updates } }))
+    setProposalTemplates(t => {
+      const current = ownRecord(t, tplId)
+      if (!current) return t
+      return { ...t, [tplId]: { ...current, ...updates } }
+    })
 
   // --- Template phrases (account-level, reusable boilerplate snippets) ---
   const addPhrase = (text) => {
@@ -219,7 +231,12 @@ export function AppDataProvider({ children }) {
     return id
   }
   const deletePhrase = (id) =>
-    setPhrases(t => { const next = { ...t }; delete next[id]; return next })
+    setPhrases(t => {
+      if (!ownRecord(t, id)) return t
+      const next = { ...t }
+      delete next[id]
+      return next
+    })
 
   // Account-level company profile (logo + identity). Merge so partial updates
   // keep other fields. Persisted to localStorage + cloud snapshot via the
@@ -228,29 +245,25 @@ export function AppDataProvider({ children }) {
     setCompany(c => ({ ...c, ...updates }))
 
   const addSheet = (projectId, sheet) => {
+    if (!ownRecord(projects, projectId)) return
     setSheets(s => ({ ...s, [sheet.id]: sheet }))
-    setProjects(p => ({
-      ...p,
-      [projectId]: {
-        ...p[projectId],
-        sheetIds: [...(p[projectId]?.sheetIds || []), sheet.id],
-      },
-    }))
+    setProjects(withOwnProject(projectId, proj => ({
+      ...proj,
+      sheetIds: [...(proj.sheetIds || []), sheet.id],
+    })))
   }
 
   const addSheets = (projectId, sheetArray) => {
+    if (!ownRecord(projects, projectId)) return
     setSheets(s => {
       const next = { ...s }
       for (const sh of sheetArray) next[sh.id] = { ...sh, projectId }
       return next
     })
-    setProjects(p => ({
-      ...p,
-      [projectId]: {
-        ...p[projectId],
-        sheetIds: [...(p[projectId]?.sheetIds || []), ...sheetArray.map(s => s.id)],
-      },
-    }))
+    setProjects(withOwnProject(projectId, proj => ({
+      ...proj,
+      sheetIds: [...(proj.sheetIds || []), ...sheetArray.map(s => s.id)],
+    })))
   }
 
   const updateSheet = (sheetId, updates) =>
@@ -286,72 +299,57 @@ export function AppDataProvider({ children }) {
     setCustomCats(prev => prev.filter(c => c.id !== catId))
 
   const addRegion = (projectId, region) =>
-    setProjects(p => ({
-      ...p,
-      [projectId]: { ...p[projectId], regions: [...(p[projectId]?.regions || []), region] },
-    }))
+    setProjects(withOwnProject(projectId, proj => ({
+      ...proj,
+      regions: [...(proj.regions || []), region],
+    })))
 
   const updateRegion = (projectId, regionId, updates) =>
-    setProjects(p => ({
-      ...p,
-      [projectId]: {
-        ...p[projectId],
-        regions: (p[projectId]?.regions || []).map(r => r.id === regionId ? { ...r, ...updates } : r),
-      },
-    }))
+    setProjects(withOwnProject(projectId, proj => ({
+      ...proj,
+      regions: (proj.regions || []).map(r => r.id === regionId ? { ...r, ...updates } : r),
+    })))
 
   const deleteRegion = (projectId, regionId) =>
-    setProjects(p => ({
-      ...p,
-      [projectId]: {
-        ...p[projectId],
-        regions: (p[projectId]?.regions || []).filter(r => r.id !== regionId),
-      },
-    }))
+    setProjects(withOwnProject(projectId, proj => ({
+      ...proj,
+      regions: (proj.regions || []).filter(r => r.id !== regionId),
+    })))
 
   const addSheetSet = (projectId, setName) => {
+    if (!ownRecord(projects, projectId)) return null
     const id = `set-${Date.now()}`
-    setProjects(p => ({
-      ...p,
-      [projectId]: {
-        ...p[projectId],
-        sheetSets: [...(p[projectId]?.sheetSets || []), { id, name: setName, sheetIds: [] }],
-      },
-    }))
+    setProjects(withOwnProject(projectId, proj => ({
+      ...proj,
+      sheetSets: [...(proj.sheetSets || []), { id, name: setName, sheetIds: [] }],
+    })))
     return id
   }
 
   const renameSheetSet = (projectId, setId, name) => {
-    setProjects(p => ({
-      ...p,
-      [projectId]: {
-        ...p[projectId],
-        sheetSets: (p[projectId]?.sheetSets || []).map(s => s.id === setId ? { ...s, name } : s),
-      },
-    }))
+    setProjects(withOwnProject(projectId, proj => ({
+      ...proj,
+      sheetSets: (proj.sheetSets || []).map(s => s.id === setId ? { ...s, name } : s),
+    })))
   }
 
   const deleteSheetSet = (projectId, setId) => {
-    setProjects(p => ({
-      ...p,
-      [projectId]: {
-        ...p[projectId],
-        sheetSets: (p[projectId]?.sheetSets || []).filter(s => s.id !== setId),
-      },
-    }))
+    setProjects(withOwnProject(projectId, proj => ({
+      ...proj,
+      sheetSets: (proj.sheetSets || []).filter(s => s.id !== setId),
+    })))
   }
 
   const moveSheetToSet = (projectId, sheetId, setId) => {
-    setProjects(p => {
-      const proj = p[projectId]
-      const sets = (proj?.sheetSets || []).map(s => ({
+    setProjects(withOwnProject(projectId, proj => {
+      const sets = (proj.sheetSets || []).map(s => ({
         ...s,
         sheetIds: s.id === setId
-          ? [...new Set([...s.sheetIds, sheetId])]
-          : s.sheetIds.filter(id => id !== sheetId),
+          ? [...new Set([...(s.sheetIds || []), sheetId])]
+          : (s.sheetIds || []).filter(id => id !== sheetId),
       }))
-      return { ...p, [projectId]: { ...proj, sheetSets: sets } }
-    })
+      return { ...proj, sheetSets: sets }
+    }))
   }
 
   // --- MTO templates (account-level, reusable schemas) ---
@@ -371,14 +369,16 @@ export function AppDataProvider({ children }) {
   }
 
   const updateMtoTemplate = (tplId, updates) =>
-    setMtoTemplates(t => ({ ...t, [tplId]: { ...t[tplId], ...updates } }))
+    setMtoTemplates(t => {
+      const current = ownRecord(t, tplId)
+      if (!current) return t
+      return { ...t, [tplId]: { ...current, ...updates } }
+    })
 
   // --- MTO versions (per-project, versioned instances) ---
 
   const addMtoVersion = (projectId, version) => {
-    setProjects(p => {
-      const proj = p[projectId]
-      if (!proj) return p
+    setProjects(withOwnProject(projectId, proj => {
       const list = Array.isArray(proj.mtoVersions) ? [...proj.mtoVersions] : []
       const next = list.length + 1
       const v = {
@@ -394,23 +394,19 @@ export function AppDataProvider({ children }) {
         isCurrent: true,
       }
       const demoted = list.map(x => ({ ...x, isCurrent: false }))
-      return { ...p, [projectId]: { ...proj, mtoVersions: [...demoted, v] } }
-    })
+      return { ...proj, mtoVersions: [...demoted, v] }
+    }))
   }
 
   const setCurrentMtoVersion = (projectId, versionId) => {
-    setProjects(p => {
-      const proj = p[projectId]
-      if (!proj) return p
+    setProjects(withOwnProject(projectId, proj => {
       const list = (proj.mtoVersions || []).map(x => ({ ...x, isCurrent: x.id === versionId }))
-      return { ...p, [projectId]: { ...proj, mtoVersions: list } }
-    })
+      return { ...proj, mtoVersions: list }
+    }))
   }
 
   const removeMtoVersion = (projectId, versionId) => {
-    setProjects(p => {
-      const proj = p[projectId]
-      if (!proj) return p
+    setProjects(withOwnProject(projectId, proj => {
       const list = (proj.mtoVersions || []).filter(x => x.id !== versionId)
       // If we removed the current version, promote the most-recent remaining
       // one (highest v) as current; otherwise leave the array as-is.
@@ -418,28 +414,24 @@ export function AppDataProvider({ children }) {
         const latest = list.reduce((a, b) => (b.v > a.v ? b : a))
         latest.isCurrent = true
       }
-      return { ...p, [projectId]: { ...proj, mtoVersions: list } }
-    })
+      return { ...proj, mtoVersions: list }
+    }))
   }
 
   const updateMtoVersion = (projectId, versionId, updates) => {
-    setProjects(p => {
-      const proj = p[projectId]
-      if (!proj) return p
+    setProjects(withOwnProject(projectId, proj => {
       const list = (proj.mtoVersions || []).map(x =>
         x.id === versionId ? { ...x, ...updates } : x
       )
-      return { ...p, [projectId]: { ...proj, mtoVersions: list } }
-    })
+      return { ...proj, mtoVersions: list }
+    }))
   }
 
   // --- Proposal versions (per-project — e.g. a change order or a revised
   // plan set gets its own version instead of overwriting the original bid) ---
 
   const addProposalVersion = (projectId, version) => {
-    setProjects(p => {
-      const proj = p[projectId]
-      if (!proj) return p
+    setProjects(withOwnProject(projectId, proj => {
       const list = Array.isArray(proj.proposalVersions) ? [...proj.proposalVersions] : []
       const next = list.length + 1
       const { id, v, name, createdAt, isCurrent, ...content } = version || {}
@@ -452,23 +444,19 @@ export function AppDataProvider({ children }) {
         isCurrent: true,
       }
       const demoted = list.map(x => ({ ...x, isCurrent: false }))
-      return { ...p, [projectId]: { ...proj, proposalVersions: [...demoted, entry] } }
-    })
+      return { ...proj, proposalVersions: [...demoted, entry] }
+    }))
   }
 
   const setCurrentProposalVersion = (projectId, versionId) => {
-    setProjects(p => {
-      const proj = p[projectId]
-      if (!proj) return p
+    setProjects(withOwnProject(projectId, proj => {
       const list = (proj.proposalVersions || []).map(x => ({ ...x, isCurrent: x.id === versionId }))
-      return { ...p, [projectId]: { ...proj, proposalVersions: list } }
-    })
+      return { ...proj, proposalVersions: list }
+    }))
   }
 
   const removeProposalVersion = (projectId, versionId) => {
-    setProjects(p => {
-      const proj = p[projectId]
-      if (!proj) return p
+    setProjects(withOwnProject(projectId, proj => {
       const list = (proj.proposalVersions || []).filter(x => x.id !== versionId)
       // If we removed the current version, promote the most-recent remaining
       // one (highest v) as current; otherwise leave the array as-is.
@@ -476,19 +464,17 @@ export function AppDataProvider({ children }) {
         const latest = list.reduce((a, b) => (b.v > a.v ? b : a))
         latest.isCurrent = true
       }
-      return { ...p, [projectId]: { ...proj, proposalVersions: list } }
-    })
+      return { ...proj, proposalVersions: list }
+    }))
   }
 
   const updateProposalVersion = (projectId, versionId, updates) => {
-    setProjects(p => {
-      const proj = p[projectId]
-      if (!proj) return p
+    setProjects(withOwnProject(projectId, proj => {
       const list = (proj.proposalVersions || []).map(x =>
         x.id === versionId ? { ...x, ...updates } : x
       )
-      return { ...p, [projectId]: { ...proj, proposalVersions: list } }
-    })
+      return { ...proj, proposalVersions: list }
+    }))
   }
 
   // --- Cloud hydration / reset (additive; used by AuthProvider) ---

@@ -16,7 +16,7 @@ import { Checkbox } from '../components/ui/Checkbox.jsx'
 import { Tabs } from '../components/ui/Tabs.jsx'
 import { Tooltip } from '../components/ui/Tooltip.jsx'
 import { useAppData } from '../data/useAppData.jsx'
-import { ownRecord } from '../data/ownRecord.js'
+import { ownRecord, sheetBelongsToProject } from '../data/ownRecord.js'
 import { useSettings, DEFAULT_TOOLBAR_ORDER, MIN_ZOOM_SENSITIVITY, MAX_ZOOM_SENSITIVITY } from '../data/useSettings.jsx'
 import { useAuth } from '../auth/AuthProvider.jsx'
 import { SheetPageSkeleton } from '../components/Skeleton.jsx'
@@ -263,7 +263,7 @@ export default function SheetPage() {
   if (dataLoading) return <SheetPageSkeleton />
   const project = ownRecord(projects, projectId)
   const sheet = ownRecord(sheets, sheetId)
-  if (!project || !sheet) {
+  if (!sheetBelongsToProject(project, sheet, projectId, sheetId)) {
     return <div style={{ padding: 40, color: 'var(--text-muted)' }}>Sheet not found.</div>
   }
   return <SheetPageBody key={sheetId} />
@@ -1158,7 +1158,7 @@ function SheetPageBody() {
   const regionClipStep = regionVertexDrag ? 16 : clipStep
   const regionClipLabels = !regionVertexDrag
   const savedFolderPolys = (sheetReady && project.regions)
-    ? project.regions.map(r => sheet.regionPolys?.[r.id]).filter(p => p && p.length >= 3)
+    ? project.regions.map(r => ownRecord(sheet.regionPolys, r.id)).filter(p => p && p.length >= 3)
     : []
   const keepClips = []
   if (clipHasRegion) keepClips.push({ region: clipRegion, step: regionClipStep, labels: regionClipLabels })
@@ -2284,14 +2284,14 @@ function SheetPageBody() {
       if (!sh) return
       ;(sh.savedCountGroups || []).forEach(g => {
         const key = `count::${g.name}`
-        if (!byName[key]) byName[key] = { label: g.name, kind: 'count', color: g.color || 'var(--takeoff-count)', count: 0, sheets: 0, sheetList: [] }
+        if (!Object.hasOwn(byName, key)) byName[key] = { label: g.name, kind: 'count', color: g.color || 'var(--takeoff-count)', count: 0, sheets: 0, sheetList: [] }
         byName[key].count += g.points?.length || 0
         byName[key].sheets += 1
         byName[key].sheetList.push({ sid, name: sh.name, code: sh.code, count: g.points?.length || 0 })
       })
       ;(sh.savedAreaGroups || []).forEach(g => {
         const key = `area::${g.name}`
-        if (!byName[key]) byName[key] = { label: g.name, kind: 'area', color: g.color || 'var(--takeoff-area)', count: 0, sheets: 0, sheetList: [] }
+        if (!Object.hasOwn(byName, key)) byName[key] = { label: g.name, kind: 'area', color: g.color || 'var(--takeoff-area)', count: 0, sheets: 0, sheetList: [] }
         const n = (sh.savedAreas || []).filter(a => a.groupId === g.id).length
         byName[key].count += n
         byName[key].sheets += 1
@@ -2299,7 +2299,7 @@ function SheetPageBody() {
       })
       ;(sh.savedLinearGroups || []).forEach(g => {
         const key = `linear::${g.name}`
-        if (!byName[key]) byName[key] = { label: g.name, kind: 'linear', color: g.color || 'var(--takeoff-linear)', count: 0, sheets: 0, sheetList: [] }
+        if (!Object.hasOwn(byName, key)) byName[key] = { label: g.name, kind: 'linear', color: g.color || 'var(--takeoff-linear)', count: 0, sheets: 0, sheetList: [] }
         const n = (sh.savedLines || []).filter(l => l.groupId === g.id).length
         byName[key].count += n
         byName[key].sheets += 1
@@ -2310,7 +2310,10 @@ function SheetPageBody() {
   })()
 
   const toggleCat   = (id) => setCatActive(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
-  const toggleLayer = (id) => setHidden(h => ({ ...h, [id]: !h[id] }))
+  const toggleLayer = (id) => setHidden(h => {
+    const cur = h != null && typeof h === 'object' && Object.hasOwn(h, id) ? h[id] : false
+    return { ...h, [id]: !cur }
+  })
 
   const ac = ACCENTS[accent] || ACCENTS.green
   const accentStyle = { '--brand-50': ac[50], '--brand-500': ac[500], '--brand-600': ac[600], '--brand-700': ac[700] }
@@ -2349,7 +2352,7 @@ function SheetPageBody() {
     const ungroupedByName = {}
     for (const a of addedAreas.filter(a => isUngroupedSoilArea(a, areaGroups))) {
       const name = (a.name || 'Area').trim() || 'Area'
-      if (!ungroupedByName[name]) ungroupedByName[name] = []
+      if (!Object.hasOwn(ungroupedByName, name)) ungroupedByName[name] = []
       ungroupedByName[name].push(a)
     }
     for (const [name, areas] of Object.entries(ungroupedByName)) {
@@ -2408,7 +2411,7 @@ function SheetPageBody() {
   const projectRegions = project?.regions || []
   // Seed a default region if none exist yet
   const folders = projectRegions.length > 0
-    ? projectRegions.map(r => ({ ...r, poly: (sheet?.regionPolys || {})[r.id] || null }))
+    ? projectRegions.map(r => ({ ...r, poly: ownRecord(sheet?.regionPolys, r.id) || null }))
     : [{ id: 'default-r-local', name: 'Region 1', color: FOLDER_PALETTE[0], poly: null }]
 
   // Bootstrap: if project has no regions yet, ensure at least one exists.
@@ -2855,7 +2858,7 @@ function SheetPageBody() {
                     <span style={{ width: 10, height: 10, borderRadius: 3, background: r.color, flexShrink: 0 }} />
                     <span style={{ flex: 1, fontSize: 12, fontWeight: r.id === safeFolderId ? 700 : 500, color: 'var(--text-strong)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
                     <span style={{ fontSize: 10, color: 'var(--text-subtle)', fontFamily: 'var(--font-mono)' }}>
-                      {(project.sheetIds || []).filter(sid => ownRecord(sheets, sid)?.regionPolys?.[r.id]?.length >= 3).length} sheets
+                      {(project.sheetIds || []).filter(sid => ownRecord(ownRecord(sheets, sid)?.regionPolys, r.id)?.length >= 3).length} sheets
                     </span>
                   </div>
                   {/* Per-sheet flyout */}
@@ -2870,7 +2873,7 @@ function SheetPageBody() {
                     {(project.sheetIds || []).map(sid => {
                       const sh = ownRecord(sheets, sid)
                       if (!sh) return null
-                      const hasPoly = (sh.regionPolys?.[r.id] || []).length >= 3
+                      const hasPoly = (ownRecord(sh.regionPolys, r.id) || []).length >= 3
                       return (
                         <div key={sid}
                           onClick={() => { navigate(`/app/project/${projectId}/sheet/${sid}`); setActiveFolderId(r.id); setActiveTool('region') }}

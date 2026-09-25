@@ -128,14 +128,18 @@ async function signedInDirectLoad(browser) {
   await ctx.close()
 }
 
-function bodyHasOwnSheet(raw, id) {
+function bodyHasOwnKey(raw, collection, id) {
   let parsed
   try { parsed = JSON.parse(raw) } catch { return false }
   const rows = Array.isArray(parsed) ? parsed : [parsed]
   return rows.some((row) => {
-    const sheets = row && row.sheets
-    return !!sheets && typeof sheets === 'object' && Object.hasOwn(sheets, id)
+    const bag = row && row[collection]
+    return !!bag && typeof bag === 'object' && Object.hasOwn(bag, id)
   })
+}
+
+function bodyHasOwnSheet(raw, id) {
+  return bodyHasOwnKey(raw, 'sheets', id)
 }
 
 // Signed-in, but the session is already fresh so getSession does not block.
@@ -233,6 +237,78 @@ async function missingSheetLoad(browser) {
   }
 }
 
+async function storedOwnKey(page, collection, id) {
+  return page.evaluate(({ collection, id }) => {
+    try {
+      const data = JSON.parse(localStorage.getItem('plotline-appdata') || 'null')
+      const bag = data && data[collection]
+      return !!(bag && typeof bag === 'object' && Object.hasOwn(bag, id))
+    } catch {
+      return false
+    }
+  }, { collection, id })
+}
+
+async function prototypeProjectLoad(browser) {
+  const ids = ['constructor', '__proto__', 'toString']
+  for (const projectId of ids) {
+    const posts = []
+    const { ctx, page, errors } = await openSignedInProjects(browser, posts)
+    const path = `/app/project/${projectId}`
+    await page.clock.install()
+    await page.evaluate((nextPath) => {
+      const state = window.history.state || {}
+      const idx = typeof state.idx === 'number' ? state.idx + 1 : 1
+      window.history.pushState({ ...state, idx, key: 'e2e-project', usr: null }, '', nextPath)
+      window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }))
+    }, path)
+    await page.waitForFunction(
+      (id) => decodeURIComponent(location.pathname) === '/app/project/' + id,
+      projectId,
+      { timeout: 5000 },
+    )
+    await page.clock.runFor(2000)
+    await page.getByText(/Project not found\.|Sheets \(/).first().waitFor({ state: 'visible', timeout: 15000 }).catch(() => {})
+    let folderAttempt = false
+    const tab = page.getByRole('button', { name: /^Sheets \(/ })
+    if (await tab.isVisible().catch(() => false)) {
+      await tab.click()
+      const add = page.getByRole('button', { name: 'Add folder' })
+      if (await add.isVisible().catch(() => false)) {
+        folderAttempt = true
+        await add.click()
+        await page.getByLabel('Folder name').fill('QA folder')
+        await page.getByRole('button', { name: 'Create folder' }).click()
+      }
+    }
+    // Sheet/project save debounce, localStorage write, and cloud save.
+    await page.clock.runFor(10000)
+    const notFound = await page.getByText('Project not found.').isVisible().catch(() => false)
+    const localHit = await storedOwnKey(page, 'projects', projectId)
+    const remoteHit = posts.some((raw) => bodyHasOwnKey(raw, 'projects', projectId))
+    const crashed = hookCrash(errors)
+    record(`Prototype project ${projectId} is not found and is not saved`,
+      notFound && !folderAttempt && !localHit && !remoteHit && !crashed,
+      `notFound=${notFound} folderAttempt=${folderAttempt} localHit=${localHit} remoteHit=${remoteHit} posts=${posts.length} errors=${errors.map((m) => m.split('\n')[0]).join(' | ') || 'none'}`)
+    await ctx.close()
+  }
+}
+
+async function foreignSheetLoad(browser) {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+  const page = await ctx.newPage()
+  const errors = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto(`${BASE}/app/project/proj-2/sheet/sheet-1`, { waitUntil: 'domcontentloaded', timeout: 45000 })
+  await page.getByText('Sheet not found.').waitFor({ state: 'visible', timeout: 15000 }).catch(() => {})
+  const notFound = await page.getByText('Sheet not found.').isVisible().catch(() => false)
+  const toolbar = await page.locator('button[aria-label="Synthetic turf"]').isVisible().catch(() => false)
+  record('Sheet from another project stays not-found',
+    notFound && !toolbar && !hookCrash(errors),
+    `notFound=${notFound} toolbar=${toolbar} errors=${errors.map((m) => m.split('\n')[0]).join(' | ') || 'none'}`)
+  await ctx.close()
+}
+
 async function stampDefaultRoll(browser) {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
   const page = await ctx.newPage()
@@ -289,8 +365,20 @@ async function main() {
   })
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
 
+  if (process.env.SMOKE_ONLY === 'projects') {
+    await prototypeProjectLoad(browser)
+    await foreignSheetLoad(browser)
+    const failed = results.filter((x) => !x.pass)
+    console.log(`\n=== ${failed.length === 0 ? 'ALL PASS' : 'FAILURES: ' + failed.length} ===`)
+    if (failed.length) console.log('FAILED: ' + failed.map((f) => f.name).join(' | '))
+    await browser.close()
+    process.exit(failed.length === 0 ? 0 : 1)
+  }
+
   await signedInDirectLoad(browser)
   await missingSheetLoad(browser)
+  await prototypeProjectLoad(browser)
+  await foreignSheetLoad(browser)
   await stampDefaultRoll(browser)
   if (process.env.SMOKE_ONLY === 'hooks') {
     const failed = results.filter((x) => !x.pass)

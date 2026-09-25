@@ -29,7 +29,7 @@ export function takeoffMaterialItems(project, sheets, sheetIds) {
 
   const add = (name, unit, qty, code, kind) => {
     const key = `${(name || '').trim().toLowerCase()}::${unit}`
-    if (!byKey[key]) byKey[key] = { key, code: code || '', description: name || '', unit, qty: 0, kind }
+    if (!Object.hasOwn(byKey, key)) byKey[key] = { key, code: code || '', description: name || '', unit, qty: 0, kind }
     byKey[key].qty += qty
     if (!byKey[key].code && code) byKey[key].code = code
   }
@@ -57,7 +57,7 @@ export function takeoffMaterialItems(project, sheets, sheetIds) {
     const ungroupedByName = {}
     for (const a of ungroupedSoil) {
       const name = (a.name || 'Area').trim() || 'Area'
-      if (!ungroupedByName[name]) ungroupedByName[name] = []
+      if (!Object.hasOwn(ungroupedByName, name)) ungroupedByName[name] = []
       ungroupedByName[name].push(a)
     }
     for (const [name, areas] of Object.entries(ungroupedByName)) {

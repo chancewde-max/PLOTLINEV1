@@ -85,7 +85,7 @@ export default function ProjectPage() {
   const [selectedSheetIds, setSelectedSheetIds] = useState(new Set())
   const [exportOpen, setExportOpen] = useState(false)
 
-  const project = projects[projectId]
+  const project = ownRecord(projects, projectId)
 
   if (dataLoading) return <ProjectPageSkeleton />
   if (!project) return <div style={{ padding: 40, color: 'var(--text-muted)' }}>Project not found.</div>
