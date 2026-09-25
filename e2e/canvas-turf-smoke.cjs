@@ -128,28 +128,105 @@ async function signedInDirectLoad(browser) {
   await ctx.close()
 }
 
-async function missingSheetLoad(browser) {
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
-  const page = await ctx.newPage()
-  const errors = []
-  page.on('pageerror', (e) => errors.push(e.message))
-  await page.goto(`${BASE}/app/project/proj-1/sheet/s1`, { waitUntil: 'domcontentloaded', timeout: 45000 })
-  // Past the 400ms save debounce and the 500ms localStorage write.
-  await page.waitForTimeout(1500)
-  const stillMissing = await page.getByText('Sheet not found.').isVisible().catch(() => false)
-  const created = await page.evaluate(() => {
-    try {
-      const data = JSON.parse(localStorage.getItem('plotline-appdata') || 'null')
-      return !!(data && data.sheets && data.sheets.s1)
-    } catch {
-      return false
-    }
+function bodyHasOwnSheet(raw, id) {
+  let parsed
+  try { parsed = JSON.parse(raw) } catch { return false }
+  const rows = Array.isArray(parsed) ? parsed : [parsed]
+  return rows.some((row) => {
+    const sheets = row && row.sheets
+    return !!sheets && typeof sheets === 'object' && Object.hasOwn(sheets, id)
   })
-  const crashed = hookCrash(errors)
-  record('Unknown sheet stays not-found and is not created',
-    stillMissing && !created && !crashed,
-    `visible=${stillMissing} created=${created} errors=${errors.map((m) => m.split('\n')[0]).join(' | ') || 'none'}`)
-  await ctx.close()
+}
+
+// Signed-in, but the session is already fresh so getSession does not block.
+// GET app_data fails on purpose (local sample data stays, hydration finishes).
+// POST/PATCH/PUT bodies are kept so the test can see what the remote save sent.
+async function openSignedInProjects(browser, posts) {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+  const errors = []
+  const supabaseHost = new URL(SUPABASE_URL).host
+  await ctx.route(`**/*${supabaseHost}/**`, async (route) => {
+    const req = route.request()
+    if (req.method() === 'OPTIONS') {
+      await route.fulfill({ status: 204, headers: corsHeaders() })
+      return
+    }
+    const url = req.url()
+    if (url.includes('/auth/v1/token')) {
+      await route.fulfill({ status: 200, headers: corsHeaders(), body: JSON.stringify(refreshedSession()) })
+      return
+    }
+    if (url.includes('/rest/v1/org_members')) {
+      await route.fulfill({ status: 200, headers: corsHeaders(), body: '[]' })
+      return
+    }
+    if (url.includes('/rest/v1/app_data')) {
+      if (req.method() === 'POST' || req.method() === 'PATCH' || req.method() === 'PUT') {
+        posts.push(req.postData() || '')
+        await route.fulfill({ status: 201, headers: corsHeaders(), body: '{}' })
+        return
+      }
+      await route.fulfill({
+        status: 500,
+        headers: corsHeaders(),
+        body: JSON.stringify({ message: 'e2e snapshot', code: 'e2e' }),
+      })
+      return
+    }
+    await route.fulfill({ status: 200, headers: corsHeaders(), body: '{}' })
+  })
+  await ctx.addInitScript(({ key, session }) => {
+    localStorage.setItem(key, JSON.stringify(session))
+  }, { key: SUPABASE_STORAGE_KEY, session: refreshedSession() })
+  const page = await ctx.newPage()
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto(`${BASE}/app`, { waitUntil: 'domcontentloaded', timeout: 45000 })
+  // Hydration has finished (hydratedRef is set in the same turn as this
+  // banner). SheetPage's first render is then past dataLoading, which is
+  // the path that stores a prototype id instead of throwing #310.
+  await page.getByText('Could not load your saved data').waitFor({ state: 'visible', timeout: 15000 })
+  return { ctx, page, errors }
+}
+
+async function missingSheetLoad(browser) {
+  // s1 is a plain unknown id. __proto__ and constructor are inherited names:
+  // sheets[id] is truthy via Object.prototype unless the lookup uses hasOwn.
+  const ids = ['s1', '__proto__', 'constructor']
+  for (const sheetId of ids) {
+    const posts = []
+    const { ctx, page, errors } = await openSignedInProjects(browser, posts)
+    const path = `/app/project/proj-1/sheet/${sheetId}`
+    await page.evaluate((nextPath) => {
+      const state = window.history.state || {}
+      const idx = typeof state.idx === 'number' ? state.idx + 1 : 1
+      window.history.pushState({ ...state, idx, key: 'e2e-missing', usr: null }, '', nextPath)
+      window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }))
+    }, path)
+    await page.waitForFunction(
+      (id) => decodeURIComponent(location.pathname).endsWith('/sheet/' + id),
+      sheetId,
+      { timeout: 5000 },
+    )
+    // Sheet save is 400ms, localStorage write is another 500ms, cloud save
+    // is 800ms after the sheets change. 1.5s can miss the remote write.
+    await page.waitForTimeout(3500)
+    const notFound = await page.getByText('Sheet not found.').isVisible().catch(() => false)
+    const localHit = await page.evaluate((id) => {
+      try {
+        const data = JSON.parse(localStorage.getItem('plotline-appdata') || 'null')
+        const sheets = data && data.sheets
+        return !!(sheets && typeof sheets === 'object' && Object.hasOwn(sheets, id))
+      } catch {
+        return false
+      }
+    }, sheetId)
+    const remoteHit = posts.some((raw) => bodyHasOwnSheet(raw, sheetId))
+    const crashed = hookCrash(errors)
+    record(`Missing sheet ${sheetId} is not found and is not saved`,
+      notFound && !localHit && !remoteHit && !crashed,
+      `notFound=${notFound} localHit=${localHit} remoteHit=${remoteHit} posts=${posts.length} errors=${errors.map((m) => m.split('\n')[0]).join(' | ') || 'none'}`)
+    await ctx.close()
+  }
 }
 
 async function stampDefaultRoll(browser) {

@@ -11,6 +11,17 @@ const VER = '6'
 // instantly."
 const dataCache = { loaded: false, snapshot: null }
 
+// Bracket access walks Object.prototype, so sheets['__proto__'] and
+// sheets['constructor'] are truthy even when that id was never stored.
+// Unknown ids and those prototype names must stay absent.
+export function ownRecord(bag, id) {
+  if (bag == null || typeof bag !== 'object') return undefined
+  if (!Object.hasOwn(bag, id)) return undefined
+  const value = bag[id]
+  if (value == null || typeof value !== 'object') return undefined
+  return value
+}
+
 // Migrate the legacy single `project.mto` shape into the new versioned array.
 // Old:  project.mto = { fileName, uploadedAt, headers, rows, columnMap }
 // New:  project.mtoVersions = [ { id, v:1, templateId:null, ..., isCurrent:true } ]
@@ -254,9 +265,10 @@ export function AppDataProvider({ children }) {
 
   const updateSheet = (sheetId, updates) =>
     setSheets(s => {
-      const current = s[sheetId]
-      // Never invent a sheet. `{ ...undefined, ...updates }` used to create
-      // sheets[id] for an unknown route, and the next SheetPage render crashed.
+      // Own-property check. Unknown ids and prototype names are a no-op.
+      // `s[sheetId]` would otherwise read Object.prototype / Function, and
+      // spreading that used to store a new sheet under the route id.
+      const current = ownRecord(s, sheetId)
       if (!current) return s
       return { ...s, [sheetId]: { ...current, ...updates } }
     })

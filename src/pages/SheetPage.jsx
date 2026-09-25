@@ -15,7 +15,7 @@ import { Select } from '../components/ui/Select.jsx'
 import { Checkbox } from '../components/ui/Checkbox.jsx'
 import { Tabs } from '../components/ui/Tabs.jsx'
 import { Tooltip } from '../components/ui/Tooltip.jsx'
-import { useAppData } from '../data/useAppData.jsx'
+import { ownRecord, useAppData } from '../data/useAppData.jsx'
 import { useSettings, DEFAULT_TOOLBAR_ORDER, MIN_ZOOM_SENSITIVITY, MAX_ZOOM_SENSITIVITY } from '../data/useSettings.jsx'
 import { useAuth } from '../auth/AuthProvider.jsx'
 import { SheetPageSkeleton } from '../components/Skeleton.jsx'
@@ -260,8 +260,8 @@ export default function SheetPage() {
   const { projects, sheets } = useAppData()
   const { dataLoading } = useAuth()
   if (dataLoading) return <SheetPageSkeleton />
-  const project = projects[projectId]
-  const sheet = sheets[sheetId]
+  const project = ownRecord(projects, projectId)
+  const sheet = ownRecord(sheets, sheetId)
   if (!project || !sheet) {
     return <div style={{ padding: 40, color: 'var(--text-muted)' }}>Sheet not found.</div>
   }
@@ -608,8 +608,8 @@ function SheetPageBody() {
   const svgRef    = useRef(null)
   const canvasRef = useRef(null)
 
-  const project = projects[projectId]
-  const sheet   = sheets[sheetId]
+  const project = ownRecord(projects, projectId)
+  const sheet   = ownRecord(sheets, sheetId)
 
   // ---- Page size (auto-fit to the real PDF page, no letterbox gap) ----
   // The plan-space box used to be a hardcoded SHEET_W x SHEET_H (900x620) for
@@ -905,9 +905,10 @@ function SheetPageBody() {
   // (Material List / takeoff) does not drop inspector depth/topsoil.
   const saveTimerRef = useRef(null)
   useEffect(() => {
-    // A missing id must stay missing. updateSheet spreads undefined into a
-    // new object, which used to make the next render skip "Sheet not found".
-    if (!sheetId || !sheet) return
+    // Own property only. A truthy sheets[sheetId] is not enough: __proto__
+    // and constructor resolve through Object.prototype and would be saved.
+    const current = ownRecord(sheets, sheetId)
+    if (!sheetId || !current) return
     const payload = {
       savedCountGroups: countGroups,
       savedLinearGroups: linearGroups,
