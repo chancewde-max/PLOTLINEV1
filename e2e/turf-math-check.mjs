@@ -5,6 +5,7 @@ import {
   polyAreaPx, shapeAreaPx, areaShapePx, buildAreaPath, buildChainPath, cubicPreviewCmd,
   shiftCubicSegsForInsert, translateCubicSegs, clipPx2, clipAreaPx2, inside, pointInArea,
   nearestAreaEdge, nearestOnCubic, splitCubicEdge,
+  measuredAreaPx2, areasPreferLatest, areaOutlineCentroid, areaTouchesRect, firstAreaHit,
 } from '../src/workspace/geometry.js'
 import {
   rollCorners, rollFitsInArea, turfCoverage, parseRollFt,
@@ -346,6 +347,47 @@ check('splitting the cubic keeps 925 sf and two cubic segments',
   && splitClip.px2 === exactBulge
   && Math.hypot(split.poly[2].x - 160, split.poly[2].y - 50) < 0.05,
   `px2=${shapeAreaPx(split.poly, split.cubicSegs)} keys=${Object.keys(split.cubicSegs).join(',')} pt=${split.poly[2].x.toFixed(2)},${split.poly[2].y.toFixed(2)}`)
+
+const chordTwin = { id: 'bed', type: 'sod', name: 'Bed', poly: unitSquare }
+const cubicTwin = { id: 'bed', type: 'sod', name: 'Bed', poly: unitSquare, cubicSegs: bulge }
+const deduped = areasPreferLatest([chordTwin, cubicTwin])
+const regionSf = Math.round(deduped.reduce((s, a) => s + measuredAreaPx2(a, enclose), 0) / 16)
+const exportSf = Math.round(measuredAreaPx2(cubicTwin) / 16)
+const takeoffSf = takeoffMaterialItems(
+  { sheetIds: ['s1'] },
+  { s1: { pxPerFt: 4, savedAreaGroups: [], savedAreas: [cubicTwin] } },
+).find(it => it.kind === 'area')?.qty
+const doubled = Math.round((clipPx2(unitSquare, enclose, 4).px2 + exactBulge) / 16)
+check('region MTO, export MTO, and takeoff agree on the flattened curve',
+  deduped.length === 1
+  && regionSf === 925 && exportSf === 925 && takeoffSf === 925
+  && regionSf === exportSf && exportSf === takeoffSf
+  && doubled !== 925,
+  `region=${regionSf} export=${exportSf} takeoff=${takeoffSf} doubled=${doubled}`)
+
+const bulgeBox = { minX: 120, minY: 30, maxX: 170, maxY: 70 }
+check('marquee over the bulge hits the curve and misses the chord',
+  areaTouchesRect(curvedArea, bulgeBox) && !areaTouchesRect({ poly: unitSquare }, bulgeBox))
+const outlineC = areaOutlineCentroid(curvedArea)
+const chordC = { x: 50, y: 50 }
+check('area label anchor follows the curved outline, not the chord centroid',
+  outlineC.x > chordC.x + 5 && Math.abs(outlineC.y - 50) < 5,
+  `outline=${outlineC.x.toFixed(2)},${outlineC.y.toFixed(2)}`)
+
+const onP0 = { id: 'bed', poly: unitSquare, cubicSegs: { 0: { c1: { x: 0, y: 0 }, c2: { x: 40, y: -20 } } } }
+const vertexFirst = firstAreaHit([onP0], { x: 0, y: 0 }, 8, { handleAreaId: 'bed' })
+const handleClear = firstAreaHit([onP0], { x: 40, y: -20 }, 8, { handleAreaId: 'bed' })
+const hiddenHandle = firstAreaHit([onP0], { x: 40, y: -20 }, 8, { handleAreaId: null })
+check('a C1 on P0 hits the vertex, not the control point',
+  vertexFirst?.kind === 'vertex' && vertexFirst.index === 0
+  && handleClear?.kind === 'handle' && handleClear.which === 'c2'
+  && hiddenHandle == null,
+  `onP0=${vertexFirst?.kind} clear=${handleClear?.kind} hidden=${hiddenHandle?.kind}`)
+
+const roundTrip = JSON.parse(JSON.stringify(curvedArea))
+check('cubicSegs JSON round-trip keeps the curve area',
+  Math.abs(shapeAreaPx(roundTrip.poly, roundTrip.cubicSegs) - exactBulge) < 1e-6
+  && roundTrip.cubicSegs[1].c1.x === 180)
 
 if (failed) { console.log(`\nFAILURES: ${failed}`); process.exit(1) }
 console.log('\n=== ALL PASS ===')

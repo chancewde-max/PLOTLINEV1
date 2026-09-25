@@ -699,6 +699,24 @@ async function main() {
   const regionTool = await page.locator('[data-testid="canvas-hint"]').getAttribute('data-active-tool')
   record('R outside stamp still selects Region tool', regionTool === 'region', `tool=${regionTool}`)
 
+  // Sheet save is 400ms and app data hits localStorage 500ms after that.
+  await page.waitForTimeout(1000)
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.waitForTimeout(600)
+  const reloaded = await page.locator('[data-testid="soil-area"]').evaluateAll((nodes) => {
+    const hit = nodes
+      .map(n => ({
+        count: Number(n.getAttribute('data-cubic-count') || 0),
+        px2: Number(n.getAttribute('data-area-px2')),
+      }))
+      .filter(n => Number.isFinite(n.px2) && Math.abs(n.px2 - 14800) < 1 && n.count >= 1)
+    return hit[0] || null
+  }).catch(() => null)
+  const reloadedInsp = await page.locator('[data-testid="area-sqft"]').innerText().catch(() => '')
+  record('Save and reload keeps the cubic segments and 925 sf',
+    !!reloaded && reloaded.count >= 1 && (reloadedInsp === '925.0 sq ft' || Math.abs(reloaded.px2 - 14800) < 1),
+    `area=${JSON.stringify(reloaded)} insp=${reloadedInsp}`)
+
   record('No console/page errors', consoleErrors.length === 0 && pageErrors.length === 0,
     `console=${consoleErrors.length} page=${pageErrors.length} ${consoleErrors[0] || pageErrors[0] || ''}`)
 

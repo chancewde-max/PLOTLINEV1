@@ -25,7 +25,7 @@ import { resolveSheetPdfUrl, sheetHasPdf } from '../components/pdfCache.js'
 import { computeOverlayDiff } from '../components/pdfDiff.js'
 import { uploadPdfAsset, personalPdfPath, orgPdfPath } from '../data/pdfStorage.js'
 import { CATS, CAT_COLOR, SHEET_W, SHEET_H, categoryTotals } from '../data/sampleData.js'
-import { inside, polyAreaPx, perimPx, centroid, clipAreaPx2, dist, buildAreaPath, buildChainPath, buildLinePath, linePathLenPx, circularArcSeg, cubicPreviewCmd, bbox, areaShapePx, shapeAreaPx, cloneCubicSegs, translateCubicSegs, shiftCubicSegsForInsert, pointInArea, nearestAreaEdge, splitCubicEdge } from '../workspace/geometry.js'
+import { inside, polyAreaPx, perimPx, centroid, clipAreaPx2, dist, buildAreaPath, buildChainPath, buildLinePath, linePathLenPx, circularArcSeg, cubicPreviewCmd, bbox, areaShapePx, shapeAreaPx, cloneCubicSegs, translateCubicSegs, shiftCubicSegsForInsert, pointInArea, nearestAreaEdge, splitCubicEdge, measuredAreaPx2, areasPreferLatest, areaOutlineCentroid, areaTouchesRect, firstAreaHit } from '../workspace/geometry.js'
 import {
   TOPSOIL_OPTIONS, isTurfArea, areaExportNotes, areaDepthOf, areaTopsoilOf,
   areaTopsoilCustomOf, quoteHeaderFields, areaOwnVolumeCy, isUngroupedSoilArea,
@@ -776,13 +776,19 @@ export default function SheetPage() {
     }
   }, [sheetId, countGroups, linearGroups, areaGroups, addedAreas, addedLines, textAnnotations, pxPerFt, calib])
 
-  // Save active region poly to sheet whenever regionClosed changes (skip null to avoid Escape wiping saved regions)
+  // Save active region poly to sheet whenever regionClosed changes (skip null to avoid Escape wiping saved regions).
+  // activeFolderId starts null; fall back to the first project region so Export MTO sees the polygon.
+  const regionSaveId = (() => {
+    const regions = project?.regions || []
+    if (activeFolderId && regions.some(r => r.id === activeFolderId)) return activeFolderId
+    return regions[0]?.id || null
+  })()
   useEffect(() => {
-    if (!sheetId || !activeFolderId || regionClosed === null) return
+    if (!sheetId || !regionSaveId || regionClosed === null) return
     updateSheet(sheetId, {
-      regionPolys: { ...(sheet?.regionPolys || {}), [activeFolderId]: regionClosed },
+      regionPolys: { ...(sheet?.regionPolys || {}), [regionSaveId]: regionClosed },
     })
-  }, [regionClosed, activeFolderId])
+  }, [regionClosed, regionSaveId, sheetId])
 
   // ---- Keyboard shortcuts ----
   useEffect(() => {
@@ -981,7 +987,7 @@ export default function SheetPage() {
     return `${singularize(cat.name)} ${nameCountRef.current[catId]}`
   }
 
-  const allAreas  = [...(sheet.areas  || []), ...addedAreas]
+  const allAreas  = areasPreferLatest([...(sheet.areas || []), ...addedAreas])
   const allPoints = [...(sheet.points || []), ...addedPoints]
   const allLines  = [...(sheet.lines  || []), ...addedLines]
 
@@ -1056,7 +1062,6 @@ export default function SheetPage() {
       }]
     })
     setAreaVerts([]); setAreaCursor(null)
-    setArcMode(false); setPendingArcThrough(null)
     setCurvePhase(null); setPendingC1(null); setPendingC2(null)
     arcSegsRef.current = {}
     cubicSegsRef.current = {}
@@ -1290,66 +1295,63 @@ export default function SheetPage() {
         return
       }
     }
-    // C1/C2 diamonds render only for the selected area, so only that area's handles are live.
-    if (selectedKind === 'area' && selectedId) {
-      const sel = addedAreas.find(a => a.id === selectedId)
-      if (sel && !isTurfArea(sel) && sel.cubicSegs) {
-        for (const [k, seg] of Object.entries(sel.cubicSegs)) {
-          if (!seg?.c1 || !seg?.c2) continue
-          for (const which of ['c1', 'c2']) {
-            if (dist(p, seg[which]) < hitPx) {
-              pushUndo()
-              setSelectedId(sel.id); setSelectedKind('area')
-              setSelectedIds(e.shiftKey ? (selectedIds.includes(sel.id) ? selectedIds : [...selectedIds, sel.id]) : [sel.id])
-              isDraggingRef.current = true
-              dragStartRef.current = p
-              origDragRef.current = {
-                x: seg[which].x,
-                y: seg[which].y,
-                seg: { c1: { ...seg.c1 }, c2: { ...seg.c2 } },
-              }
-              dragCubicRef.current = { edge: Number(k), which }
-              dragVertIdxRef.current = null
-              dragAreaIdRef.current = sel.id
-              return
-            }
-          }
-        }
-      }
+    // Vertices first, then the selected area's C1/C2, then the curved interior.
+    // A C1 placed on P0 must not make that vertex impossible to drag.
+    // Handles render only for the selected non-turf area, so only that id is live.
+    const handleHost = (selectedKind === 'area' && selectedId)
+      ? addedAreas.find(a => a.id === selectedId && !isTurfArea(a))
+      : null
+    const areaHit = firstAreaHit(addedAreas, p, hitPx, { handleAreaId: handleHost?.id ?? null })
+    if (areaHit?.kind === 'vertex') {
+      const a = areaHit.area
+      const j = areaHit.index
+      pushUndo()
+      setSelectedId(a.id); setSelectedKind('area')
+      if (isTurfArea(a)) setActiveTurfAreaId(a.id)
+      setSelectedIds(e.shiftKey ? (selectedIds.includes(a.id) ? selectedIds : [...selectedIds, a.id]) : [a.id])
+      isDraggingRef.current = true
+      dragStartRef.current = p
+      origDragRef.current = a.poly[j]
+      dragVertIdxRef.current = j
+      dragCubicRef.current = null
+      dragAreaIdRef.current = a.id
+      return
     }
-    // Check added area vertices, then curved interiors
-    for (let i = addedAreas.length - 1; i >= 0; i--) {
-      const a = addedAreas[i]
-      for (let j = 0; j < a.poly.length; j++) {
-        if (dist(p, a.poly[j]) < hitPx) {
-          pushUndo()
-          setSelectedId(a.id); setSelectedKind('area')
-          if (isTurfArea(a)) setActiveTurfAreaId(a.id)
-          setSelectedIds(e.shiftKey ? (selectedIds.includes(a.id) ? selectedIds : [...selectedIds, a.id]) : [a.id])
-          isDraggingRef.current = true
-          dragStartRef.current = p
-          origDragRef.current = a.poly[j]
-          dragVertIdxRef.current = j
-          dragAreaIdRef.current = a.id
-          return
-        }
+    if (areaHit?.kind === 'handle') {
+      const sel = areaHit.area
+      const seg = sel.cubicSegs[areaHit.edge]
+      pushUndo()
+      setSelectedId(sel.id); setSelectedKind('area')
+      setSelectedIds(e.shiftKey ? (selectedIds.includes(sel.id) ? selectedIds : [...selectedIds, sel.id]) : [sel.id])
+      isDraggingRef.current = true
+      dragStartRef.current = p
+      origDragRef.current = {
+        x: seg[areaHit.which].x,
+        y: seg[areaHit.which].y,
+        seg: { c1: { ...seg.c1 }, c2: { ...seg.c2 } },
       }
-      if (pointInArea(p, a)) {
-        pushUndo()
-        setSelectedId(a.id); setSelectedKind('area')
-        if (isTurfArea(a)) setActiveTurfAreaId(a.id)
-        setSelectedIds(e.shiftKey ? (selectedIds.includes(a.id) ? selectedIds : [...selectedIds, a.id]) : [a.id])
-        isDraggingRef.current = true
-        dragStartRef.current = p
-        origDragRef.current = {
-          poly: a.poly.map(v => ({ ...v })),
-          rolls: (a.rolls || []).map(r => ({ ...r })),
-          cubicSegs: cloneCubicSegs(a.cubicSegs),
-        }
-        dragVertIdxRef.current = null
-        dragAreaIdRef.current = a.id
-        return
+      dragCubicRef.current = { edge: areaHit.edge, which: areaHit.which }
+      dragVertIdxRef.current = null
+      dragAreaIdRef.current = sel.id
+      return
+    }
+    if (areaHit?.kind === 'interior') {
+      const a = areaHit.area
+      pushUndo()
+      setSelectedId(a.id); setSelectedKind('area')
+      if (isTurfArea(a)) setActiveTurfAreaId(a.id)
+      setSelectedIds(e.shiftKey ? (selectedIds.includes(a.id) ? selectedIds : [...selectedIds, a.id]) : [a.id])
+      isDraggingRef.current = true
+      dragStartRef.current = p
+      origDragRef.current = {
+        poly: a.poly.map(v => ({ ...v })),
+        rolls: (a.rolls || []).map(r => ({ ...r })),
+        cubicSegs: cloneCubicSegs(a.cubicSegs),
       }
+      dragVertIdxRef.current = null
+      dragCubicRef.current = null
+      dragAreaIdRef.current = a.id
+      return
     }
     // Check added lines
     for (let i = addedLines.length - 1; i >= 0; i--) {
@@ -1612,11 +1614,7 @@ export default function SheetPage() {
         // Areas/lines count as selected if the marquee merely TOUCHES them —
         // a vertex inside the box, an edge crossing the box, or the box sitting
         // entirely inside the shape.
-        const areaIds = addedAreas.filter(a =>
-          a.poly.some(v => inBox(v)) ||
-          a.poly.some((v, i) => segIntersectsRect(v, a.poly[(i + 1) % a.poly.length], r)) ||
-          inside({ x: minX, y: minY }, a.poly)
-        ).map(a => a.id)
+        const areaIds = addedAreas.filter(a => areaTouchesRect(a, r)).map(a => a.id)
         const lineIds = addedLines.filter(l =>
           l.pts.some(v => inBox(v)) ||
           l.pts.some((v, i) => i < l.pts.length - 1 && segIntersectsRect(v, l.pts[i + 1], r))
@@ -2099,7 +2097,7 @@ export default function SheetPage() {
     // Area groups
     areaGroups.forEach(g => {
       const groupAreas = addedAreas.filter(a => a.groupId === g.id)
-      const totalSqFt = groupAreas.reduce((s, a) => s + sqft(areaShapePx(a)) * itemSign(a), 0)
+      const totalSqFt = groupAreas.reduce((s, a) => s + sqft(measuredAreaPx2(a)) * itemSign(a), 0)
       const notes = areaExportNotes(groupAreas, areaGroups, sqft)
       rows.push(['Area', g.name, groupAreas.length, Math.round(totalSqFt), '', notes])
     })
@@ -2110,7 +2108,7 @@ export default function SheetPage() {
       ungroupedByName[name].push(a)
     }
     for (const [name, areas] of Object.entries(ungroupedByName)) {
-      const totalSqFt = areas.reduce((s, a) => s + sqft(areaShapePx(a)) * itemSign(a), 0)
+      const totalSqFt = areas.reduce((s, a) => s + sqft(measuredAreaPx2(a)) * itemSign(a), 0)
       rows.push(['Area', name, areas.length, Math.round(totalSqFt), '', areaExportNotes(areas, areaGroups, sqft)])
     }
     // Linear groups
@@ -2141,7 +2139,7 @@ export default function SheetPage() {
       const res = {}
       CATS.forEach(c => { res[c.id] = { count: 0, sqft: 0, lnft: 0 } })
       allPoints.forEach(p => { if (inside(p, poly)) res[p.type].count += itemSign(p) })
-      allAreas.forEach(a => { const cp = clipAreaPx2(a, poly, 4); if (cp.px2 > 0) { res[a.type].count += itemSign(a); res[a.type].sqft += sqft(cp.px2) * itemSign(a) } })
+      allAreas.forEach(a => { const px2 = measuredAreaPx2(a, poly); if (px2 > 0) { res[a.type].count += itemSign(a); res[a.type].sqft += sqft(px2) * itemSign(a) } })
       allLines.forEach(l => { const lc = centroid(l.pts); if (inside(lc, poly)) { res[l.type].count += itemSign(l); res[l.type].lnft += lnft(linePathLenPx(l.pts, l.arcSegs)) * itemSign(l) } })
       CATS.forEach(c => {
         const r = res[c.id]
@@ -2912,7 +2910,7 @@ export default function SheetPage() {
                     'data-chord-px2': String(polyAreaPx(a.poly || [])),
                   }
                   if (!a.deduct) return <g key={a.id} {...areaTest}>{shape}</g>
-                  const c = centroid(a.poly)
+                  const c = areaOutlineCentroid(a)
                   return (
                     <g key={a.id} {...areaTest}>
                       {shape}
@@ -3517,7 +3515,7 @@ export default function SheetPage() {
                 </button>
               )}
               {activeTool === 'area' && (
-                <button onClick={() => { setAreaVerts([]); setAreaCursor(null); setArcMode(false); setPendingArcThrough(null); setCurvePhase(null); setPendingC1(null); setPendingC2(null); arcSegsRef.current = {}; cubicSegsRef.current = {}; setCtxMenu(null) }}>New area</button>
+                <button onClick={() => { setAreaVerts([]); setAreaCursor(null); setCurvePhase(null); setPendingC1(null); setPendingC2(null); arcSegsRef.current = {}; cubicSegsRef.current = {}; setCtxMenu(null) }}>New area</button>
               )}
               <button onClick={() => { placeLegendAt(ctxMenu.x, ctxMenu.y); setCtxMenu(null) }}>Place Legend</button>
             </div>

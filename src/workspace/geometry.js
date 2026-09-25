@@ -234,6 +234,107 @@ export function clipAreaPx2(area, region, step = 4) {
   return clipPx2(flat, region, step)
 }
 
+// Sheet MTO and takeoff pass no region and get the full curve. A region MTO
+// passes the folder polygon and clips that same flattened outline. When the
+// outline sits entirely inside the region, both numbers are shapeAreaPx.
+export function measuredAreaPx2(area, region) {
+  if (region && region.length >= 3) return clipAreaPx2(area, region, 4).px2
+  return areaShapePx(area)
+}
+
+// sheet.areas and savedAreas share ids. Later copies (the drawn cubic) win
+// so a region total does not add the chord twin on top of the curve.
+export function areasPreferLatest(areas) {
+  const byId = new Map()
+  const anon = []
+  for (const a of areas || []) {
+    if (!a) continue
+    if (a.id == null) anon.push(a)
+    else byId.set(a.id, a)
+  }
+  return [...byId.values(), ...anon]
+}
+
+export function areaOutlineCentroid(area) {
+  const poly = area?.poly || []
+  const cubics = area?.cubicSegs
+  const curved = cubics && Object.values(cubics).some(isCubicSeg)
+  if (!curved || poly.length < 3) return centroid(poly)
+  return centroid(flattenAreaPoly(poly, cubics))
+}
+
+function ptInRect(p, r) {
+  return p.x >= r.minX && p.x <= r.maxX && p.y >= r.minY && p.y <= r.maxY
+}
+
+function segsCross(p1, p2, p3, p4) {
+  const cross = (a, b, c) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+  const d1 = cross(p3, p4, p1), d2 = cross(p3, p4, p2)
+  const d3 = cross(p1, p2, p3), d4 = cross(p1, p2, p4)
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))
+}
+
+function segIntersectsRect(a, b, r) {
+  if (ptInRect(a, r) || ptInRect(b, r)) return true
+  const c1 = { x: r.minX, y: r.minY }, c2 = { x: r.maxX, y: r.minY }
+  const c3 = { x: r.maxX, y: r.maxY }, c4 = { x: r.minX, y: r.maxY }
+  return segsCross(a, b, c1, c2) || segsCross(a, b, c2, c3) ||
+         segsCross(a, b, c3, c4) || segsCross(a, b, c4, c1)
+}
+
+// Marquee hit against the curved outline, not the straight-edge polygon.
+export function areaTouchesRect(area, rect) {
+  const poly = area?.poly || []
+  if (!rect || poly.length < 2) return false
+  const flat = flattenAreaPoly(poly, area?.cubicSegs)
+  const ring = flat.length >= 2 ? flat : poly
+  if (ring.some(v => ptInRect(v, rect))) return true
+  for (let i = 0; i < ring.length; i++) {
+    if (segIntersectsRect(ring[i], ring[(i + 1) % ring.length], rect)) return true
+  }
+  const corners = [
+    { x: rect.minX, y: rect.minY },
+    { x: rect.maxX, y: rect.minY },
+    { x: rect.maxX, y: rect.maxY },
+    { x: rect.minX, y: rect.maxY },
+  ]
+  return corners.some(c => pointInArea(c, area))
+}
+
+// Vertices before C1/C2. A control point sitting on P0 must not steal the drag.
+// Handles are only considered for handleAreaId (the selected area).
+export function firstAreaHit(areas, pt, hitPx, { handleAreaId = null } = {}) {
+  const list = areas || []
+  if (!pt) return null
+  for (let i = list.length - 1; i >= 0; i--) {
+    const a = list[i]
+    const poly = a?.poly || []
+    for (let j = 0; j < poly.length; j++) {
+      if (Math.hypot(poly[j].x - pt.x, poly[j].y - pt.y) < hitPx) {
+        return { area: a, kind: 'vertex', index: j }
+      }
+    }
+  }
+  if (handleAreaId != null) {
+    const sel = list.find(a => a.id === handleAreaId)
+    if (sel?.cubicSegs) {
+      for (const [k, seg] of Object.entries(sel.cubicSegs)) {
+        if (!seg?.c1 || !seg?.c2) continue
+        for (const which of ['c1', 'c2']) {
+          if (Math.hypot(seg[which].x - pt.x, seg[which].y - pt.y) < hitPx) {
+            return { area: sel, kind: 'handle', edge: Number(k), which }
+          }
+        }
+      }
+    }
+  }
+  for (let i = list.length - 1; i >= 0; i--) {
+    const a = list[i]
+    if (pointInArea(pt, a)) return { area: a, kind: 'interior' }
+  }
+  return null
+}
+
 // Closest point on the real edge. Cubic edges use the curve, not the chord.
 export function nearestAreaEdge(poly, cubicSegs, pt) {
   if (!poly || poly.length < 2 || !pt) return null
