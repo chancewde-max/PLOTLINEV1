@@ -340,16 +340,35 @@ async function main() {
       `${beforeVert.toFixed(1)}→${afterVertPx.toFixed(1)} ${beforeVertInsp}→${afterVertInsp}`)
   }
 
-  // Exact QA repro: 100×100 px square, one cubic edge bulging +80 px (C1/C2).
-  // At 4 px/ft the curve is 925 sf and the chord is 625 sf.
+  // Exact QA repro: 100×100 px square, cubic on the right edge, C1(180,0) C2(180,100).
+  // At 4 px/ft the curve is 925 sf and the chord is 625 sf. MouseEvent clientX is
+  // whole pixels in this Chrome, so the click names the sheet point directly.
   if (pb) {
     const hud = page.locator('[data-testid="zoom-hud"]')
     const parseHud = async () => parseInt(String(await hud.innerText()).replace(/[^\d]/g, ''), 10) || 0
-    for (let i = 0; i < 16 && await parseHud() < 80; i++) {
+    for (let i = 0; i < 16 && await parseHud() < 90; i++) {
       await hud.getByLabel('Zoom in').click()
-      await page.waitForTimeout(40)
+      await page.waitForTimeout(30)
     }
-    await page.waitForTimeout(120)
+    for (let i = 0; i < 16 && await parseHud() > 140; i++) {
+      await hud.getByLabel('Zoom out').click()
+      await page.waitForTimeout(30)
+    }
+    await page.waitForTimeout(80)
+    const clickSheet = async (x, y, { dbl = false } = {}) => {
+      await page.evaluate(({ x, y, dbl }) => {
+        const svg = [...document.querySelectorAll('svg')].find(s => (s.getAttribute('viewBox') || '').includes('-160'))
+        window.__plotlineSheetPoint = { x, y }
+        const fire = (type, detail) => svg.dispatchEvent(new MouseEvent(type, {
+          bubbles: true, cancelable: true, view: window, button: 0,
+          buttons: type === 'mousedown' ? 1 : 0, detail,
+        }))
+        const once = (detail) => { fire('mousedown', detail); fire('mouseup', detail); fire('click', detail) }
+        once(1)
+        if (dbl) { once(2); fire('dblclick', 2) }
+        window.__plotlineSheetPoint = null
+      }, { x, y, dbl })
+    }
     await page.locator('button[aria-label="Area"]').click()
     await page.waitForTimeout(200)
     const reproDlg = page.getByRole('heading', { name: /New area/i })
@@ -357,126 +376,86 @@ async function main() {
       await page.getByRole('button', { name: /Start drawing/i }).click()
       await page.waitForTimeout(200)
     }
-    const origin = await page.evaluate(() => {
-      const svg = [...document.querySelectorAll('svg')].find(s => (s.getAttribute('viewBox') || '').includes('-160'))
-      const canvas = document.querySelector('[class*="canvas"]')
-      if (!svg || !canvas || !svg.getScreenCTM()) return null
-      const cr = canvas.getBoundingClientRect()
-      const toClient = (x, y) => {
-        const pt = svg.createSVGPoint()
-        pt.x = x
-        pt.y = y
-        const sp = pt.matrixTransform(svg.getScreenCTM())
-        return { x: sp.x, y: sp.y }
-      }
-      const onCanvas = (p) => p.x > cr.left + 12 && p.x < cr.right - 12 && p.y > cr.top + 48 && p.y < cr.bottom - 12
-      const freeOfArea = (p) => {
-        const el = document.elementFromPoint(p.x, p.y)
-        return !!el && !el.closest('[data-testid="soil-area"], [data-testid="turf-area"]')
-      }
-      for (let y = 20; y <= 520; y += 20) {
-        for (let x = 20; x <= 640; x += 20) {
-          const pts = {
-            v0: [x, y],
-            c1: [x + 180, y],
-            c2: [x + 180, y + 100],
-            p1: [x + 100, y + 100],
-            v2: [x, y + 100],
-            bulge: [x + 140, y + 50],
-            curve: [x + 160, y + 50],
-            chord: [x + 100, y + 50],
-            r0: [x - 40, y - 40],
-            r1: [x + 220, y - 40],
-            r2: [x + 220, y + 160],
-            r3: [x - 40, y + 160],
-          }
-          const clients = Object.fromEntries(Object.entries(pts).map(([k, v]) => [k, toClient(v[0], v[1])]))
-          if (!Object.values(clients).every(onCanvas)) continue
-          if (!freeOfArea(clients.c1) || !freeOfArea(clients.bulge)) continue
-          return { x, y, clients }
-        }
-      }
-      return null
+    const phase = () => page.locator('[data-testid="canvas-hint"]').getAttribute('data-curve-phase')
+    await clickSheet(0, 0)
+    await page.waitForTimeout(60)
+    await clickSheet(100, 0)
+    await page.waitForTimeout(60)
+    await page.keyboard.press('a')
+    await page.waitForTimeout(60)
+    await clickSheet(180, 0)
+    await page.waitForTimeout(60)
+    await clickSheet(180, 100)
+    await page.waitForTimeout(60)
+    await clickSheet(100, 0)
+    await page.waitForTimeout(80)
+    record('P1 on P0 is ignored and the cubic stays in progress', (await phase()) === 'p1', `phase=${await phase()}`)
+    await clickSheet(100, 100)
+    await page.waitForTimeout(60)
+    await clickSheet(0, 100)
+    await page.waitForTimeout(60)
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(250)
+    const reproArea = () => page.locator('[data-testid="soil-area"]').evaluateAll((nodes) => {
+      const hit = nodes
+        .map(n => ({
+          count: n.getAttribute('data-cubic-count'),
+          px2: Number(n.getAttribute('data-area-px2')),
+        }))
+        .filter(n => Number.isFinite(n.px2) && Math.abs(n.px2 - 14800) < 1)
+      return hit[0] || null
     })
-    record('Found an on-screen 100×100 cubic repro', !!origin, origin ? `origin=${origin.x},${origin.y}` : 'no room')
-    if (origin) {
-      const clickSheet = async (key) => {
-        const p = origin.clients[key]
-        await page.mouse.click(p.x, p.y)
-      }
-      const phase = () => page.locator('[data-testid="canvas-hint"]').getAttribute('data-curve-phase')
-      await clickSheet('v0')
-      await page.waitForTimeout(80)
-      await page.keyboard.press('a')
+    const drawn = await reproArea()
+    const drawnInsp = await page.locator('[data-testid="area-sqft"]').innerText().catch(() => '')
+    record('Inspector sq ft of the bulged square is 925',
+      !!drawn && drawn.count === '1' && drawnInsp === '925.0 sq ft',
+      `insp=${drawnInsp} area=${JSON.stringify(drawn)}`)
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(150)
+    record('Deselected area has no vertex handles', await page.locator('[data-testid="area-vertex"]').count() === 0)
+    await clickSheet(180, 0)
+    await page.waitForTimeout(150)
+    record('Hidden C1 on an unselected area is not hit-testable',
+      await page.locator('[data-testid="area-vertex"]').count() === 0
+      && await page.locator('[data-testid="bezier-handle"][data-pending="false"]').count() === 0)
+    // The miss above arms a zero-size marquee; its mouseup only sees that box
+    // after the next press. Clear it before the bulge click.
+    await clickSheet(-120, -120)
+    await page.waitForTimeout(120)
+    await clickSheet(140, 50)
+    await page.waitForTimeout(200)
+    record('Click in the bulge selects the area',
+      await page.locator('[data-testid="area-vertex"]').count() === 4,
+      `verts=${await page.locator('[data-testid="area-vertex"]').count()}`)
+    await clickSheet(100, 50, { dbl: true })
+    await page.waitForTimeout(200)
+    const afterChord = await reproArea()
+    const afterChordInsp = await page.locator('[data-testid="area-sqft"]').innerText().catch(() => '')
+    record('Dbl-click on the chord inside the bulge does not drop the curve',
+      !!afterChord && afterChord.count === '1' && afterChordInsp === '925.0 sq ft',
+      `insp=${afterChordInsp} area=${JSON.stringify(afterChord)}`)
+    // 4px inside the apex, still within the edge threshold, so the click is on the curve.
+    await clickSheet(156, 50, { dbl: true })
+    await page.waitForTimeout(250)
+    const afterSplit = await reproArea()
+    const afterSplitInsp = await page.locator('[data-testid="area-sqft"]').innerText().catch(() => '')
+    record('Dbl-click on the curve splits it and keeps 925 sf',
+      !!afterSplit && afterSplit.count === '2' && afterSplitInsp === '925.0 sq ft',
+      `insp=${afterSplitInsp} area=${JSON.stringify(afterSplit)}`)
+    await page.locator('button[aria-label="Region count"]').click()
+    await page.waitForTimeout(200)
+    for (const [x, y] of [[-50, -50], [250, -50], [250, 250], [-50, 250]]) {
+      await clickSheet(x, y)
       await page.waitForTimeout(60)
-      await clickSheet('c1')
-      await page.waitForTimeout(60)
-      await clickSheet('c2')
-      await page.waitForTimeout(60)
-      await clickSheet('v0')
-      await page.waitForTimeout(80)
-      record('P1 on P0 is ignored and the cubic stays in progress', (await phase()) === 'p1', `phase=${await phase()}`)
-      await clickSheet('p1')
-      await page.waitForTimeout(60)
-      await clickSheet('v2')
-      await page.waitForTimeout(60)
-      await page.keyboard.press('Enter')
-      await page.waitForTimeout(250)
-      const reproArea = () => page.locator('[data-testid="soil-area"]').evaluateAll((nodes) => {
-        const hit = nodes
-          .map(n => ({
-            count: n.getAttribute('data-cubic-count'),
-            px2: Number(n.getAttribute('data-area-px2')),
-          }))
-          .filter(n => Number.isFinite(n.px2) && Math.abs(n.px2 - 14800) < 1)
-        return hit[0] || null
-      })
-      const drawn = await reproArea()
-      const drawnInsp = await page.locator('[data-testid="area-sqft"]').innerText().catch(() => '')
-      record('Inspector sq ft of the bulged square is 925',
-        !!drawn && drawn.count === '1' && drawnInsp === '925.0 sq ft',
-        `insp=${drawnInsp} area=${JSON.stringify(drawn)}`)
-      await page.keyboard.press('Escape')
-      await page.waitForTimeout(150)
-      record('Deselected area has no vertex handles', await page.locator('[data-testid="area-vertex"]').count() === 0)
-      await clickSheet('c1')
-      await page.waitForTimeout(150)
-      record('Hidden C1 on an unselected area is not hit-testable',
-        await page.locator('[data-testid="area-vertex"]').count() === 0
-        && await page.locator('[data-testid="bezier-handle"][data-pending="false"]').count() === 0)
-      await clickSheet('bulge')
-      await page.waitForTimeout(200)
-      record('Click in the bulge selects the area',
-        await page.locator('[data-testid="area-vertex"]').count() === 4,
-        `verts=${await page.locator('[data-testid="area-vertex"]').count()}`)
-      await page.mouse.dblclick(origin.clients.chord.x, origin.clients.chord.y)
-      await page.waitForTimeout(200)
-      const afterChord = await reproArea()
-      const afterChordInsp = await page.locator('[data-testid="area-sqft"]').innerText().catch(() => '')
-      record('Dbl-click on the chord inside the bulge does not drop the curve',
-        !!afterChord && afterChord.count === '1' && afterChordInsp === '925.0 sq ft',
-        `insp=${afterChordInsp} area=${JSON.stringify(afterChord)}`)
-      await page.mouse.dblclick(origin.clients.curve.x, origin.clients.curve.y)
-      await page.waitForTimeout(250)
-      const afterSplit = await reproArea()
-      const afterSplitInsp = await page.locator('[data-testid="area-sqft"]').innerText().catch(() => '')
-      record('Dbl-click on the curve splits it and keeps 925 sf',
-        !!afterSplit && afterSplit.count === '2' && afterSplitInsp === '925.0 sq ft',
-        `insp=${afterSplitInsp} area=${JSON.stringify(afterSplit)}`)
-      await page.locator('button[aria-label="Region count"]').click()
-      await page.waitForTimeout(200)
-      for (const key of ['r0', 'r1', 'r2', 'r3']) {
-        await clickSheet(key)
-        await page.waitForTimeout(70)
-      }
-      await page.keyboard.press('Enter')
-      await page.waitForTimeout(300)
-      const labels = await page.locator('[class*="areaLabel"]').allInnerTexts().catch(() => [])
-      const panel = await page.locator('aside').last().innerText().catch(() => '')
-      record('Region enclosing the bulge shows 925 sf',
-        labels.some(t => t.replace(/\s+/g, ' ').includes('925 sq ft')) || /925 sf/.test(panel),
-        `labels=${JSON.stringify(labels)} panel=${panel.replace(/\s+/g, ' ').slice(0, 400)}`)
     }
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(300)
+    const labels = await page.locator('[class*="areaLabel"]').allInnerTexts().catch(() => [])
+    const panel = await page.locator('aside').last().innerText().catch(() => '')
+    record('Region enclosing the bulge shows 925 sf',
+      labels.some(t => t.replace(/\s+/g, ' ').includes('925 sq ft')) || /925 sf/.test(panel),
+      `labels=${JSON.stringify(labels)} panel=${panel.replace(/\s+/g, ' ').slice(0, 400)}`)
+    await page.evaluate(() => { window.__plotlineSheetPoint = null })
   }
 
   // Turf tool

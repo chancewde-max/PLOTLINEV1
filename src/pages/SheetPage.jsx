@@ -989,6 +989,12 @@ export default function SheetPage() {
   const overlaySheet = overlaySheetId ? sheets[overlaySheetId] : null
 
   const toSheet = (e) => {
+    // Chrome quantizes MouseEvent clientX/clientY to whole pixels. The cubic
+    // repro drives exact sheet points through this hook; real clicks leave it unset.
+    const forced = typeof window !== 'undefined' ? window.__plotlineSheetPoint : null
+    if (forced && Number.isFinite(forced.x) && Number.isFinite(forced.y)) {
+      return { x: forced.x, y: forced.y }
+    }
     const svg = svgRef.current
     if (!svg) return { x: 0, y: 0 }
     // getBoundingClientRect accounts for all CSS transforms (including zoom scale)
@@ -2919,13 +2925,14 @@ export default function SheetPage() {
                 {/* Clipped area bright overlay */}
                 {activeTool === 'region' && previewPoly.length >= 3 && (
                   <g clipPath="url(#region-clip)">
-                    {allAreas.filter(a => catActive.has(a.type) && !hidden[a.id]).map(a => {
+                    {allAreas.filter(a => catActive.has(a.type) && !hidden[a.id]).map((a, i) => {
                       const hasCurves = (a.cubicSegs && Object.keys(a.cubicSegs).length > 0) || (a.arcSegs && Object.keys(a.arcSegs).length > 0)
+                      const clipKey = `${a.id}-${i}`
                       return hasCurves
-                        ? <path key={a.id} d={buildAreaPath(a.poly, a.arcSegs, a.cubicSegs)}
+                        ? <path key={clipKey} d={buildAreaPath(a.poly, a.arcSegs, a.cubicSegs)}
                             fill={CAT_COLOR[a.type]} fillOpacity="0.28"
                             stroke={CAT_COLOR[a.type]} strokeWidth={u} />
-                        : <polygon key={a.id} points={a.poly.map(p => `${p.x},${p.y}`).join(' ')}
+                        : <polygon key={clipKey} points={a.poly.map(p => `${p.x},${p.y}`).join(' ')}
                             fill={CAT_COLOR[a.type]} fillOpacity="0.28"
                             stroke={CAT_COLOR[a.type]} strokeWidth={u} />
                     })}
