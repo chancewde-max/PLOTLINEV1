@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { PROJECTS as D_PROJECTS, SHEETS as D_SHEETS } from './sampleData.js'
 import { emptyOcrMemory, addSample as addOcrSample, addCorrection as addOcrCorrection } from './ocrLearning.js'
 import { ownRecord } from './ownRecord.js'
+import { nextSheetsAfterUpdate } from './sheetUpdate.js'
 
 const Ctx = createContext(null)
 const VER = '6'
@@ -133,6 +134,8 @@ export function AppDataProvider({ children }) {
   // the untouched sample/demo data that ships with a fresh browser — which
   // should NOT get pushed into a real account.
   const hasLocalEditsRef = useRef(!!saved)
+  const sheetsRef = useRef(sheets)
+  sheetsRef.current = sheets
 
   const lsTimerRef = useRef(null)
   const firstRunRef = useRef(true)
@@ -271,10 +274,27 @@ export function AppDataProvider({ children }) {
       // Own-property check. Unknown ids and prototype names are a no-op.
       // `s[sheetId]` would otherwise read Object.prototype / Function, and
       // spreading that used to store a new sheet under the route id.
-      const current = ownRecord(s, sheetId)
-      if (!current) return s
-      return { ...s, [sheetId]: { ...current, ...updates } }
+      const next = nextSheetsAfterUpdate(s, sheetId, updates)
+      if (import.meta.env.DEV && typeof window !== 'undefined') {
+        window.__plotlineUpdateSheetCalls = window.__plotlineUpdateSheetCalls || []
+        window.__plotlineUpdateSheetCalls.push(String(sheetId))
+        window.__plotlineLastUpdateSame = next === s
+      }
+      return next
     })
+
+  if (import.meta.env.DEV && typeof window !== 'undefined') {
+    window.__plotlineUpdateSheet = updateSheet
+    window.__plotlineReadSheets = () => sheetsRef.current
+    window.__plotlineDeleteSheet = (sheetId) => {
+      setSheets(s => {
+        if (!Object.hasOwn(s, sheetId)) return s
+        const next = { ...s }
+        delete next[sheetId]
+        return next
+      })
+    }
+  }
 
   // Register one or more shared PDF byte-blobs (keyed by fileId). Merges —
   // never drops assets other sheets/projects still reference.

@@ -904,12 +904,24 @@ function SheetPageBody() {
   // Debounce drawing saves — batch all 5 fields into one write 400ms after last
   // change. Flush the pending payload on effect cleanup so navigating away
   // (Material List / takeoff) does not drop inspector depth/topsoil.
+  if (import.meta.env.DEV && typeof window !== 'undefined') {
+    window.__plotlineEditOpenSheet = () => {
+      window.__plotlineOpenSheetEdited = true
+      setTextAnnotations(prev => [...prev, {
+        id: 'e2e-pending', x: 12, y: 12, text: 'pending save', ...DEFAULT_TEXT_STYLE,
+      }])
+    }
+  }
+
   const saveTimerRef = useRef(null)
   useEffect(() => {
     // Own property only. Bracket access would treat __proto__ and constructor
     // as real sheets, and the debounce would save them.
     const current = ownRecord(sheets, sheetId)
-    if (!sheetId || !current) return
+    if (!sheetId || !current) {
+      if (import.meta.env.DEV && typeof window !== 'undefined') window.__plotlineSheetSavePending = false
+      return
+    }
     const payload = {
       savedCountGroups: countGroups,
       savedLinearGroups: linearGroups,
@@ -924,11 +936,14 @@ function SheetPageBody() {
     saveTimerRef.current = setTimeout(() => {
       updateSheet(sheetId, payload)
       saveTimerRef.current = null
+      if (import.meta.env.DEV && typeof window !== 'undefined') window.__plotlineSheetSavePending = false
     }, 400)
+    if (import.meta.env.DEV && typeof window !== 'undefined') window.__plotlineSheetSavePending = true
     return () => {
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current)
         saveTimerRef.current = null
+        if (import.meta.env.DEV && typeof window !== 'undefined') window.__plotlineSheetSavePending = false
         updateSheet(sheetId, payload)
       }
     }

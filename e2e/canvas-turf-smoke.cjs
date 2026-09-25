@@ -164,9 +164,15 @@ async function openSignedInProjects(browser, posts) {
       await route.fulfill({ status: 200, headers: corsHeaders(), body: '[]' })
       return
     }
-    if (url.includes('/rest/v1/app_data')) {
+    if (url.includes('/rest/v1/org_data') || url.includes('/rest/v1/app_data')) {
       if (req.method() === 'POST' || req.method() === 'PATCH' || req.method() === 'PUT') {
-        posts.push(req.postData() || '')
+        const body = req.postData() || ''
+        if (url.includes('/rest/v1/org_data')) {
+          posts.orgBodies = posts.orgBodies || []
+          posts.orgBodies.push(body)
+        } else {
+          posts.push(body)
+        }
         await route.fulfill({ status: 201, headers: corsHeaders(), body: '{}' })
         return
       }
@@ -309,6 +315,154 @@ async function foreignSheetLoad(browser) {
   await ctx.close()
 }
 
+function clientNavigate(page, path) {
+  return page.evaluate((nextPath) => {
+    const state = window.history.state || {}
+    const idx = typeof state.idx === 'number' ? state.idx + 1 : 1
+    window.history.pushState({ ...state, idx, key: 'e2e-nav', usr: null }, '', nextPath)
+    window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }))
+  }, path)
+}
+
+// Open a real sheet, queue a drawing save, delete that sheet, then leave the
+// page so the save-effect cleanup flushes updateSheet for an id that is gone.
+async function deletedSheetFlush(browser) {
+  const posts = []
+  const { ctx, page, errors } = await openSignedInProjects(browser, posts)
+  const sheetId = 'sheet-1'
+  await page.clock.install()
+  await clientNavigate(page, `/app/project/proj-1/sheet/${sheetId}`)
+  await page.waitForFunction(
+    (id) => decodeURIComponent(location.pathname).endsWith('/sheet/' + id),
+    sheetId,
+    { timeout: 5000 },
+  )
+  await page.locator('button[aria-label="Synthetic turf"]').waitFor({ state: 'visible', timeout: 15000 })
+  await page.evaluate(() => { window.__plotlineUpdateSheetCalls = [] })
+  await page.evaluate(() => window.__plotlineEditOpenSheet())
+  await page.waitForFunction(
+    () => window.__plotlineOpenSheetEdited === true && window.__plotlineSheetSavePending === true,
+    { timeout: 5000 },
+  )
+  const pending = await page.evaluate(() => window.__plotlineSheetSavePending === true)
+  await page.evaluate(() => {
+    window.__plotlineDeleteSheet('sheet-1')
+    const state = window.history.state || {}
+    const idx = typeof state.idx === 'number' ? state.idx + 1 : 1
+    window.history.pushState({ ...state, idx, key: 'e2e-leave', usr: null }, '', '/app/project/proj-1')
+    window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }))
+  })
+  await page.waitForFunction(
+    () => decodeURIComponent(location.pathname) === '/app/project/proj-1',
+    { timeout: 5000 },
+  )
+  await page.clock.runFor(10_000)
+  const stored = await page.evaluate((id) => {
+    try {
+      const data = JSON.parse(localStorage.getItem('plotline-appdata') || 'null')
+      const sheets = data && data.sheets
+      if (!sheets || typeof sheets !== 'object') return { written: false, own: false, keptOther: false }
+      return {
+        written: true,
+        own: Object.hasOwn(sheets, id),
+        keptOther: Object.hasOwn(sheets, 'sheet-2'),
+      }
+    } catch {
+      return { written: false, own: false, keptOther: false }
+    }
+  }, sheetId)
+  const orgBodies = posts.orgBodies || []
+  const remoteHit = posts.some((raw) => bodyHasOwnSheet(raw, sheetId))
+    || orgBodies.some((raw) => bodyHasOwnSheet(raw, sheetId))
+  const flushCalls = await page.evaluate(() => (window.__plotlineUpdateSheetCalls || []).filter((id) => id === 'sheet-1').length)
+  const crashed = hookCrash(errors)
+  record('Deleted sheet is not recreated by the pending save flush',
+    pending && flushCalls > 0 && stored.written && stored.keptOther && !stored.own && !remoteHit && !crashed,
+    `pending=${pending} flushCalls=${flushCalls} written=${stored.written} keptOther=${stored.keptOther} localHit=${stored.own} remoteHit=${remoteHit} appPosts=${posts.length} orgPosts=${orgBodies.length} errors=${errors.map((m) => m.split('\n')[0]).join(' | ') || 'none'}`)
+  await ctx.close()
+}
+
+// Calls updateSheet itself, not the sheet route. Same state for ids that
+// are not an own sheet object.
+async function updateSheetSameState(browser) {
+  const posts = []
+  const { ctx, page, errors } = await openSignedInProjects(browser, posts)
+  const ids = ['missing-sheet-xyz', '__proto__', 'constructor', 'toString']
+  await page.waitForFunction(() => typeof window.__plotlineUpdateSheet === 'function', { timeout: 15000 })
+  await page.clock.install()
+  const flags = []
+  for (const id of ids) {
+    await page.evaluate((id) => {
+      window.__plotlineBeforeSheets = window.__plotlineReadSheets()
+      window.__plotlineUpdateSheet(id, { name: 'should-not-stick' })
+    }, id)
+    await page.clock.runFor(30)
+    flags.push(await page.evaluate((id) => {
+      const sheets = window.__plotlineReadSheets()
+      return {
+        id,
+        same: window.__plotlineLastUpdateSame === true,
+        own: Object.hasOwn(sheets, id),
+        identity: sheets === window.__plotlineBeforeSheets,
+      }
+    }, id))
+  }
+  await page.evaluate(() => {
+    window.__plotlineBeforeSheets = window.__plotlineReadSheets()
+    window.__plotlineUpdateSheet('sheet-1', { e2eMarker: 'kept' })
+  })
+  await page.clock.runFor(30)
+  const realChanged = await page.evaluate(() => {
+    const sheets = window.__plotlineReadSheets()
+    return sheets !== window.__plotlineBeforeSheets && sheets['sheet-1'] && sheets['sheet-1'].e2eMarker === 'kept'
+  })
+  await page.clock.runFor(10_000)
+  const outcome = { flags, realChanged }
+  const localHits = []
+  for (const id of ids) {
+    if (await storedOwnKey(page, 'sheets', id)) localHits.push(id)
+  }
+  const orgBodies = posts.orgBodies || []
+  const remoteHits = ids.filter((id) => posts.some((raw) => bodyHasOwnSheet(raw, id)) || orgBodies.some((raw) => bodyHasOwnSheet(raw, id)))
+  const flagsOk = outcome.flags.every((row) => row.same && !row.own && row.identity)
+  const crashed = hookCrash(errors)
+  record('updateSheet returns the same state for unknown and prototype ids',
+    flagsOk && outcome.realChanged && localHits.length === 0 && remoteHits.length === 0 && !crashed,
+    `flags=${JSON.stringify(outcome.flags)} realChanged=${outcome.realChanged} localHits=${localHits.join(',') || 'none'} remoteHits=${remoteHits.join(',') || 'none'} errors=${errors.map((m) => m.split('\n')[0]).join(' | ') || 'none'}`)
+  await ctx.close()
+}
+
+async function unsignedNotFound(browser) {
+  const cases = [
+    { path: '/app/project/proj-1/sheet/s1', id: 's1', collection: 'sheets', text: 'Sheet not found.' },
+    { path: '/app/project/proj-1/sheet/__proto__', id: '__proto__', collection: 'sheets', text: 'Sheet not found.' },
+    { path: '/app/project/proj-1/sheet/constructor', id: 'constructor', collection: 'sheets', text: 'Sheet not found.' },
+    { path: '/app/project/constructor', id: 'constructor', collection: 'projects', text: 'Project not found.' },
+    { path: '/app/project/__proto__', id: '__proto__', collection: 'projects', text: 'Project not found.' },
+    { path: '/app/project/toString', id: 'toString', collection: 'projects', text: 'Project not found.' },
+  ]
+  for (const item of cases) {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+    const page = await ctx.newPage()
+    const errors = []
+    const supabaseHits = []
+    page.on('pageerror', (e) => errors.push(e.message))
+    page.on('request', (req) => {
+      if (req.url().includes('supabase.co')) supabaseHits.push(req.url())
+    })
+    await page.clock.install()
+    await page.goto(`${BASE}${item.path}`, { waitUntil: 'domcontentloaded', timeout: 45000 })
+    await page.clock.runFor(10_000)
+    await page.getByText(item.text).waitFor({ state: 'visible', timeout: 15000 }).catch(() => {})
+    const notFound = await page.getByText(item.text).isVisible().catch(() => false)
+    const localHit = await storedOwnKey(page, item.collection, item.id)
+    record(`Offline ${item.path} is not found and is not stored`,
+      notFound && !localHit && supabaseHits.length === 0 && !hookCrash(errors),
+      `notFound=${notFound} localHit=${localHit} supabaseHits=${supabaseHits.length} errors=${errors.map((m) => m.split('\n')[0]).join(' | ') || 'none'}`)
+    await ctx.close()
+  }
+}
+
 async function stampDefaultRoll(browser) {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
   const page = await ctx.newPage()
@@ -375,9 +529,25 @@ async function main() {
     process.exit(failed.length === 0 ? 0 : 1)
   }
 
-  await signedInDirectLoad(browser)
-  await missingSheetLoad(browser)
-  await prototypeProjectLoad(browser)
+  if (process.env.SMOKE_ONLY === 'guards') {
+    await deletedSheetFlush(browser)
+    await updateSheetSameState(browser)
+    const failed = results.filter((x) => !x.pass)
+    console.log(`\n=== ${failed.length === 0 ? 'ALL PASS' : 'FAILURES: ' + failed.length} ===`)
+    if (failed.length) console.log('FAILED: ' + failed.map((f) => f.name).join(' | '))
+    await browser.close()
+    process.exit(failed.length === 0 ? 0 : 1)
+  }
+
+  if (process.env.SMOKE_ONLY === 'offline') {
+    await unsignedNotFound(browser)
+  } else {
+    await signedInDirectLoad(browser)
+    await missingSheetLoad(browser)
+    await prototypeProjectLoad(browser)
+    await deletedSheetFlush(browser)
+    await updateSheetSameState(browser)
+  }
   await foreignSheetLoad(browser)
   await stampDefaultRoll(browser)
   if (process.env.SMOKE_ONLY === 'hooks') {

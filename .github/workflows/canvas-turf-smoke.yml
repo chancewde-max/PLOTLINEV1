@@ -6,15 +6,14 @@ on:
     branches:
       - cursor/plotline-v1-canvas-turf-1e6f
 
-concurrency:
-  group: canvas-turf-smoke-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   canvas-turf-smoke:
     name: canvas-turf-smoke
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    concurrency:
+      group: canvas-turf-smoke-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
     env:
       BASE: http://127.0.0.1:5173
     steps:
@@ -45,6 +44,9 @@ jobs:
       # Cheap, no browser. Fail the job before starting Vite if math is wrong.
       - name: Turf math check
         run: node e2e/turf-math-check.mjs
+
+      - name: Sheet update guard
+        run: node e2e/sheet-update-guard.mjs
 
       - name: Start Vite
         env:
@@ -78,6 +80,80 @@ jobs:
 
       - name: Canvas turf smoke
         run: node e2e/canvas-turf-smoke.cjs
+
+      - name: Stop Vite
+        if: always()
+        run: kill "$VITE_PID" 2>/dev/null || true
+
+  canvas-turf-smoke-offline:
+    name: canvas-turf-smoke-offline
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: canvas-turf-smoke-offline-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+    env:
+      BASE: http://127.0.0.1:5173
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Resolve Playwright Chromium path
+        run: |
+          set -euo pipefail
+          CHROME="$(node -e "const { chromium } = require('playwright'); process.stdout.write(chromium.executablePath())")"
+          test -x "$CHROME"
+          echo "PW_CHROME=$CHROME" >> "$GITHUB_ENV"
+          echo "Using PW_CHROME=$CHROME"
+
+      - name: Turf math check
+        run: node e2e/turf-math-check.mjs
+
+      - name: Sheet update guard
+        run: node e2e/sheet-update-guard.mjs
+
+      # No VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY. The app stays on the
+      # localStorage path. Stamping and not-found still have to pass.
+      - name: Start Vite
+        run: |
+          set -euo pipefail
+          env -u VITE_SUPABASE_URL -u VITE_SUPABASE_ANON_KEY \
+            npm run dev -- --host 127.0.0.1 --port 5173 > /tmp/vite-dev.log 2>&1 &
+          echo "VITE_PID=$!" >> "$GITHUB_ENV"
+
+      - name: Wait for Vite
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            if curl -sf -o /dev/null "$BASE/"; then
+              echo "Vite is up at $BASE"
+              exit 0
+            fi
+            if ! kill -0 "$VITE_PID" 2>/dev/null; then
+              echo "Vite exited before becoming ready"
+              cat /tmp/vite-dev.log || true
+              exit 1
+            fi
+            sleep 1
+          done
+          echo "Vite did not become ready in 60s"
+          cat /tmp/vite-dev.log || true
+          exit 1
+
+      - name: Canvas turf smoke
+        run: SMOKE_ONLY=offline node e2e/canvas-turf-smoke.cjs
 
       - name: Stop Vite
         if: always()
