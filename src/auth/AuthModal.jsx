@@ -27,7 +27,7 @@ import s from './AuthModal.module.css'
 
 export function AuthModal({ open, onClose }) {
   const {
-    user, loading, signIn, signUp, signOut, authError, cloudEnabled,
+    user, loading, signIn, signUp, signOut, authError, clearAuthError, cloudEnabled,
     requestPasswordReset, resendSignupConfirmation,
   } = useAuth()
   const [mode, setMode] = useState('signin') // 'signin' | 'signup' | 'reset' | 'reset-sent'
@@ -43,17 +43,23 @@ export function AuthModal({ open, onClose }) {
   const viewRef = useRef(null)
   const modeRef = useRef(mode)
 
-  // Reset transient form state whenever the modal opens.
+  // Drop sign-in errors when the dialog closes. Switching views clears them
+  // in goToMode; this covers a parent that sets open to false directly.
+  // Opening only resets the in-flight flag so a previous submit can't leave
+  // the button stuck.
   useEffect(() => {
     if (open) {
-      setErr(null)
-      setNotice(null)
       setBusy(false)
-      setResendState('idle')
-      setResendError(null)
       modeRef.current = mode
+      return
     }
-  }, [open]) // mode is intentionally read only as the baseline when opening
+    setErr(null)
+    setNotice(null)
+    setResendState('idle')
+    setResendError(null)
+    setCooldown(0)
+    clearAuthError?.()
+  }, [open]) // mode and clearAuthError are read only when open changes
 
   // Move focus into the newly shown view. The dialog's own focus effect runs
   // only when it opens, so switching sign-in / sign-up / reset would otherwise
@@ -73,12 +79,23 @@ export function AuthModal({ open, onClose }) {
     return () => clearTimeout(timer)
   }, [cooldown])
 
-  const goToMode = (next) => {
+  const clearTransient = () => {
     setErr(null)
     setNotice(null)
     setResendState('idle')
     setResendError(null)
+    setCooldown(0)
+    clearAuthError?.()
+  }
+
+  const goToMode = (next) => {
+    clearTransient()
     setMode(next)
+  }
+
+  const handleClose = () => {
+    clearTransient()
+    onClose?.()
   }
 
   const submit = async (e) => {
@@ -189,7 +206,7 @@ export function AuthModal({ open, onClose }) {
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={handleClose}
       title={header}
       footer={footer}
       width={420}
@@ -321,6 +338,10 @@ export function AuthModal({ open, onClose }) {
                     <button type="button" onClick={() => goToMode('signup')}
                       style={linkStyle}>Create one</button>
                   </>
+                ) : mode === 'reset' ? (
+                  <button type="button" onClick={() => goToMode('signin')} style={linkStyle}>
+                    Back to sign in
+                  </button>
                 ) : (
                   <>Already have an account?{' '}
                     <button type="button" onClick={() => goToMode('signin')}

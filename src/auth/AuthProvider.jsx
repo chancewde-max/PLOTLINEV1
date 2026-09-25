@@ -454,6 +454,8 @@ export function AuthProvider({ children }) {
     setRecoveryPending(false)
   }, [])
 
+  const clearAuthError = useCallback(() => setAuthError(null), [])
+
   // Personal profile fields (name, job title) — stored on the Supabase auth
   // user itself (user_metadata), not in the project/org data model, since
   // they describe the PERSON regardless of which workspace they're in.
@@ -600,6 +602,7 @@ export function AuthProvider({ children }) {
     // the workspace snapshot fetch have finished.
     dataLoading: loading || hydrating,
     authError,
+    clearAuthError,
     cloudSyncError,
     authOpen,
     openAuth,

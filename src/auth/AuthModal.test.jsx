@@ -26,12 +26,20 @@ beforeEach(() => {
   auth.loading = false
   auth.authError = null
   auth.cloudEnabled = true
+  auth.clearAuthError = vi.fn(() => { auth.authError = null })
   auth.signIn.mockReset()
   auth.signUp.mockReset()
   auth.signOut.mockReset()
   auth.requestPasswordReset.mockReset()
   auth.resendSignupConfirmation.mockReset()
 })
+
+function rejectSignIn(error, message) {
+  auth.signIn.mockImplementation(async () => {
+    auth.authError = message
+    throw error
+  })
+}
 
 async function fillCredentials(user, email = 'person@example.com', password = 'secret12') {
   await user.type(screen.getByLabelText('Email'), email)
@@ -47,6 +55,8 @@ describe('AuthModal recovery and sign-in errors', () => {
     render(<AuthModal open onClose={vi.fn()} />)
 
     await user.click(screen.getByRole('button', { name: 'Forgot password?' }))
+    expect(screen.getByRole('button', { name: 'Back to sign in' })).toBeTruthy()
+    expect(screen.queryByText(/Already have an account/)).toBeNull()
     const email = screen.getByLabelText('Email')
     expect(document.activeElement).toBe(email)
     expect(screen.queryByLabelText('Password')).toBeNull()
@@ -151,6 +161,103 @@ describe('AuthModal recovery and sign-in errors', () => {
     expect(document.activeElement).toBe(screen.getByLabelText('Email'))
     expect(screen.getByLabelText('Email')).toHaveProperty('value', 'ada@example.com')
     expect(screen.queryByLabelText('Password')).toBeNull()
+  })
+
+  it('clears a failed sign-in when switching to reset or sign-up, and when the dialog closes', async () => {
+    const message = 'Email or password is incorrect.'
+    rejectSignIn(
+      Object.assign(new Error('Invalid login credentials'), { code: 'invalid_credentials' }),
+      message,
+    )
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    const view = render(<AuthModal open onClose={onClose} />)
+    await fillCredentials(user, 'person@example.com', 'wrong-password')
+    await user.click(screen.getByRole('button', { name: 'Continue with email' }))
+    expect((await screen.findByRole('alert')).textContent).toBe(message)
+
+    await user.click(screen.getByRole('button', { name: 'Forgot password?' }))
+    expect(screen.queryByText(message)).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(auth.authError).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Back to sign in' }))
+    await user.click(screen.getByRole('button', { name: 'Continue with email' }))
+    expect((await screen.findByRole('alert')).textContent).toBe(message)
+    await user.click(screen.getByRole('button', { name: 'Create one' }))
+    expect(screen.queryByText(message)).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Sign in' }))
+    await user.click(screen.getByRole('button', { name: 'Continue with email' }))
+    expect((await screen.findByRole('alert')).textContent).toBe(message)
+    await user.click(screen.getByRole('button', { name: 'Close dialog' }))
+    expect(screen.queryByText(message)).toBeNull()
+    expect(auth.authError).toBeNull()
+    expect(onClose).toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'Continue with email' }))
+    expect((await screen.findByRole('alert')).textContent).toBe(message)
+    view.rerender(<AuthModal open={false} onClose={onClose} />)
+    expect(auth.authError).toBeNull()
+    view.rerender(<AuthModal open onClose={onClose} />)
+    expect(screen.queryByText(message)).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('clears the email_not_confirmed message when leaving sign-in', async () => {
+    const message = 'Please confirm your email first. Check your inbox for the confirmation link.'
+    rejectSignIn(
+      Object.assign(new Error('Email not confirmed'), { code: 'email_not_confirmed' }),
+      message,
+    )
+    const user = userEvent.setup()
+    render(<AuthModal open onClose={vi.fn()} />)
+    await fillCredentials(user)
+    await user.click(screen.getByRole('button', { name: 'Continue with email' }))
+    expect((await screen.findByRole('status')).textContent).toContain(message)
+
+    await user.click(screen.getByRole('button', { name: 'Forgot password?' }))
+    expect(screen.queryByText(message)).toBeNull()
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(screen.queryByText('Resend confirmation email')).toBeNull()
+    expect(auth.authError).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Back to sign in' }))
+    await user.click(screen.getByRole('button', { name: 'Continue with email' }))
+    expect((await screen.findByRole('status')).textContent).toContain(message)
+    await user.click(screen.getByRole('button', { name: 'Create one' }))
+    expect(screen.queryByText(message)).toBeNull()
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(auth.authError).toBeNull()
+  })
+
+  it('clears the repeated-signup message when switching to sign-in or reset', async () => {
+    const user = userEvent.setup()
+    auth.signUp.mockImplementation(async () => {
+      auth.authError = EXISTING
+      return { existingAccount: true }
+    })
+    render(<AuthModal open onClose={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: 'Create one' }))
+    await user.type(screen.getByLabelText('Email'), 'ada@example.com')
+    await user.type(screen.getByLabelText('Password'), 'secret12')
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+    expect((await screen.findByRole('status')).textContent).toBe(EXISTING)
+
+    await user.click(screen.getByRole('button', { name: 'Forgot password' }))
+    expect(screen.queryByText(/already exists/)).toBeNull()
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(auth.authError).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Back to sign in' }))
+    await user.click(screen.getByRole('button', { name: 'Create one' }))
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+    expect((await screen.findByRole('status')).textContent).toBe(EXISTING)
+    await user.click(screen.getByRole('status').querySelector('button'))
+    expect(screen.queryByText(/already exists/)).toBeNull()
+    expect(screen.getByLabelText('Password')).toBeTruthy()
+    expect(auth.authError).toBeNull()
   })
 
   it('switches an existing account to sign-in with the email kept', async () => {
