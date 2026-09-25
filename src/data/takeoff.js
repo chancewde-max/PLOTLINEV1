@@ -5,7 +5,7 @@
 // multiple sheets combines into one line item.
 //
 // Units: counts -> EA, areas -> SF, linear -> LF. Deduction items subtract.
-import { polyAreaPx, linePathLenPx } from '../workspace/geometry.js'
+import { areaShapePx, linePathLenPx } from '../workspace/geometry.js'
 import { areaExportNotes, isUngroupedSoilArea } from '../workspace/areaProps.js'
 
 const DEFAULT_PXFT = 4
@@ -39,7 +39,7 @@ export function takeoffMaterialItems(project, sheets, sheetIds) {
     const groups = sh.savedAreaGroups || []
     for (const g of groups) {
       const areas = (sh.savedAreas || []).filter(a => a.groupId === g.id)
-      const qty = areas.reduce((s, a) => s + sqft(polyAreaPx(a.poly)) * sign(a), 0)
+      const qty = areas.reduce((s, a) => s + sqft(areaShapePx(a)) * sign(a), 0)
       const notes = areaExportNotes(areas, groups, sqft)
       add(notes ? `${g.name} — ${notes}` : g.name, 'SF', qty, g.key, 'area')
     }
@@ -52,7 +52,7 @@ export function takeoffMaterialItems(project, sheets, sheetIds) {
       ungroupedByName[name].push(a)
     }
     for (const [name, areas] of Object.entries(ungroupedByName)) {
-      const qty = areas.reduce((s, a) => s + sqft(polyAreaPx(a.poly || [])) * sign(a), 0)
+      const qty = areas.reduce((s, a) => s + sqft(areaShapePx(a)) * sign(a), 0)
       const notes = areaExportNotes(areas, groups, sqft)
       add(notes ? `${name} — ${notes}` : name, 'SF', qty, '', 'area')
     }

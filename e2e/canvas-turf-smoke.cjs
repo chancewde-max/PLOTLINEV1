@@ -228,6 +228,118 @@ async function main() {
     pb = await page.locator('[class*="paper"]').first().boundingBox()
   }
 
+  // Area cubic bezier (§5.1) — not turf, not circular arc.
+  if (pb) {
+    await page.locator('button[aria-label="Area"]').click()
+    await page.waitForTimeout(200)
+    const cubicDlg = page.getByRole('heading', { name: /New area/i })
+    if (await cubicDlg.isVisible().catch(() => false)) {
+      await page.getByRole('button', { name: /Start drawing/i }).click()
+      await page.waitForTimeout(200)
+    }
+    const hintTool = () => page.locator('[data-testid="canvas-hint"]').getAttribute('data-active-tool')
+    const hintPhase = () => page.locator('[data-testid="canvas-hint"]').getAttribute('data-curve-phase')
+    const v0 = [pb.x + pb.width * 0.62, pb.y + pb.height * 0.20]
+    const c1 = [pb.x + pb.width * 0.74, pb.y + pb.height * 0.08]
+    const c2 = [pb.x + pb.width * 0.90, pb.y + pb.height * 0.16]
+    const p1 = [pb.x + pb.width * 0.88, pb.y + pb.height * 0.36]
+    const v2 = [pb.x + pb.width * 0.62, pb.y + pb.height * 0.36]
+    await page.mouse.click(v0[0], v0[1])
+    await page.waitForTimeout(80)
+    await page.keyboard.press('a')
+    await page.waitForTimeout(80)
+    await page.mouse.move(c1[0], c1[1])
+    await page.waitForTimeout(80)
+    const bandC1 = await page.locator('[data-testid="area-draw-preview"]').getAttribute('d').catch(() => '')
+    record('Live rubber-band while placing C1',
+      (await hintPhase()) === 'c1' && /\sL\s/.test(bandC1 || '') && await page.locator('[data-testid="bezier-handle-ghost"]').count() > 0,
+      `phase=${await hintPhase()} d=${bandC1}`)
+    await page.mouse.click(c1[0], c1[1])
+    await page.waitForTimeout(60)
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(80)
+    record('Esc keeps Area tool and prior point',
+      (await hintTool()) === 'area' && (await hintPhase()) === '',
+      `tool=${await hintTool()} phase=${await hintPhase()}`)
+    await page.keyboard.press('a')
+    await page.waitForTimeout(60)
+    record('A still starts a cubic after Esc (point kept)', (await hintPhase()) === 'c1', `phase=${await hintPhase()}`)
+    await page.mouse.move(c1[0], c1[1])
+    await page.mouse.click(c1[0], c1[1])
+    await page.waitForTimeout(60)
+    await page.mouse.move(c2[0], c2[1])
+    await page.waitForTimeout(60)
+    const bandC2 = await page.locator('[data-testid="area-draw-preview"]').getAttribute('d').catch(() => '')
+    record('Live rubber-band while placing C2',
+      (await hintPhase()) === 'c2' && /\sC\s/.test(bandC2 || ''),
+      `phase=${await hintPhase()} d=${bandC2}`)
+    await page.mouse.click(c2[0], c2[1])
+    await page.waitForTimeout(60)
+    await page.mouse.move(p1[0], p1[1])
+    await page.waitForTimeout(60)
+    const bandP1 = await page.locator('[data-testid="area-draw-preview"]').getAttribute('d').catch(() => '')
+    record('Live rubber-band while placing P1',
+      (await hintPhase()) === 'p1' && /\sC\s/.test(bandP1 || '') && await page.locator('[data-testid="bezier-p1-ghost"]').count() > 0,
+      `phase=${await hintPhase()} d=${bandP1}`)
+    await page.mouse.click(p1[0], p1[1])
+    await page.waitForTimeout(80)
+    await page.mouse.click(v2[0], v2[1])
+    await page.waitForTimeout(80)
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(200)
+    const cubicArea = page.locator('[data-testid="soil-area"][data-cubic-count="1"]').last()
+    const cubicD = await cubicArea.locator('path').getAttribute('d').catch(() => '')
+    const arcCount = await cubicArea.getAttribute('data-arc-count').catch(() => '')
+    record('Closed Area uses cubic C and not a circular A',
+      /\sC\s/.test(cubicD || '') && !/\sA\s/.test(cubicD || '') && arcCount === '0',
+      `arcs=${arcCount} d=${cubicD}`)
+    const px2 = Number(await cubicArea.getAttribute('data-area-px2'))
+    const chord = Number(await cubicArea.getAttribute('data-chord-px2'))
+    const insp = await page.locator('[data-testid="area-sqft"]').innerText().catch(() => '')
+    const expected = `${(px2 / 16).toFixed(1)} sq ft`
+    record('Closed mixed straight+cubic sq ft matches the cubic integral',
+      px2 > chord + 1 && insp === expected,
+      `insp=${insp} expected=${expected} px2=${px2.toFixed(1)} chord=${chord.toFixed(1)}`)
+    await page.locator('button[aria-label="Select"]').click()
+    await page.waitForTimeout(120)
+    const diamonds = page.locator('[data-testid="bezier-handle"][data-pending="false"]')
+    record('Placed cubic has editable C1/C2 diamonds', await diamonds.count() === 2, `n=${await diamonds.count()}`)
+    const beforePx = px2
+    const beforeInsp = insp
+    const handle = diamonds.first()
+    const hb = await handle.boundingBox()
+    if (hb) {
+      await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(hb.x + hb.width / 2 + 36, hb.y + hb.height / 2 + 28)
+      await page.mouse.up()
+      await page.waitForTimeout(150)
+    }
+    const afterHandlePx = Number(await cubicArea.getAttribute('data-area-px2'))
+    const afterHandleInsp = await page.locator('[data-testid="area-sqft"]').innerText().catch(() => '')
+    record('Dragging C1/C2 updates the curve and live sq ft',
+      Number.isFinite(afterHandlePx) && Math.abs(afterHandlePx - beforePx) > 1 && afterHandleInsp !== beforeInsp,
+      `${beforePx.toFixed(1)}→${afterHandlePx.toFixed(1)} ${beforeInsp}→${afterHandleInsp}`)
+    const vertex = page.locator('[data-testid="area-vertex"]').first()
+    const vb = await vertex.boundingBox()
+    const beforeVert = afterHandlePx
+    const beforeVertInsp = afterHandleInsp
+    if (vb) {
+      await page.mouse.move(vb.x + vb.width / 2, vb.y + vb.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(vb.x + vb.width / 2 - 30, vb.y + vb.height / 2 + 24)
+      await page.mouse.up()
+      await page.waitForTimeout(150)
+    }
+    const afterVertPx = Number(await cubicArea.getAttribute('data-area-px2'))
+    const afterVertInsp = await page.locator('[data-testid="area-sqft"]').innerText().catch(() => '')
+    const stillCubic = await cubicArea.locator('path').getAttribute('d').catch(() => '')
+    record('Dragging P0/P1 updates the curve and live sq ft',
+      Number.isFinite(afterVertPx) && Math.abs(afterVertPx - beforeVert) > 1
+      && afterVertInsp !== beforeVertInsp && /\sC\s/.test(stillCubic || ''),
+      `${beforeVert.toFixed(1)}→${afterVertPx.toFixed(1)} ${beforeVertInsp}→${afterVertInsp}`)
+  }
+
   // Turf tool
   await page.locator('button[aria-label="Synthetic turf"]').click()
   await page.waitForTimeout(200)

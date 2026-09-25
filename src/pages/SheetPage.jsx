@@ -25,7 +25,7 @@ import { resolveSheetPdfUrl, sheetHasPdf } from '../components/pdfCache.js'
 import { computeOverlayDiff } from '../components/pdfDiff.js'
 import { uploadPdfAsset, personalPdfPath, orgPdfPath } from '../data/pdfStorage.js'
 import { CATS, CAT_COLOR, SHEET_W, SHEET_H, categoryTotals } from '../data/sampleData.js'
-import { inside, polyAreaPx, perimPx, centroid, clipPx2, dist, buildAreaPath, buildLinePath, linePathLenPx, circularArcSeg, bbox } from '../workspace/geometry.js'
+import { inside, polyAreaPx, perimPx, centroid, clipPx2, dist, buildAreaPath, buildChainPath, buildLinePath, linePathLenPx, circularArcSeg, cubicPreviewCmd, bbox, areaShapePx, shapeAreaPx, cloneCubicSegs, translateCubicSegs, shiftCubicSegsForInsert } from '../workspace/geometry.js'
 import {
   TOPSOIL_OPTIONS, isTurfArea, areaExportNotes, areaDepthOf, areaTopsoilOf,
   areaTopsoilCustomOf, quoteHeaderFields, areaOwnVolumeCy, isUngroupedSoilArea,
@@ -149,6 +149,27 @@ const AREA_CATS   = CATS.filter(c => c.kind === 'area')
 const COUNT_CATS  = CATS.filter(c => c.kind === 'point')
 const LINEAR_CATS = CATS.filter(c => c.kind === 'linear')
 
+function diamondPoints(x, y, r) {
+  return `${x},${y - r} ${x + r},${y} ${x},${y + r} ${x - r},${y}`
+}
+
+function cubicHandleList(area) {
+  const poly = area?.poly || []
+  const n = poly.length
+  if (n < 2 || !area?.cubicSegs) return []
+  const out = []
+  for (const [k, seg] of Object.entries(area.cubicSegs)) {
+    if (!seg?.c1 || !seg?.c2) continue
+    const i = Number(k)
+    const p0 = poly[i]
+    const p1 = poly[(i + 1) % n]
+    if (!p0 || !p1) continue
+    out.push({ edge: i, which: 'c1', x: seg.c1.x, y: seg.c1.y, ax: p0.x, ay: p0.y })
+    out.push({ edge: i, which: 'c2', x: seg.c2.x, y: seg.c2.y, ax: p1.x, ay: p1.y })
+  }
+  return out
+}
+
 function singularize(name) {
   return name.replace(/s\s*$/, '').trim()
 }
@@ -257,11 +278,16 @@ export default function SheetPage() {
   const [textStyleDlg, setTextStyleDlg] = useState(null) // id of text annotation being edited, or null
   const [dragToolId, setDragToolId] = useState(null) // toolbar drag-to-reorder
 
-  // ---- Arc mode (shared for area + linear) ----
+  // Circular-arc through-point mode is Linear + Turf draw only.
+  // Area measurement uses cubic bezier (P0, C1, C2, P1).
   const [arcMode, setArcMode]               = useState(false)
   const [pendingArcThrough, setPendingArcThrough] = useState(null)
-  const arcSegsRef = useRef({})         // for current area drawing
-  const linearArcSegsRef = useRef({})  // for current linear drawing
+  const arcSegsRef = useRef({})         // turf-draw circular arcs
+  const linearArcSegsRef = useRef({})  // linear circular arcs
+  const [curvePhase, setCurvePhase]     = useState(null) // 'c1' | 'c2' | 'p1' | null
+  const [pendingC1, setPendingC1]       = useState(null)
+  const [pendingC2, setPendingC2]       = useState(null)
+  const cubicSegsRef = useRef({})       // committed Area cubics while drawing
 
   // ---- Count tool ----
   const [addCountType, setAddCountType] = useState(COUNT_CATS[0]?.id || 'tree')
@@ -406,6 +432,7 @@ export default function SheetPage() {
   const dragStartRef     = useRef(null)
   const origDragRef      = useRef(null)
   const dragVertIdxRef   = useRef(null)
+  const dragCubicRef     = useRef(null) // { edge, which: 'c1'|'c2' }
   const dragAreaIdRef    = useRef(null)
   const dragRegionVertRef = useRef(null) // index of region vertex being dragged
   const panStartRef      = useRef(null) // fixed mousedown point — only for the "was this a real drag" threshold below
@@ -796,8 +823,16 @@ export default function SheetPage() {
       }
       if (e.ctrlKey && key === hk.undo) {
         e.preventDefault()
-        // Undo last in-progress vertex first
-        if (activeTool === 'area' && areaVerts.length > 0) { setAreaVerts(v => v.slice(0, -1)); return }
+        // Undo last in-progress vertex, or step back through an open cubic.
+        if (activeTool === 'area' && (areaVerts.length > 0 || curvePhase)) {
+          if (curvePhase === 'p1') { setCurvePhase('c2'); setPendingC2(null); return }
+          if (curvePhase === 'c2') { setCurvePhase('c1'); setPendingC1(null); return }
+          if (curvePhase === 'c1') { setCurvePhase(null); return }
+          const dropIdx = areaVerts.length - 2
+          if (dropIdx >= 0) delete cubicSegsRef.current[dropIdx]
+          setAreaVerts(v => v.slice(0, -1))
+          return
+        }
         if (activeTool === 'linear' && linearVerts.length > 0) { setLinearVerts(v => v.slice(0, -1)); return }
         const stack = undoStackRef.current
         if (stack.length > 0) {
@@ -809,13 +844,14 @@ export default function SheetPage() {
         }
       }
       if (key === hk.area) {
-        // A while placing: existing path model is circular-arc through-point
-        // (P0 → T → P1), not cubic bezier (P0, C1, C2, P1). Notion §5.1 cubic
-        // construction needs a new segment model + diamond-handle editing —
-        // do not invent that here. Toggle circular-arc mode only.
+        // Turf Stamp must not enter Area or Area cubic mode.
         if (activeTool === 'turf' && turfSubmode === 'stamp') return
-        if ((activeTool === 'area' && areaVerts.length > 0) ||
-            (activeTool === 'turf' && turfSubmode === 'draw' && areaVerts.length > 0) ||
+        // Area measurement: A starts a cubic segment (C1, C2, P1). Not a circular arc.
+        if (activeTool === 'area' && areaVerts.length > 0) {
+          if (!curvePhase) setCurvePhase('c1')
+          return
+        }
+        if ((activeTool === 'turf' && turfSubmode === 'draw' && areaVerts.length > 0) ||
             (activeTool === 'linear' && linearVerts.length > 0)) {
           setArcMode(v => {
             if (v) setPendingArcThrough(null)
@@ -837,13 +873,20 @@ export default function SheetPage() {
         }
       }
       if (key === 'ESCAPE') {
+        // Area cubic: Esc drops the in-progress curve only and keeps placed vertices.
+        if (activeTool === 'area' && curvePhase) {
+          setCurvePhase(null); setPendingC1(null); setPendingC2(null)
+          return
+        }
         setRegionVerts([]); setRegionClosed(null); setRegionCursor(null)
         setScalePts([]); setScaleDlg(null)
         setMeasurePts([]); setMeasureDone(false); setMeasureCursor(null); setMeasureSessions([])
         setAreaVerts([]); setAreaCursor(null)
         setLinearVerts([]); setLinearCursor(null)
         setArcMode(false); setPendingArcThrough(null)
+        setCurvePhase(null); setPendingC1(null); setPendingC2(null)
         arcSegsRef.current = {}; linearArcSegsRef.current = {}
+        cubicSegsRef.current = {}
         setSettings(false)
         setTurfPreview(null)
         setTurfSnapTo(null)
@@ -908,7 +951,7 @@ export default function SheetPage() {
         setMeasurePts([]); setMeasureCursor(null)
         setActiveTool('select')
       }
-      if (activeTool === 'area' && areaVerts.length >= 3) finishArea()
+      if (activeTool === 'area' && areaVerts.length >= 3 && !curvePhase) finishArea()
       if (activeTool === 'turf' && turfSubmode === 'draw' && areaVerts.length >= 3) finishTurfArea()
       if (activeTool === 'linear' && linearVerts.length >= 2) finishLine()
     }
@@ -923,7 +966,7 @@ export default function SheetPage() {
       window.removeEventListener('keydown', onEnter)
       window.removeEventListener('keyup', onKeyUp)
     }
-  }, [project, sheet, activeTool, turfSubmode, regionVerts, measureDone, measurePts, areaVerts, areaType, linearVerts, linearType, arcMode, selectedId, selectedKind, selectedIds, hotkeys, addedAreas])
+  }, [project, sheet, activeTool, turfSubmode, regionVerts, measureDone, measurePts, areaVerts, areaType, linearVerts, linearType, arcMode, curvePhase, selectedId, selectedKind, selectedIds, hotkeys, addedAreas])
 
   if (dataLoading) return <SheetPageSkeleton />
   if (!project || !sheet) {
@@ -987,11 +1030,11 @@ export default function SheetPage() {
 
   const finishArea = () => {
     if (areaVerts.length < 3) return
-    const capturedArcSegs = { ...arcSegsRef.current }
-    const capturedVerts = [...areaVerts]
+    const capturedVerts = areaVerts.map(v => ({ x: v.x, y: v.y }))
+    const capturedCubic = cloneCubicSegs(cubicSegsRef.current)
     const grp = areaGroups.find(g => g.id === activeAreaGroupId)
     const id = `ua-${Date.now()}`
-    const closedSqFt = sqft(polyAreaPx(capturedVerts))
+    const closedSqFt = sqft(shapeAreaPx(capturedVerts, capturedCubic))
     pushUndo()
     setAddedAreas(prev => {
       return [...prev, {
@@ -1001,13 +1044,16 @@ export default function SheetPage() {
         name: grp?.name || genName(areaType),
         color: grp?.color || null,
         poly: capturedVerts,
-        arcSegs: capturedArcSegs,
+        arcSegs: {},
+        cubicSegs: capturedCubic,
         deduct: deductMode,
       }]
     })
     setAreaVerts([]); setAreaCursor(null)
     setArcMode(false); setPendingArcThrough(null)
+    setCurvePhase(null); setPendingC1(null); setPendingC2(null)
     arcSegsRef.current = {}
+    cubicSegsRef.current = {}
     setSelectedId(id); setSelectedKind('area'); setSelectedIds([id])
     setAreaCloseHint(`${Number.isFinite(closedSqFt) ? closedSqFt.toFixed(1) : '0.0'} sq ft`)
   }
@@ -1032,7 +1078,9 @@ export default function SheetPage() {
     }])
     setAreaVerts([]); setAreaCursor(null)
     setArcMode(false); setPendingArcThrough(null)
+    setCurvePhase(null); setPendingC1(null); setPendingC2(null)
     arcSegsRef.current = {}
+    cubicSegsRef.current = {}
     setSelectedId(id); setSelectedKind('area')
     setActiveTurfAreaId(id)
     setTurfSubmode('stamp')
@@ -1094,7 +1142,9 @@ export default function SheetPage() {
     setMeasurePts([]); setMeasureDone(false); setMeasureCursor(null)
     setRegionVerts([]); setRegionCursor(null)
     setArcMode(false); setPendingArcThrough(null)
+    setCurvePhase(null); setPendingC1(null); setPendingC2(null)
     arcSegsRef.current = {}; linearArcSegsRef.current = {}
+    cubicSegsRef.current = {}
   }
 
   const placeLegendAt = (clientX, clientY) => {
@@ -1234,9 +1284,32 @@ export default function SheetPage() {
         return
       }
     }
-    // Check added area vertices, then interiors
+    // Check added area control points, vertices, then interiors
     for (let i = addedAreas.length - 1; i >= 0; i--) {
       const a = addedAreas[i]
+      if (!isTurfArea(a) && a.cubicSegs) {
+        for (const [k, seg] of Object.entries(a.cubicSegs)) {
+          if (!seg?.c1 || !seg?.c2) continue
+          for (const which of ['c1', 'c2']) {
+            if (dist(p, seg[which]) < hitPx) {
+              pushUndo()
+              setSelectedId(a.id); setSelectedKind('area')
+              setSelectedIds(e.shiftKey ? (selectedIds.includes(a.id) ? selectedIds : [...selectedIds, a.id]) : [a.id])
+              isDraggingRef.current = true
+              dragStartRef.current = p
+              origDragRef.current = {
+                x: seg[which].x,
+                y: seg[which].y,
+                seg: { c1: { ...seg.c1 }, c2: { ...seg.c2 } },
+              }
+              dragCubicRef.current = { edge: Number(k), which }
+              dragVertIdxRef.current = null
+              dragAreaIdRef.current = a.id
+              return
+            }
+          }
+        }
+      }
       for (let j = 0; j < a.poly.length; j++) {
         if (dist(p, a.poly[j]) < hitPx) {
           pushUndo()
@@ -1261,6 +1334,7 @@ export default function SheetPage() {
         origDragRef.current = {
           poly: a.poly.map(v => ({ ...v })),
           rolls: (a.rolls || []).map(r => ({ ...r })),
+          cubicSegs: cloneCubicSegs(a.cubicSegs),
         }
         dragVertIdxRef.current = null
         dragAreaIdRef.current = a.id
@@ -1368,8 +1442,22 @@ export default function SheetPage() {
           )
         })))
       } else if (selectedKind === 'area') {
-        if (dragVertIdxRef.current !== null) {
-          // Move single vertex
+        if (dragCubicRef.current) {
+          const { edge, which } = dragCubicRef.current
+          const orig = origDragRef.current
+          const moved = { x: orig.x + dx, y: orig.y + dy }
+          setAddedAreas(prev => prev.map(a => {
+            if (a.id !== dragAreaIdRef.current) return a
+            const segs = { ...(a.cubicSegs || {}) }
+            const base = orig.seg
+            segs[edge] = {
+              c1: which === 'c1' ? moved : { ...base.c1 },
+              c2: which === 'c2' ? moved : { ...base.c2 },
+            }
+            return { ...a, cubicSegs: segs }
+          }))
+        } else if (dragVertIdxRef.current !== null) {
+          // Move single vertex (P0/P1). Control points stay put so the curve updates.
           const orig = origDragRef.current
           setAddedAreas(prev => prev.map(a =>
             a.id === dragAreaIdRef.current
@@ -1377,16 +1465,18 @@ export default function SheetPage() {
               : a
           ))
         } else {
-          // Move whole area — turf stamps follow the parent transform.
+          // Move whole area — turf stamps and cubic controls follow.
           const orig = origDragRef.current
           const origPoly = Array.isArray(orig) ? orig : (orig?.poly || [])
           const origRolls = Array.isArray(orig) ? null : orig?.rolls
+          const origCubic = Array.isArray(orig) ? null : orig?.cubicSegs
           setAddedAreas(prev => prev.map(a =>
             a.id === dragAreaIdRef.current
               ? {
                   ...a,
                   poly: origPoly.map(v => ({ x: v.x + dx, y: v.y + dy })),
                   rolls: (origRolls || a.rolls || []).map(r => ({ ...r, cx: r.cx + dx, cy: r.cy + dy })),
+                  cubicSegs: origCubic ? translateCubicSegs(origCubic, dx, dy) : a.cubicSegs,
                 }
               : a
           ))
@@ -1498,6 +1588,7 @@ export default function SheetPage() {
     setPanningUi(false)
     isDraggingRef.current = false
     dragVertIdxRef.current = null
+    dragCubicRef.current = null
     dragAreaIdRef.current = null
     dragRegionVertRef.current = null
     // Finalize box select
@@ -1657,20 +1748,26 @@ export default function SheetPage() {
     }
 
     if (activeTool === 'area') {
-      // Close on near first vertex
-      if (areaVerts.length >= 3 && dist(p, areaVerts[0]) < NEAR && !pendingArcThrough) {
-        finishArea(); return
+      // Cubic construction: C1 diamond, C2 diamond, then P1 vertex. Not a circular arc.
+      if (curvePhase === 'c1') {
+        setPendingC1(p); setCurvePhase('c2'); return
       }
-      // Arc: collect through-point
-      if (arcMode && !pendingArcThrough && areaVerts.length > 0) {
-        setPendingArcThrough(p); return
+      if (curvePhase === 'c2') {
+        setPendingC2(p); setCurvePhase('p1'); return
       }
-      // Arc: set endpoint after through-point
-      if (pendingArcThrough && areaVerts.length > 0) {
-        arcSegsRef.current[areaVerts.length - 1] = pendingArcThrough
-        setPendingArcThrough(null); setArcMode(false)
-        if (areaVerts.length >= 2 && dist(p, areaVerts[0]) < NEAR) { finishArea(); return }
+      if (curvePhase === 'p1' && pendingC1 && pendingC2) {
+        const closing = areaVerts.length >= 3 && dist(p, areaVerts[0]) < NEAR
+        cubicSegsRef.current[areaVerts.length - 1] = {
+          c1: { x: pendingC1.x, y: pendingC1.y },
+          c2: { x: pendingC2.x, y: pendingC2.y },
+        }
+        setCurvePhase(null); setPendingC1(null); setPendingC2(null)
+        if (closing) { finishArea(); return }
         setAreaVerts(v => [...v, p]); return
+      }
+      // Close on near first vertex (straight edge into the start).
+      if (areaVerts.length >= 3 && dist(p, areaVerts[0]) < NEAR) {
+        finishArea(); return
       }
       setAreaCloseHint('')
       setAreaVerts(v => [...v, p]); return
@@ -1771,7 +1868,8 @@ export default function SheetPage() {
       if (bestIdx !== -1 && bestDist < threshold) {
         pushUndo()
         const newPoly = [...poly.slice(0, bestIdx + 1), bestPt, ...poly.slice(bestIdx + 1)]
-        setAddedAreas(prev => prev.map(a => a.id === selectedId ? { ...a, poly: newPoly } : a))
+        const newCubic = shiftCubicSegsForInsert(selectedArea.cubicSegs, bestIdx)
+        setAddedAreas(prev => prev.map(a => a.id === selectedId ? { ...a, poly: newPoly, cubicSegs: newCubic } : a))
         e.stopPropagation()
       }
     }
@@ -1859,8 +1957,8 @@ export default function SheetPage() {
   }
   const measureTotalFt = measureSegments.reduce((sum, seg) => sum + seg.ft, 0)
 
-  // Area preview path builder
-  const buildAreaPreviewPath = () => {
+  // Turf-draw preview still uses circular through-points.
+  const buildTurfPreviewPath = () => {
     if (areaVerts.length === 0) return ''
     let d = `M ${areaVerts[0].x} ${areaVerts[0].y}`
     for (let i = 1; i < areaVerts.length; i++) {
@@ -1874,6 +1972,18 @@ export default function SheetPage() {
       else d += ` L ${areaCursor.x} ${areaCursor.y}`
     }
     return d
+  }
+
+  // Area preview: committed cubics + live rubber-band for C1/C2/P1.
+  const buildAreaDrawPaths = () => {
+    if (areaVerts.length === 0) return { prior: '', live: '', combined: '' }
+    const prior = buildChainPath(areaVerts, {}, cubicSegsRef.current)
+    if (!areaCursor) return { prior, live: '', combined: prior }
+    const cmd = curvePhase
+      ? cubicPreviewCmd(curvePhase, pendingC1, pendingC2, areaCursor)
+      : ` L ${areaCursor.x} ${areaCursor.y}`
+    const p0 = areaVerts[areaVerts.length - 1]
+    return { prior, live: `M ${p0.x} ${p0.y}${cmd}`, combined: prior + cmd }
   }
 
   const buildLinearPreviewPath = () => {
@@ -1979,7 +2089,7 @@ export default function SheetPage() {
     // Area groups
     areaGroups.forEach(g => {
       const groupAreas = addedAreas.filter(a => a.groupId === g.id)
-      const totalSqFt = groupAreas.reduce((s, a) => s + sqft(polyAreaPx(a.poly)) * itemSign(a), 0)
+      const totalSqFt = groupAreas.reduce((s, a) => s + sqft(areaShapePx(a)) * itemSign(a), 0)
       const notes = areaExportNotes(groupAreas, areaGroups, sqft)
       rows.push(['Area', g.name, groupAreas.length, Math.round(totalSqFt), '', notes])
     })
@@ -1990,7 +2100,7 @@ export default function SheetPage() {
       ungroupedByName[name].push(a)
     }
     for (const [name, areas] of Object.entries(ungroupedByName)) {
-      const totalSqFt = areas.reduce((s, a) => s + sqft(polyAreaPx(a.poly)) * itemSign(a), 0)
+      const totalSqFt = areas.reduce((s, a) => s + sqft(areaShapePx(a)) * itemSign(a), 0)
       rows.push(['Area', name, areas.length, Math.round(totalSqFt), '', areaExportNotes(areas, areaGroups, sqft)])
     }
     // Linear groups
@@ -2566,7 +2676,7 @@ export default function SheetPage() {
           onTouchMove={onTouchMove}
           onTouchEnd={onTouchEnd}
           onTouchCancel={onTouchEnd}>
-          <div className={s.hint} data-testid="canvas-hint" data-active-tool={activeTool} data-turf-submode={activeTool === 'turf' ? turfSubmode : ''}>
+          <div className={s.hint} data-testid="canvas-hint" data-active-tool={activeTool} data-turf-submode={activeTool === 'turf' ? turfSubmode : ''} data-curve-phase={activeTool === 'area' ? (curvePhase || '') : ''}>
             {activeTool === 'scale' ? (
               scalePts.length === 0
                 ? <><Ruler size={14} /><span><b>Set scale</b> — click the first end of a known distance</span></>
@@ -2590,15 +2700,17 @@ export default function SheetPage() {
                   ? <><Ruler size={14} style={{ color: measureColor }} /><span>Click to start a new measurement · <kbd>Esc</kbd> to clear all · <b>{measureSessions.length}</b> saved</span></>
                   : <><Ruler size={14} style={{ color: measureColor }} /><span>Click to add points · <kbd>Enter</kbd> to save &amp; start new · <b>{fLn(measureTotalFt)}</b> ft so far</span></>
             ) : activeTool === 'area' ? (
-              arcMode && pendingArcThrough
-                ? <><SquareDashed size={14} /><span>Arc: now click the <b>endpoint</b> of the arc</span></>
-                : arcMode
-                ? <><SquareDashed size={14} /><span>Arc mode — click the <b>through-point</b> of the curve · <kbd>A</kbd> to cancel</span></>
+              curvePhase === 'c1'
+                ? <><SquareDashed size={14} /><span>Cubic: click control point <b>C1</b> · <kbd>Esc</kbd> cancels this curve</span></>
+                : curvePhase === 'c2'
+                ? <><SquareDashed size={14} /><span>Cubic: click control point <b>C2</b> · <kbd>Esc</kbd> cancels this curve</span></>
+                : curvePhase === 'p1'
+                ? <><SquareDashed size={14} /><span>Cubic: click the end vertex <b>P1</b> · <kbd>Esc</kbd> cancels this curve</span></>
                 : areaVerts.length === 0
                   ? (areaCloseHint
                     ? <><SquareDashed size={14} /><span data-testid="area-close-sqft"><b>{areaCloseHint}</b> · click to draw another</span></>
-                    : <><SquareDashed size={14} /><span><b>Click</b> to start drawing — <kbd>A</kbd> for arc segment</span></>)
-                  : <><SquareDashed size={14} /><span>Keep clicking · <kbd>A</kbd> for arc · click first point or <kbd>Enter</kbd> to close</span></>
+                    : <><SquareDashed size={14} /><span><b>Click</b> to start drawing — <kbd>A</kbd> for a cubic segment</span></>)
+                  : <><SquareDashed size={14} /><span>Keep clicking · <kbd>A</kbd> for cubic · click first point or <kbd>Enter</kbd> to close</span></>
             ) : activeTool === 'linear' ? (
               arcMode && pendingArcThrough
                 ? <><Spline size={14} /><span>Arc: now click the <b>endpoint</b> of the arc</span></>
@@ -2766,6 +2878,8 @@ export default function SheetPage() {
                   if (hidden[a.id]) return null
                   const inRegionMode = activeTool === 'region' && hasRegion
                   const isSelected = selectedId === a.id || selectedIds.includes(a.id)
+                  const cubicCount = a.cubicSegs ? Object.keys(a.cubicSegs).length : 0
+                  const hasCubics = cubicCount > 0
                   const hasArcs = a.arcSegs && Object.keys(a.arcSegs).length > 0
                   const turf = isTurfArea(a)
                   const areaColor = turf ? '#15803d' : (a.color || CAT_COLOR[a.type])
@@ -2777,12 +2891,15 @@ export default function SheetPage() {
                     strokeOpacity: strokeOp, strokeWidth: isSelected ? strokeW * u * 2 : strokeW * u * 0.75,
                     strokeDasharray: a.deduct ? `${5 * u} ${3 * u}` : (isSelected ? '0' : undefined),
                   }
-                  const shape = hasArcs
-                    ? <path d={buildAreaPath(a.poly, a.arcSegs)} {...sharedProps} />
+                  const shape = (hasCubics || hasArcs)
+                    ? <path d={buildAreaPath(a.poly, a.arcSegs, a.cubicSegs)} {...sharedProps} />
                     : <polygon points={a.poly.map(p => `${p.x},${p.y}`).join(' ')} {...sharedProps} />
                   const areaTest = {
                     'data-testid': turf ? 'turf-area' : 'soil-area',
                     'data-arc-count': String(hasArcs ? Object.keys(a.arcSegs).length : 0),
+                    'data-cubic-count': String(hasCubics ? cubicCount : 0),
+                    'data-area-px2': String(areaShapePx(a)),
+                    'data-chord-px2': String(polyAreaPx(a.poly || [])),
                   }
                   if (!a.deduct) return <g key={a.id} {...areaTest}>{shape}</g>
                   const c = centroid(a.poly)
@@ -2799,9 +2916,9 @@ export default function SheetPage() {
                 {activeTool === 'region' && previewPoly.length >= 3 && (
                   <g clipPath="url(#region-clip)">
                     {allAreas.filter(a => catActive.has(a.type) && !hidden[a.id]).map(a => {
-                      const hasArcs = a.arcSegs && Object.keys(a.arcSegs).length > 0
-                      return hasArcs
-                        ? <path key={a.id} d={buildAreaPath(a.poly, a.arcSegs)}
+                      const hasCurves = (a.cubicSegs && Object.keys(a.cubicSegs).length > 0) || (a.arcSegs && Object.keys(a.arcSegs).length > 0)
+                      return hasCurves
+                        ? <path key={a.id} d={buildAreaPath(a.poly, a.arcSegs, a.cubicSegs)}
                             fill={CAT_COLOR[a.type]} fillOpacity="0.28"
                             stroke={CAT_COLOR[a.type]} strokeWidth={u} />
                         : <polygon key={a.id} points={a.poly.map(p => `${p.x},${p.y}`).join(' ')}
@@ -2870,8 +2987,23 @@ export default function SheetPage() {
 
                 {/* Selection vertex handles for selected area */}
                 {activeTool === 'select' && selectedArea && selectedArea.poly.map((v, i) => (
-                  <rect key={i} x={v.x - 5*u} y={v.y - 5*u} width={10*u} height={10*u}
+                  <rect key={i} data-testid="area-vertex" data-index={i}
+                    x={v.x - 5*u} y={v.y - 5*u} width={10*u} height={10*u}
                     fill="#fff" stroke="#000" strokeWidth={1.5*u} style={{ cursor: 'move' }} />
+                ))}
+                {activeTool === 'select' && selectedArea && !isTurfArea(selectedArea) && cubicHandleList(selectedArea).map(h => (
+                  <g key={`${h.edge}-${h.which}`}>
+                    <line x1={h.ax} y1={h.ay} x2={h.x} y2={h.y}
+                      stroke="#000" strokeWidth={1*u} strokeDasharray={`${3*u} ${2*u}`} pointerEvents="none" />
+                    <polygon
+                      data-testid="bezier-handle"
+                      data-handle={h.which}
+                      data-edge={h.edge}
+                      data-pending="false"
+                      points={diamondPoints(h.x, h.y, 6*u)}
+                      fill="#fff" stroke="#000" strokeWidth={1.5*u}
+                      style={{ cursor: 'move' }} />
+                  </g>
                 ))}
 
                 {/* Region outline */}
@@ -2896,14 +3028,74 @@ export default function SheetPage() {
                   />
                 ))}
 
-                {/* Area drawing overlay */}
-                {((activeTool === 'area' || (activeTool === 'turf' && turfSubmode === 'draw')) && areaVerts.length >= 1) && (() => {
-                  const pathD = buildAreaPreviewPath()
-                  const col = activeTool === 'turf' ? '#15803d' : (CAT_COLOR[areaType] || '#888')
+                {/* Area drawing overlay — cubic rubber-band. Prior edges dim while a curve is open. */}
+                {activeTool === 'area' && areaVerts.length >= 1 && (() => {
+                  const col = CAT_COLOR[areaType] || '#888'
+                  const { prior, live, combined } = buildAreaDrawPaths()
+                  const last = areaVerts[areaVerts.length - 1]
+                  return (
+                    <>
+                      <path d={combined}
+                        fill={col} fillOpacity="0.15" stroke="none" />
+                      {curvePhase ? (
+                        <>
+                          <path d={prior}
+                            data-testid="area-draw-prior"
+                            fill="none" stroke={col} strokeWidth={2*u}
+                            strokeOpacity={0.35}
+                            strokeLinejoin="round" />
+                          {live && (
+                            <path d={live}
+                              data-testid="area-draw-preview"
+                              fill="none" stroke={col} strokeWidth={2*u}
+                              strokeLinejoin="round" />
+                          )}
+                        </>
+                      ) : (
+                        <path d={combined || prior}
+                          data-testid="area-draw-preview"
+                          fill="none" stroke={col} strokeWidth={2*u}
+                          strokeLinejoin="round" />
+                      )}
+                      {pendingC1 && (
+                        <>
+                          <line x1={last.x} y1={last.y} x2={pendingC1.x} y2={pendingC1.y}
+                            stroke={col} strokeWidth={1*u} strokeDasharray={`${3*u} ${2*u}`} />
+                          <polygon data-testid="bezier-handle" data-handle="c1" data-pending="true"
+                            points={diamondPoints(pendingC1.x, pendingC1.y, 6*u)}
+                            fill="#fff" stroke={col} strokeWidth={1.5*u} />
+                        </>
+                      )}
+                      {pendingC2 && (
+                        <>
+                          <line x1={pendingC2.x} y1={pendingC2.y}
+                            x2={curvePhase === 'p1' && areaCursor ? areaCursor.x : pendingC2.x}
+                            y2={curvePhase === 'p1' && areaCursor ? areaCursor.y : pendingC2.y}
+                            stroke={col} strokeWidth={1*u} strokeDasharray={`${3*u} ${2*u}`} />
+                          <polygon data-testid="bezier-handle" data-handle="c2" data-pending="true"
+                            points={diamondPoints(pendingC2.x, pendingC2.y, 6*u)}
+                            fill="#fff" stroke={col} strokeWidth={1.5*u} />
+                        </>
+                      )}
+                      {(curvePhase === 'c1' || curvePhase === 'c2') && areaCursor && (
+                        <polygon data-testid="bezier-handle-ghost" data-handle={curvePhase}
+                          points={diamondPoints(areaCursor.x, areaCursor.y, 6*u)}
+                          fill="none" stroke={col} strokeWidth={1.5*u} strokeDasharray={`${3*u} ${2*u}`} />
+                      )}
+                      {curvePhase === 'p1' && areaCursor && (
+                        <circle data-testid="bezier-p1-ghost" cx={areaCursor.x} cy={areaCursor.y} r={5*u}
+                          fill="none" stroke={col} strokeWidth={2*u} />
+                      )}
+                    </>
+                  )
+                })()}
+                {activeTool === 'turf' && turfSubmode === 'draw' && areaVerts.length >= 1 && (() => {
+                  const pathD = buildTurfPreviewPath()
+                  const col = '#15803d'
                   return (
                     <>
                       <path d={pathD}
-                        fill={activeTool === 'turf' ? 'url(#turf-hatch)' : col} fillOpacity={activeTool === 'turf' ? 1 : 0.15}
+                        fill="url(#turf-hatch)" fillOpacity={1}
                         stroke={col} strokeWidth={2*u}
                         strokeLinejoin="round" />
                       {pendingArcThrough && (
@@ -3281,7 +3473,12 @@ export default function SheetPage() {
             )
           })()}
 
-          {(arcMode && (activeTool === 'area' || activeTool === 'linear')) && (
+          {curvePhase && activeTool === 'area' && (
+            <div className={s.arcBadge} data-testid="cubic-badge">
+              Cubic
+            </div>
+          )}
+          {(arcMode && activeTool === 'linear') && (
             <div className={s.arcBadge}>
               ⌒ ARC MODE
             </div>
@@ -3309,7 +3506,7 @@ export default function SheetPage() {
                 </button>
               )}
               {activeTool === 'area' && (
-                <button onClick={() => { setAreaVerts([]); setAreaCursor(null); setArcMode(false); setPendingArcThrough(null); arcSegsRef.current = {}; setCtxMenu(null) }}>New area</button>
+                <button onClick={() => { setAreaVerts([]); setAreaCursor(null); setArcMode(false); setPendingArcThrough(null); setCurvePhase(null); setPendingC1(null); setPendingC2(null); arcSegsRef.current = {}; cubicSegsRef.current = {}; setCtxMenu(null) }}>New area</button>
               )}
               <button onClick={() => { placeLegendAt(ctxMenu.x, ctxMenu.y); setCtxMenu(null) }}>Place Legend</button>
             </div>
@@ -3949,7 +4146,7 @@ function generateQuoteEmail(project, sheet, allAreas, allLines, allPoints, vendo
   })
 
   const areaLines = allAreas.map(a => {
-    const sf = sqft(polyAreaPx(a.poly))
+    const sf = sqft(areaShapePx(a))
     // Per-area CY only from this Area's inspector/group depth — never pageDepthIn.
     const d = areaDepthOf(a, areaGroups || [])
     const depthVal = parseFloat(d) || 0
@@ -4076,7 +4273,7 @@ function SelectPanel({ selectedArea, selectedPoint, selectedLine, selectedId, se
 
         {selectedKind === 'area' && selectedArea?.poly && (
           <div style={{ fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-            {fSq(sqft(polyAreaPx(selectedArea.poly)))} ft² · {selectedArea.poly.length} vertices
+            {fSq(sqft(areaShapePx(selectedArea)))} ft² · {selectedArea.poly.length} vertices
           </div>
         )}
         {selectedKind === 'point' && selectedPoint && (
@@ -4371,7 +4568,7 @@ function RegionPanel({ folders, activeFolderId, renamingId, renameVal, onSwitch,
 
 function AreaPanel({ areaType, onSetAreaType, addedAreas, sqft, fSq, onClearAdded, fs,
   areaDepth, onSetDepth, topsoilType, onSetTopsoil, topsoilCustom, onSetTopsoilCustom }) {
-  const totalSqft = addedAreas.reduce((s, a) => s + sqft(polyAreaPx(a.poly)), 0)
+  const totalSqft = addedAreas.reduce((s, a) => s + sqft(areaShapePx(a)), 0)
   const depthIn = parseFloat(areaDepth) || 0
   const totalCY = depthIn > 0 ? (totalSqft * (depthIn / 12)) / 27 : 0
 
@@ -4382,7 +4579,7 @@ function AreaPanel({ areaType, onSetAreaType, addedAreas, sqft, fSq, onClearAdde
           <SquareDashed size={18} style={{ color: 'var(--brand-600)', flexShrink: 0 }} /> Draw area
         </h2>
         <p style={{ margin: 0, fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-          Click to place vertices · <b>A</b> for arc segment · click first point or <b>Enter</b> to close.
+          Click to place vertices · <b>A</b> for a cubic segment · click first point or <b>Enter</b> to close.
         </p>
       </div>
 
@@ -4442,8 +4639,8 @@ function AreaPanel({ areaType, onSetAreaType, addedAreas, sqft, fSq, onClearAdde
                   <span style={{ width: 13, height: 13, borderRadius: 3, background: CAT_COLOR[a.type], flexShrink: 0 }} />
                   <span style={{ flex: 1, fontSize: `calc(13px * ${fs})`, color: 'var(--text-strong)', fontWeight: 500 }}>{a.name || cat?.name || a.type}</span>
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: `calc(12px * ${fs})`, color: 'var(--text-muted)' }}>
-                    {fSq(sqft(polyAreaPx(a.poly)))} ft²
-                    {areaOwnVolumeCy(sqft(polyAreaPx(a.poly)), a) > 0 && <span style={{ color: 'var(--brand-600)', display: 'block', fontSize: `calc(11px * ${fs})` }}>{areaOwnVolumeCy(sqft(polyAreaPx(a.poly)), a).toFixed(1)} CY</span>}
+                    {fSq(sqft(areaShapePx(a)))} ft²
+                    {areaOwnVolumeCy(sqft(areaShapePx(a)), a) > 0 && <span style={{ color: 'var(--brand-600)', display: 'block', fontSize: `calc(11px * ${fs})` }}>{areaOwnVolumeCy(sqft(areaShapePx(a)), a).toFixed(1)} CY</span>}
                   </span>
                 </div>
               )
@@ -4771,10 +4968,10 @@ function ConditionsPanel({ countGroups, activeCountGroupId, onSetActiveCountGrou
     },
   })
   const totalCountItems = signedPointCount(addedPoints)
-  const totalAreaSqft = addedAreas.reduce((s, a) => s + sqft(polyAreaPx(a.poly)) * itemSign(a), 0)
+  const totalAreaSqft = addedAreas.reduce((s, a) => s + sqft(areaShapePx(a)) * itemSign(a), 0)
   const totalOwnCy = addedAreas.reduce((s, a) => {
     if (isTurfArea(a)) return s
-    return s + areaOwnVolumeCy(sqft(polyAreaPx(a.poly)), a, areaGroups) * itemSign(a)
+    return s + areaOwnVolumeCy(sqft(areaShapePx(a)), a, areaGroups) * itemSign(a)
   }, 0)
   const totalLinearFt = addedLines.reduce((s, l) => s + (l.pts ? linePathLenPx(l.pts, l.arcSegs) / 4 : 0) * itemSign(l), 0)
   return (
@@ -4870,7 +5067,7 @@ function ConditionsPanel({ countGroups, activeCountGroupId, onSetActiveCountGrou
             <div style={{ fontSize: `calc(10px * ${fs})`, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-subtle)', padding: '8px 4px 4px' }}>Areas</div>
             {areaGroups.map(g => {
               const groupAreas = addedAreas.filter(a => a.groupId === g.id)
-              const groupSqft = groupAreas.reduce((s, a) => s + sqft(polyAreaPx(a.poly)) * itemSign(a), 0)
+              const groupSqft = groupAreas.reduce((s, a) => s + sqft(areaShapePx(a)) * itemSign(a), 0)
               const dh = makeDragHandlers(areaGroups, onReorderAreaGroups)
               return (
                 <div key={g.id} draggable onClick={() => onSetActiveAreaGroup(g.id)}

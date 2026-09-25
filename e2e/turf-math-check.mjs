@@ -2,6 +2,10 @@
 import { volumeCy, formatCy, mixedValue, DEPTH_PRESETS, areaExportNotes, quoteHeaderFields, areaOwnVolumeCy, isUngroupedSoilArea } from '../src/workspace/areaProps.js'
 import { takeoffMaterialItems } from '../src/data/takeoff.js'
 import {
+  polyAreaPx, shapeAreaPx, areaShapePx, buildAreaPath, buildChainPath, cubicPreviewCmd,
+  shiftCubicSegsForInsert, translateCubicSegs,
+} from '../src/workspace/geometry.js'
+import {
   rollCorners, rollFitsInArea, turfCoverage, parseRollFt,
   snapRollToNeighbors, neighborSnapTargets, estimateRollsNeeded, DEFAULT_ROLL_W_FT, ROLL_NEIGHBOR_SNAP_FT,
 } from '../src/workspace/turf.js'
@@ -201,6 +205,104 @@ check('FINAL: move into snap range inherits neighbor angle', !!(moveLock && move
 
 check('gaps 2500 / 1500 sq ft roll = 2 needed', estimateRollsNeeded(2500, 15, 100) === 2)
 check('no gaps = 0 needed', estimateRollsNeeded(0, 15, 100) === 0)
+
+// --- Area cubic bezier (§5.1). Straight edges must match the chord shoelace. ---
+const unitSquare = [
+  { x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 },
+]
+check('shapeAreaPx matches polyAreaPx with no cubics',
+  shapeAreaPx(unitSquare, {}) === polyAreaPx(unitSquare))
+const onChord = {
+  1: {
+    c1: { x: 100, y: 100 / 3 },
+    c2: { x: 100, y: 200 / 3 },
+  },
+}
+check('cubic on the chord does not change area',
+  Math.abs(shapeAreaPx(unitSquare, onChord) - polyAreaPx(unitSquare)) < 1e-6,
+  String(shapeAreaPx(unitSquare, onChord)))
+
+function cubicAt(p0, c1, c2, p1, t) {
+  const u = 1 - t
+  return {
+    x: u * u * u * p0.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * p1.x,
+    y: u * u * u * p0.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * p1.y,
+  }
+}
+function sampledShape(poly, cubics, steps = 240) {
+  const pts = []
+  for (let i = 0; i < poly.length; i++) {
+    const p0 = poly[i]
+    const p1 = poly[(i + 1) % poly.length]
+    const seg = cubics[i]
+    const n = seg ? steps : 1
+    for (let s = 0; s < n; s++) {
+      pts.push(seg ? cubicAt(p0, seg.c1, seg.c2, p1, s / n) : p0)
+    }
+  }
+  return polyAreaPx(pts)
+}
+const bulge = {
+  1: { c1: { x: 180, y: 0 }, c2: { x: 180, y: 100 } },
+}
+const exactBulge = shapeAreaPx(unitSquare, bulge)
+const sampledBulge = sampledShape(unitSquare, bulge)
+check('bulged cubic area matches sampled curve (not the chord)',
+  Math.abs(exactBulge - sampledBulge) < 1
+  && exactBulge > polyAreaPx(unitSquare) + 100,
+  `exact=${exactBulge.toFixed(2)} sampled=${sampledBulge.toFixed(2)} chord=${polyAreaPx(unitSquare)}`)
+
+const mixed = [
+  { x: 0, y: 0 }, { x: 80, y: 0 }, { x: 80, y: 50 }, { x: 0, y: 50 },
+]
+const mixedCubics = { 0: { c1: { x: 20, y: -40 }, c2: { x: 60, y: -40 } } }
+check('mixed straight+cubic area matches the sampled polygon',
+  Math.abs(shapeAreaPx(mixed, mixedCubics) - sampledShape(mixed, mixedCubics)) < 1,
+  `${shapeAreaPx(mixed, mixedCubics).toFixed(2)} vs ${sampledShape(mixed, mixedCubics).toFixed(2)}`)
+check('areaShapePx reads cubicSegs off the area object',
+  areaShapePx({ poly: mixed, cubicSegs: mixedCubics }) === shapeAreaPx(mixed, mixedCubics))
+
+const cubicD = buildAreaPath(mixed, {}, mixedCubics)
+check('new Area path uses cubic C and not a circular A',
+  /\sC\s/.test(cubicD) && !/\sA\s/.test(cubicD), cubicD)
+const arcD = buildAreaPath(mixed, { 0: { x: 40, y: -20 } }, {})
+check('circular arc path still available for linear/turf',
+  /\sA\s/.test(arcD) && !/\sC\s/.test(arcD), arcD)
+
+const c1 = { x: 10, y: 30 }
+const c2 = { x: 40, y: 30 }
+const cursor = { x: 80, y: 0 }
+check('rubber-band C1 is a line', cubicPreviewCmd('c1', null, null, cursor).startsWith(' L '))
+check('rubber-band C2 is a cubic ending at the cursor',
+  cubicPreviewCmd('c2', c1, null, cursor).includes(` C ${c1.x} ${c1.y} ${cursor.x} ${cursor.y} ${cursor.x} ${cursor.y}`))
+check('rubber-band P1 is the full cubic',
+  cubicPreviewCmd('p1', c1, c2, cursor).includes(` C ${c1.x} ${c1.y} ${c2.x} ${c2.y} ${cursor.x} ${cursor.y}`))
+check('open chain does not close with Z', !buildChainPath(mixed, {}, mixedCubics).includes('Z'))
+
+const shifted = shiftCubicSegsForInsert({ 0: mixedCubics[0], 2: { c1: { x: 1, y: 1 }, c2: { x: 2, y: 2 } } }, 0)
+check('inserting a vertex drops that edge cubic and shifts later edges',
+  !shifted[0] && !shifted[1] && shifted[3] && shifted[3].c1.x === 1,
+  JSON.stringify(shifted))
+const moved = translateCubicSegs(mixedCubics, 5, -2)
+check('translating an area moves C1 and C2 with it',
+  moved[0].c1.x === 25 && moved[0].c1.y === -42 && moved[0].c2.x === 65)
+
+const cubicTakeoff = takeoffMaterialItems(
+  { sheetIds: ['s1'] },
+  {
+    s1: {
+      pxPerFt: 4,
+      savedAreaGroups: [],
+      savedAreas: [{ name: 'Bed', poly: unitSquare, cubicSegs: bulge, depth: '12', topsoil: 'none' }],
+    },
+  },
+)
+const chordSf = polyAreaPx(unitSquare) / 16
+const curveSf = shapeAreaPx(unitSquare, bulge) / 16
+check('takeoff sq ft uses the cubic area, not the chord',
+  cubicTakeoff.some(it => it.kind === 'area' && it.qty === Math.round(curveSf) && it.qty !== Math.round(chordSf)),
+  JSON.stringify(cubicTakeoff.map(it => it.qty)))
+check('DEPTH_PRESETS stay empty', DEPTH_PRESETS.length === 0)
 
 if (failed) { console.log(`\nFAILURES: ${failed}`); process.exit(1) }
 console.log('\n=== ALL PASS ===')

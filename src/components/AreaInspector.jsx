@@ -4,7 +4,7 @@ import {
   TOPSOIL_OPTIONS, volumeCy, formatCy, mixedValue,
   areaDepthOf, areaTopsoilOf, areaTopsoilCustomOf,
 } from '../workspace/areaProps.js'
-import { polyAreaPx } from '../workspace/geometry.js'
+import { areaShapePx } from '../workspace/geometry.js'
 
 export default function AreaInspector({
   areas,
@@ -22,9 +22,9 @@ export default function AreaInspector({
   const soilMix = mixedValue(soils)
   const customMix = mixedValue(customs)
 
-  const totalSqFt = areas.reduce((sum, a) => sum + sqft(polyAreaPx(a.poly || [])), 0)
+  const totalSqFt = areas.reduce((sum, a) => sum + sqft(areaShapePx(a)), 0)
   const totalCy = areas.reduce((sum, a) => {
-    const sf = sqft(polyAreaPx(a.poly || []))
+    const sf = sqft(areaShapePx(a))
     return sum + volumeCy(sf, areaDepthOf(a, areaGroups))
   }, 0)
 
