@@ -40,7 +40,8 @@ export function bbox(poly) {
   return { minX, minY, maxX, maxY }
 }
 
-// True polygon clipping by grid sampling — returns overlap area px² and centroid
+// Grid sample of the bbox overlap only (not the full subject). Returns overlap
+// area px² and the average of the hit cell centers.
 export function clipPx2(subj, region, step = 4) {
   if (region.length < 3) return { px2: 0, c: null }
   const a = bbox(subj), b = bbox(region)
@@ -275,8 +276,8 @@ function gridStepFor(area, step) {
   return areaIsCurved(area) && step <= 4 ? 2 : step
 }
 
-function clipStoreKey(area, region, step) {
-  return `${gridStepFor(area, step)}|${ringKey(region || [])}`
+function clipStoreKey(area, region, step, labels = true) {
+  return `${gridStepFor(area, step)}|${labels ? 'L' : 'S'}|${ringKey(region || [])}`
 }
 
 function cachedFlatRecord(poly, cubicSegs, steps = 32) {
@@ -323,7 +324,7 @@ export function syncGeometryCache(areas, keepClips) {
     for (const c of keepClips || []) {
       const region = c?.region
       if (!region || region.length < 3) continue
-      keep.add(`${id}||${clipStoreKey(a, region, c.step ?? 4)}`)
+      keep.add(`${id}||${clipStoreKey(a, region, c.step ?? 4, c.labels !== false)}`)
     }
   }
   for (const key of [...flattenCache.keys()]) {
@@ -532,29 +533,208 @@ function intersectionPieces(subject, region) {
   return pieces
 }
 
-function labelOnPieces(pieces) {
-  if (!pieces.length) return null
-  if (pieces.length === 1) return outlineLabelPoint(pieces[0])
-  let twiceSum = 0, cx = 0, cy = 0
-  let largest = pieces[0], largestA = 0
-  for (const poly of pieces) {
-    let twice = 0, pcx = 0, pcy = 0
-    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-      const cross = poly[j].x * poly[i].y - poly[i].x * poly[j].y
-      twice += cross
-      pcx += (poly[j].x + poly[i].x) * cross
-      pcy += (poly[j].y + poly[i].y) * cross
+function qCoord(v) { return Math.round(v * 1000) }
+
+function pointStrictlyOnSeg(p, a, b) {
+  const abx = b.x - a.x, aby = b.y - a.y
+  const len = Math.hypot(abx, aby)
+  if (len < 1e-9) return false
+  const cross = abx * (p.y - a.y) - aby * (p.x - a.x)
+  if (Math.abs(cross) > 1e-4 * len) return false
+  const t = ((p.x - a.x) * abx + (p.y - a.y) * aby) / (abx * abx + aby * aby)
+  return t > 1e-6 && t < 1 - 1e-6
+}
+
+// Sutherland–Hodgman emits one ring. A concave subject cut by a convex box
+// can come back as two real pieces joined by a zero-width bridge. Split edges
+// at vertices that lie on them and cancel those opposite bridge edges.
+function splitBridgedRing(ring) {
+  const n = ring.length
+  if (n < 3) return []
+  const segs = []
+  for (let i = 0; i < n; i++) {
+    const a = ring[i]
+    const b = ring[(i + 1) % n]
+    const cuts = []
+    for (let k = 0; k < n; k++) {
+      if (k === i || k === (i + 1) % n) continue
+      const p = ring[k]
+      if (!pointStrictlyOnSeg(p, a, b)) continue
+      const abx = b.x - a.x, aby = b.y - a.y
+      const t = ((p.x - a.x) * abx + (p.y - a.y) * aby) / (abx * abx + aby * aby)
+      cuts.push({ t, p })
     }
-    const a = Math.abs(twice)
-    if (a > largestA) { largestA = a; largest = poly }
-    twiceSum += twice
-    cx += pcx
-    cy += pcy
+    cuts.sort((u, v) => u.t - v.t)
+    let cur = a
+    for (const c of cuts) {
+      if (Math.hypot(cur.x - c.p.x, cur.y - c.p.y) > 1e-6) segs.push([cur, c.p])
+      cur = c.p
+    }
+    if (Math.hypot(cur.x - b.x, cur.y - b.y) > 1e-6) segs.push([cur, b])
   }
-  if (Math.abs(twiceSum) < 1e-6) return outlineLabelPoint(largest)
-  const c = { x: cx / (3 * twiceSum), y: cy / (3 * twiceSum) }
-  if (pieces.some(p => inside(c, p))) return c
-  return outlineLabelPoint(largest)
+  const bag = new Map()
+  const keyOf = (p, q) => `${qCoord(p.x)},${qCoord(p.y)}>${qCoord(q.x)},${qCoord(q.y)}`
+  for (const [a, b] of segs) {
+    const rev = keyOf(b, a)
+    const revList = bag.get(rev)
+    if (revList && revList.length) {
+      revList.pop()
+      if (!revList.length) bag.delete(rev)
+    } else {
+      const fwd = keyOf(a, b)
+      const list = bag.get(fwd)
+      if (list) list.push([a, b])
+      else bag.set(fwd, [[a, b]])
+    }
+  }
+  const edges = []
+  for (const list of bag.values()) {
+    for (const [a, b] of list) edges.push({ a, b })
+  }
+  const cancelled = edges.length !== segs.length
+  const traced = traceDirectedRings(edges)
+  const kept = traced.filter(r => r.length >= 3 && Math.abs(ringSignedArea(r)) > 1e-3)
+  if (kept.length) return kept
+  if (!cancelled && Math.abs(ringSignedArea(ring)) > 1e-3) return [cleanRing(ring)]
+  return []
+}
+
+function traceDirectedRings(edges) {
+  const byStart = new Map()
+  edges.forEach((e, i) => {
+    e.i = i
+    const k = `${qCoord(e.a.x)},${qCoord(e.a.y)}`
+    const list = byStart.get(k)
+    if (list) list.push(e)
+    else byStart.set(k, [e])
+  })
+  const used = new Array(edges.length).fill(false)
+  const rings = []
+  for (let i = 0; i < edges.length; i++) {
+    if (used[i]) continue
+    const startKey = `${qCoord(edges[i].a.x)},${qCoord(edges[i].a.y)}`
+    const pts = [{ x: edges[i].a.x, y: edges[i].a.y }]
+    used[i] = true
+    let cur = edges[i]
+    let guard = edges.length + 1
+    let closed = false
+    while (guard-- > 0) {
+      const endKey = `${qCoord(cur.b.x)},${qCoord(cur.b.y)}`
+      if (endKey === startKey) { closed = true; break }
+      const nxt = (byStart.get(endKey) || []).find(e => !used[e.i])
+      if (!nxt) break
+      pts.push({ x: cur.b.x, y: cur.b.y })
+      used[nxt.i] = true
+      cur = nxt
+    }
+    if (closed && pts.length >= 3) rings.push(pts)
+  }
+  return rings
+}
+
+function pieceMetrics(poly) {
+  let twice = 0, cx = 0, cy = 0
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const cross = poly[j].x * poly[i].y - poly[i].x * poly[j].y
+    twice += cross
+    cx += (poly[j].x + poly[i].x) * cross
+    cy += (poly[j].y + poly[i].y) * cross
+  }
+  const area = Math.abs(twice) / 2
+  const c = Math.abs(twice) < 1e-8
+    ? centroid(poly)
+    : { x: cx / (3 * twice), y: cy / (3 * twice) }
+  return { poly, area, c }
+}
+
+// Greater area, then the lower centroid, then the left one. Equal bars stay
+// on the same piece when the region edge moves a fraction of a pixel.
+function pickLargestPiece(pieces) {
+  let best = null
+  for (const poly of pieces) {
+    const m = pieceMetrics(poly)
+    if (m.area < 1e-3) continue
+    if (!best || m.area > best.area + 1e-4) { best = m; continue }
+    if (m.area < best.area - 1e-4) continue
+    if (m.c.y < best.c.y - 1e-6 || (Math.abs(m.c.y - best.c.y) <= 1e-6 && m.c.x < best.c.x)) best = m
+  }
+  return best
+}
+
+function interiorScanline(poly, nearY) {
+  const spanMid = (y) => {
+    const xs = []
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const a = poly[j], b = poly[i]
+      if ((a.y > y) === (b.y > y)) continue
+      const denom = b.y - a.y
+      if (denom === 0) continue
+      xs.push(a.x + (b.x - a.x) * (y - a.y) / denom)
+    }
+    xs.sort((p, q) => p - q)
+    let best = null
+    for (let i = 0; i + 1 < xs.length; i += 2) {
+      const w = xs[i + 1] - xs[i]
+      if (w > 0 && (!best || w > best.w)) best = { lo: xs[i], hi: xs[i + 1], w }
+    }
+    if (!best) return null
+    const p = { x: (best.lo + best.hi) / 2, y }
+    return inside(p, poly) ? p : null
+  }
+  const through = spanMid(nearY)
+  if (through) return through
+  const box = bbox(poly)
+  let best = null
+  const rows = 28
+  for (let i = 1; i < rows; i++) {
+    const y = box.minY + (box.maxY - box.minY) * (i / rows)
+    const p = spanMid(y)
+    if (!p) continue
+    if (!best || Math.abs(p.y - nearY) < Math.abs(best.y - nearY)) best = p
+  }
+  return best
+}
+
+function nearestGridHit(flat, region, step, target) {
+  const a = bbox(flat), b = bbox(region)
+  const x0 = Math.max(a.minX, b.minX), y0 = Math.max(a.minY, b.minY)
+  const x1 = Math.min(a.maxX, b.maxX), y1 = Math.min(a.maxY, b.maxY)
+  if (x1 <= x0 || y1 <= y0) return null
+  const tx = target ? target.x : (x0 + x1) / 2
+  const ty = target ? target.y : (y0 + y1) / 2
+  let best = null, bestD = Infinity
+  for (let y = y0 + step / 2; y < y1; y += step) {
+    for (let x = x0 + step / 2; x < x1; x += step) {
+      if (!inside({ x, y }, flat) || !inside({ x, y }, region)) continue
+      const d = (x - tx) * (x - tx) + (y - ty) * (y - ty)
+      if (d < bestD) { bestD = d; best = { x, y } }
+    }
+  }
+  return best
+}
+
+function labelInOutlineAndRegion(p, outline, region) {
+  return !!(p && inside(p, outline) && inside(p, region))
+}
+
+// Centroid of the largest real piece. Reject it unless it sits in that piece,
+// the original outline, and the region. Then a scanline of the piece, then
+// the nearest clip grid cell that is inside both.
+function labelFromPieces(pieces, outline, region, gridStep) {
+  const best = pickLargestPiece(pieces)
+  const pieceC = best ? { x: best.c.x, y: best.c.y } : null
+  if (pieceC && inside(pieceC, best.poly) && labelInOutlineAndRegion(pieceC, outline, region)) {
+    return { c: pieceC, pieceC }
+  }
+  if (best && pieceC) {
+    const scan = interiorScanline(best.poly, pieceC.y)
+    if (labelInOutlineAndRegion(scan, outline, region)) return { c: scan, pieceC }
+  }
+  return { c: nearestGridHit(outline, region, gridStep, pieceC), pieceC }
+}
+
+function bboxesOverlap(a, b) {
+  return a.maxX > b.minX && b.maxX > a.minX && a.maxY > b.minY && b.maxY > a.minY
 }
 
 function fullyInsideRing(flat, region) {
@@ -569,16 +749,18 @@ function fullyInsideRing(flat, region) {
 // used only when the outline does not cross the region and no region vertex
 // sits inside the shape. A concave bite fails that test and grid-samples the
 // outline. Closed curved clips (step <= 4) use a 2px grid; straight partial
-// overlaps stay on the caller's step. The label of a partial clip is the
-// area-weighted centroid of the clipped piece, not the grid-cell average.
+// overlaps stay on the caller's step. opts.labels === false skips piece and
+// label work (folder panel and region MTO). A partial label is the centroid
+// of the largest real piece after zero-width bridges are removed.
 // Areas with only circular arcSegs stay on the chord polygon.
-export function clipAreaPx2(area, region, step = 4) {
+export function clipAreaPx2(area, region, step = 4, opts) {
   const poly = area?.poly || []
   const cubics = area?.cubicSegs
   if (!region || region.length < 3 || poly.length < 3) return { px2: 0, c: null }
+  const wantLabels = !opts || opts.labels !== false
   const curved = areaIsCurved(area)
   const id = geomId(poly, cubics)
-  const storeKey = clipStoreKey(area, region, step)
+  const storeKey = clipStoreKey(area, region, step, wantLabels)
   let byRegion = clipCache.get(id)
   const cached = byRegion?.get(storeKey)
   if (cached) return cached
@@ -586,15 +768,23 @@ export function clipAreaPx2(area, region, step = 4) {
   const flat = curved ? cachedFlatRecord(poly, cubics).flat : poly
   const gridStep = gridStepFor(area, step)
   let result
-  if (fullyInsideRing(flat, region)) {
+  if (!bboxesOverlap(bbox(flat), bbox(region))) {
+    result = { px2: 0, c: null }
+  } else if (fullyInsideRing(flat, region)) {
     result = {
       px2: curved ? shapeAreaPx(poly, cubics) : polyAreaPx(poly),
-      c: outlineLabelPoint(flat),
+      c: wantLabels ? outlineLabelPoint(flat) : null,
     }
+  } else if (!wantLabels) {
+    result = { px2: clipPx2(flat, region, gridStep).px2, c: null }
   } else {
     const grid = clipPx2(flat, region, gridStep)
-    const pieces = intersectionPieces(flat, region)
-    result = { px2: grid.px2, c: (pieces.length ? labelOnPieces(pieces) : null) || grid.c }
+    const pieces = []
+    for (const ring of intersectionPieces(flat, region)) {
+      for (const part of splitBridgedRing(ring)) pieces.push(part)
+    }
+    const labeled = labelFromPieces(pieces, flat, region, gridStep)
+    result = { px2: grid.px2, c: labeled.c, pieceC: labeled.pieceC }
   }
   if (!byRegion) {
     byRegion = new Map()
@@ -605,10 +795,11 @@ export function clipAreaPx2(area, region, step = 4) {
 }
 
 // Sheet MTO and takeoff pass no region and get the full curve. A region MTO
-// passes the folder polygon and clips that same flattened outline. When the
-// outline sits entirely inside the region, both numbers are shapeAreaPx.
+// passes the folder polygon and clips that same flattened outline. Sq ft only:
+// piece and label work stays on the canvas label path. When the outline sits
+// entirely inside the region, both numbers are shapeAreaPx.
 export function measuredAreaPx2(area, region) {
-  if (region && region.length >= 3) return clipAreaPx2(area, region, 4).px2
+  if (region && region.length >= 3) return clipAreaPx2(area, region, 4, { labels: false }).px2
   return areaShapePx(area)
 }
 

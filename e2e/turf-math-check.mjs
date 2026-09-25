@@ -454,6 +454,47 @@ check('partial clip label sits inside the clipped C, not the notch',
   && Math.hypot(cClip.c.x - notch.x, cClip.c.y - notch.y) > 8,
   `label=${cClip.c ? cClip.c.x.toFixed(2) + ',' + cClip.c.y.toFixed(2) : 'null'}`)
 
+// box(L,-500,600,600): vertical cut at x=L through the C. L in the notch
+// used to leave the label on the zero-width bridge.
+function sweepCLabel(area) {
+  let prev = null
+  let fails = 0
+  let maxHeldJump = 0
+  let pieceChanges = 0
+  const bad = []
+  for (let i = 0; i <= 180; i++) {
+    const L = 30 + i * 0.5
+    const region = [
+      { x: L, y: -500 }, { x: 600, y: -500 }, { x: 600, y: 600 }, { x: L, y: 600 },
+    ]
+    const clip = clipAreaPx2(area, region, 4)
+    const ok = !!(clip.c && pointInArea(clip.c, area) && inside(clip.c, region))
+    if (!ok) {
+      fails++
+      if (bad.length < 3) bad.push(`${L}:${clip.c ? clip.c.x.toFixed(2) + ',' + clip.c.y.toFixed(2) : 'null'}`)
+    }
+    if (prev?.c && clip.c && prev.pieceC && clip.pieceC) {
+      const jump = Math.hypot(clip.c.x - prev.c.x, clip.c.y - prev.c.y)
+      const pieceJump = Math.hypot(clip.pieceC.x - prev.pieceC.x, clip.pieceC.y - prev.pieceC.y)
+      if (pieceJump > 5) pieceChanges++
+      else if (jump > maxHeldJump) maxHeldJump = jump
+    }
+    prev = clip
+  }
+  return { fails, maxHeldJump, pieceChanges, bad }
+}
+const straightC = { poly: cPoly }
+const curvedSweep = sweepCLabel(cArea)
+const straightSweep = sweepCLabel(straightC)
+console.log(`C label sweep L=30..120 step 0.5 curved fails=${curvedSweep.fails} maxHeldJump=${curvedSweep.maxHeldJump.toFixed(3)} pieceChanges=${curvedSweep.pieceChanges}`)
+console.log(`C label sweep L=30..120 step 0.5 straight fails=${straightSweep.fails} maxHeldJump=${straightSweep.maxHeldJump.toFixed(3)} pieceChanges=${straightSweep.pieceChanges}`)
+check('curved C label stays inside across the region sweep',
+  curvedSweep.fails === 0 && curvedSweep.maxHeldJump <= 5,
+  `fails=${curvedSweep.fails} maxHeldJump=${curvedSweep.maxHeldJump.toFixed(3)} pieceChanges=${curvedSweep.pieceChanges} bad=${curvedSweep.bad.join(' ')}`)
+check('straight C label stays inside across the region sweep',
+  straightSweep.fails === 0 && straightSweep.maxHeldJump <= 5,
+  `fails=${straightSweep.fails} maxHeldJump=${straightSweep.maxHeldJump.toFixed(3)} pieceChanges=${straightSweep.pieceChanges} bad=${straightSweep.bad.join(' ')}`)
+
 const side = 500.25
 const straightSquare = [
   { x: 10, y: 10 }, { x: 10 + side, y: 10 }, { x: 10 + side, y: 10 + side }, { x: 10, y: 10 + side },

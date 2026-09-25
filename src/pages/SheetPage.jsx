@@ -99,6 +99,81 @@ const SAMPLE_REGION = [
 const DEFAULT_PXFT = 4
 const NEAR = 16
 const FIT = 0.72
+
+// Convex hull of the anchors and cubic handles. The curve stays inside it,
+// so a miss here is a real miss against the region.
+function areaDragBounds(area) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  const add = (p) => {
+    if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return
+    if (p.x < minX) minX = p.x
+    if (p.y < minY) minY = p.y
+    if (p.x > maxX) maxX = p.x
+    if (p.y > maxY) maxY = p.y
+  }
+  for (const p of area?.poly || []) add(p)
+  const segs = area?.cubicSegs
+  if (segs) {
+    for (const seg of Object.values(segs)) {
+      if (!seg) continue
+      add(seg.c1)
+      add(seg.c2)
+    }
+  }
+  if (minX === Infinity) return null
+  return { minX, minY, maxX, maxY }
+}
+
+function boundsOverlap(a, b) {
+  return a.maxX > b.minX && b.maxX > a.minX && a.maxY > b.minY && b.maxY > a.minY
+}
+
+function pointInTriBox(p, a, b, c) {
+  const s = (p1, p2, p3) => (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y)
+  const d1 = s(p, a, b), d2 = s(p, b, c), d3 = s(p, c, a)
+  const neg = d1 < -1e-8 || d2 < -1e-8 || d3 < -1e-8
+  const pos = d1 > 1e-8 || d2 > 1e-8 || d3 > 1e-8
+  return !(neg && pos)
+}
+
+function segProperCross(a, b, c, d) {
+  const cross = (p, q, r) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x)
+  const d1 = cross(c, d, a), d2 = cross(c, d, b)
+  const d3 = cross(a, b, c), d4 = cross(a, b, d)
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))
+}
+
+// Area bbox against the triangle the moving vertex sweeps with one neighbor.
+function boxHitsTri(box, a, b, c) {
+  if (!boundsOverlap(box, bbox([a, b, c]))) return false
+  const verts = [a, b, c]
+  if (verts.some(p => p.x >= box.minX && p.x <= box.maxX && p.y >= box.minY && p.y <= box.maxY)) return true
+  const corners = [
+    { x: box.minX, y: box.minY }, { x: box.maxX, y: box.minY },
+    { x: box.maxX, y: box.maxY }, { x: box.minX, y: box.maxY },
+  ]
+  if (corners.some(p => pointInTriBox(p, a, b, c))) return true
+  const edges = [[corners[0], corners[1]], [corners[1], corners[2]], [corners[2], corners[3]], [corners[3], corners[0]]]
+  const triEdges = [[a, b], [b, c], [c, a]]
+  for (const [p, q] of edges) {
+    for (const [r, s] of triEdges) if (segProperCross(p, q, r, s)) return true
+  }
+  return false
+}
+
+// Moving one vertex changes containment only inside the two triangles formed
+// with its neighbors. Areas that miss both keep the previous clip.
+function vertexSweepHits(areaBox, prev, next, idx) {
+  if (idx == null || !prev || prev.length !== next.length || idx < 0 || idx >= next.length) return true
+  const n = prev.length
+  const prevV = prev[idx]
+  const nextV = next[idx]
+  if (!prevV || !nextV) return true
+  if (prevV.x === nextV.x && prevV.y === nextV.y) return false
+  const p = prev[(idx - 1 + n) % n]
+  const q = prev[(idx + 1) % n]
+  return boxHitsTri(areaBox, p, prevV, nextV) || boxHitsTri(areaBox, q, prevV, nextV)
+}
 const FOLDER_PALETTE = ['#157a52','#2563eb','#7c3aed','#d97706','#dc2626','#0891b2']
 
 // Deduction sign for a takeoff item: negative items subtract from totals.
@@ -436,6 +511,12 @@ export default function SheetPage() {
   const dragCubicRef     = useRef(null) // { edge, which: 'c1'|'c2' }
   const dragAreaIdRef    = useRef(null)
   const dragRegionVertRef = useRef(null) // index of region vertex being dragged
+  const [regionVertexDrag, setRegionVertexDrag] = useState(false)
+  const pendingRegionRef = useRef(null)
+  const regionDragRafRef = useRef(null)
+  // Previous coarse clip during a vertex drag, so a move re-clips only the
+  // areas the vertex sweep actually reaches.
+  const dragClipRef = useRef(null)
   const panStartRef      = useRef(null) // fixed mousedown point — only for the "was this a real drag" threshold below
   // Last mouse/touch position seen during an active pan drag. Panning is
   // computed as an INCREMENTAL delta from this (not "mousedown origin +
@@ -786,10 +867,22 @@ export default function SheetPage() {
   })()
   useEffect(() => {
     if (!sheetId || !regionSaveId || regionClosed === null) return
+    // A vertex drag keeps the committed polygon until mouseup. The live clip
+    // is coarse; saving each move would recompute exact folder sq ft per frame.
+    if (regionVertexDrag) return
     updateSheet(sheetId, {
       regionPolys: { ...(sheet?.regionPolys || {}), [regionSaveId]: regionClosed },
     })
-  }, [regionClosed, regionSaveId, sheetId])
+  }, [regionClosed, regionSaveId, sheetId, regionVertexDrag])
+
+  // DEV bench: one increment per committed SheetPage render. Production
+  // builds leave the flag unset, so the body is a no-op.
+  useEffect(() => {
+    if (import.meta.env.DEV && typeof window !== 'undefined' && window.__plotlineCountSheetCommits) {
+      window.__plotlineSheetCommits = (window.__plotlineSheetCommits || 0) + 1
+      window.__plotlineCommitAt = performance.now()
+    }
+  })
 
   // ---- Keyboard shortcuts ----
   useEffect(() => {
@@ -983,12 +1076,16 @@ export default function SheetPage() {
   const clipRegion = regionClosed || regionVerts
   const clipHasRegion = clipRegion.length >= 3
   const clipStep = (activeTool === 'region' && !regionClosed) ? 6 : 4
+  // Vertex drag: one coarse clip per frame, no piece/label work. Mouseup
+  // clears the flag and flushes the polygon so the next render is exact.
+  const regionClipStep = regionVertexDrag ? 16 : clipStep
+  const regionClipLabels = !regionVertexDrag
   const savedFolderPolys = (sheetReady && project.regions)
     ? project.regions.map(r => sheet.regionPolys?.[r.id]).filter(p => p && p.length >= 3)
     : []
   const keepClips = []
-  if (clipHasRegion) keepClips.push({ region: clipRegion, step: clipStep })
-  for (const poly of savedFolderPolys) keepClips.push({ region: poly, step: 4 })
+  if (clipHasRegion) keepClips.push({ region: clipRegion, step: regionClipStep, labels: regionClipLabels })
+  for (const poly of savedFolderPolys) keepClips.push({ region: poly, step: 4, labels: false })
   if (sheetReady) syncGeometryCache(clipAreas, keepClips)
   const areaGeomSig = clipAreas.map(a => `${a.id}\t${a.type}\t${a.deduct ? 1 : 0}\t${areaGeometryKey(a)}`).join('\n')
   const regionSig = clipHasRegion ? polygonKey(clipRegion) : ''
@@ -996,12 +1093,32 @@ export default function SheetPage() {
   const areaRegionClip = useMemo(() => {
     const clip = {}
     const byCat = {}
-    if (!sheetReady || !clipHasRegion || activeTool !== 'region') return { clip, byCat }
+    if (!sheetReady || !clipHasRegion || activeTool !== 'region') {
+      dragClipRef.current = null
+      return { clip, byCat }
+    }
     const sq = (px2) => px2 / (pxPerFt * pxPerFt)
+    const dragging = regionClipStep === 16 && !regionClipLabels
+    const prevDrag = dragging ? dragClipRef.current : null
+    const dragIdx = dragRegionVertRef.current
+    const regionBox = bbox(clipRegion)
+    const stored = {}
+    let reclips = 0
+    const clipT0 = import.meta.env.DEV && typeof window !== 'undefined' && window.__plotlineCountSheetCommits
+      ? performance.now() : 0
     for (const a of clipAreas) {
       if (!catActive.has(a.type)) continue
-      const cp = clipAreaPx2(a, clipRegion, clipStep)
-      if (cp.px2 > 0) {
+      const box = areaDragBounds(a)
+      if (!box || !boundsOverlap(box, regionBox)) continue
+      let cp
+      if (prevDrag && !vertexSweepHits(box, prevDrag.region, clipRegion, dragIdx)) {
+        cp = prevDrag.clip[a.id] || null
+      } else {
+        reclips++
+        cp = clipAreaPx2(a, clipRegion, regionClipStep, { labels: regionClipLabels })
+      }
+      if (cp && cp.px2 > 0) {
+        stored[a.id] = cp
         clip[a.id] = cp
         const sign = itemSign(a)
         const slot = byCat[a.type] || (byCat[a.type] = { count: 0, sqft: 0 })
@@ -1009,8 +1126,13 @@ export default function SheetPage() {
         slot.sqft += sq(cp.px2) * sign
       }
     }
+    dragClipRef.current = dragging ? { region: clipRegion, clip: stored } : null
+    if (clipT0) {
+      window.__plotlineDragReclips = (window.__plotlineDragReclips || 0) + reclips
+      window.__plotlineClipMs = (window.__plotlineClipMs || 0) + (performance.now() - clipT0)
+    }
     return { clip, byCat }
-  }, [areaGeomSig, regionSig, clipStep, activeTool, catSig, pxPerFt, sheetReady])
+  }, [areaGeomSig, regionSig, regionClipStep, regionClipLabels, activeTool, catSig, pxPerFt, sheetReady])
 
   if (dataLoading) return <SheetPageSkeleton />
   if (!project || !sheet) {
@@ -1449,11 +1571,22 @@ export default function SheetPage() {
       ? areaVerts[areaVerts.length - 1]
       : activeTool === 'linear' && linearVerts.length > 0 ? linearVerts[linearVerts.length - 1] : null
     const p = applySnap(rawP, prevMove)
-    // Region vertex drag
-    if (dragRegionVertRef.current !== null && regionClosed) {
-      const idx = dragRegionVertRef.current
-      const updated = regionClosed.map((v, i) => i === idx ? { x: rawP.x, y: rawP.y } : v)
-      setRegionClosed(updated)
+    // Region vertex drag. Coalesce to one polygon update per frame. Base the
+    // move on the pending polygon so a skipped frame does not drop the vertex.
+    if (dragRegionVertRef.current !== null) {
+      const base = pendingRegionRef.current || regionClosed
+      if (base) {
+        const idx = dragRegionVertRef.current
+        const updated = base.map((v, i) => i === idx ? { x: rawP.x, y: rawP.y } : v)
+        pendingRegionRef.current = updated
+        if (!regionDragRafRef.current) {
+          regionDragRafRef.current = requestAnimationFrame(() => {
+            regionDragRafRef.current = null
+            const next = pendingRegionRef.current
+            if (next) setRegionClosed(next)
+          })
+        }
+      }
       return
     }
     if (activeTool === 'region' && !regionClosed) setRegionCursor(p)
@@ -1643,7 +1776,15 @@ export default function SheetPage() {
     dragVertIdxRef.current = null
     dragCubicRef.current = null
     dragAreaIdRef.current = null
+    if (regionDragRafRef.current) {
+      cancelAnimationFrame(regionDragRafRef.current)
+      regionDragRafRef.current = null
+    }
+    const pendingRegion = pendingRegionRef.current
+    pendingRegionRef.current = null
     dragRegionVertRef.current = null
+    if (pendingRegion) setRegionClosed(pendingRegion)
+    setRegionVertexDrag(false)
     // Finalize box select
     if (boxSelect && activeTool === 'select') {
       const minX = Math.min(boxSelect.x1, boxSelect.x2), maxX = Math.max(boxSelect.x1, boxSelect.x2)
@@ -3073,7 +3214,12 @@ export default function SheetPage() {
                   <rect key={i} x={v.x - 6*u} y={v.y - 6*u} width={12*u} height={12*u}
                     fill="#fff" stroke={activeFolder?.color || 'var(--brand-600)'} strokeWidth={2*u}
                     style={{ cursor: 'move' }}
-                    onMouseDown={e => { e.stopPropagation(); dragRegionVertRef.current = i }}
+                    onMouseDown={e => {
+                      e.stopPropagation()
+                      dragRegionVertRef.current = i
+                      pendingRegionRef.current = null
+                      setRegionVertexDrag(true)
+                    }}
                   />
                 ))}
 
@@ -4486,7 +4632,7 @@ function RegionPanel({ folders, activeFolderId, renamingId, renameVal, onSwitch,
     return (areaGroups || []).map(g => {
       const groupAreas = (addedAreas || []).filter(a => a.groupId === g.id)
       const totalSqft = polySig
-        ? groupAreas.reduce((s, a) => { const cp = clipAreaPx2(a, poly, 4); return s + sqft(cp.px2) * itemSign(a) }, 0)
+        ? groupAreas.reduce((s, a) => { const cp = clipAreaPx2(a, poly, 4, { labels: false }); return s + sqft(cp.px2) * itemSign(a) }, 0)
         : 0
       return { id: g.id, name: g.name, color: g.color, sqft: totalSqft }
     }).filter(r => r.sqft !== 0)
