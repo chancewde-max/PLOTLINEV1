@@ -106,11 +106,11 @@ async function main() {
     log('\n=== [4] Projects page ===')
     await page.goto(URLS.app, { waitUntil: 'networkidle', timeout: 30000 })
     await page.waitForFunction(
-      () => document.body.innerText.includes('Projects') &&
+      () => document.body.innerText.includes('Estimates') &&
             document.body.innerText.includes('Maple Grove'),
       { timeout: 15000 }
     ).catch(() => {})
-    const hasProjectsHeading = await page.getByText('Projects', { exact: false }).first().isVisible().catch(() => false)
+    const hasProjectsHeading = await page.getByRole('heading', { name: /Estimates|Contracted/i }).first().isVisible().catch(() => false)
     const hasMapleGrove = await page.getByText('Maple Grove Estates', { exact: false }).first().isVisible().catch(() => false)
     results.projectsHeading = hasProjectsHeading
     results.projectsMapleGrove = hasMapleGrove
