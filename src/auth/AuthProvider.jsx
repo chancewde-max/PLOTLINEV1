@@ -379,15 +379,25 @@ export function AuthProvider({ children }) {
       throw new Error('Cloud not configured')
     }
     setAuthError(null)
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: { emailRedirectTo: window.location.origin },
     })
     if (error) {
+      // Supabase's built-in mailer is heavily rate-limited; its raw
+      // "email rate limit exceeded" reads like a bug to a new user.
+      if (/rate limit/i.test(error.message || '')) {
+        const friendly = new Error('We’re sending a lot of confirmation emails right now — please wait a few minutes and try again.')
+        setAuthError(friendly.message)
+        throw friendly
+      }
       setAuthError(error.message)
       throw error
     }
+    // No session = the project requires email confirmation before sign-in;
+    // AuthModal uses this to show its "Check your email" state.
+    return { needsConfirmation: !data?.session }
   }, [])
 
   // Personal profile fields (name, job title) — stored on the Supabase auth

@@ -3004,14 +3004,20 @@ export default function SheetPage() {
                         // clears any (now-stale) shared pdfAssetId reference so
                         // the freshly set pdfUrl takes priority. Signed in:
                         // upload to Storage instead of embedding as base64 text
-                        // (see schema_add_storage.sql); falls back to embedding
-                        // if not signed in or the upload fails.
+                        // (see schema_add_storage.sql). Not signed in: embed
+                        // as before. Signed in and the upload fails: tell the
+                        // estimator and leave the sheet unchanged — silently
+                        // embedding is how one team's row grew to ~49MB.
                         let pdfUrl = null
                         if (cloudEnabled && user) {
                           try {
                             const path = orgId ? orgPdfPath(orgId, sheetId) : personalPdfPath(user.id, sheetId)
                             pdfUrl = await uploadPdfAsset(bytes, path)
-                          } catch { /* fall through to embed */ }
+                          } catch (err) {
+                            setToast({ error: true, message: `Couldn't upload the PDF to cloud storage${err?.message ? ` (${err.message})` : ''}. Check your connection and try re-uploading.` })
+                            setTimeout(() => setToast(null), 8000)
+                            return
+                          }
                         }
                         if (!pdfUrl) {
                           let binary = ''
@@ -4368,7 +4374,9 @@ export default function SheetPage() {
 
       {toast && (
         <div className={s.toast}>
-          <Check size={15} style={{ color: 'var(--success-500)', flexShrink: 0 }} />
+          {toast.error
+            ? <TriangleAlert size={15} style={{ color: 'var(--danger-500)', flexShrink: 0 }} />
+            : <Check size={15} style={{ color: 'var(--success-500)', flexShrink: 0 }} />}
           <span style={{ flex: 1 }}>{toast.message}</span>
           <button onClick={() => setToast(null)}
             style={{ background: 'none', border: 'none', color: 'var(--text-muted)', display: 'inline-flex', cursor: 'pointer' }}>

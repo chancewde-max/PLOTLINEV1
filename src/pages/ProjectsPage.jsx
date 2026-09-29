@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Plus, Map, Sun, Moon, Settings, Check, FileSignature, Undo2 } from 'lucide-react'
+import { Search, Plus, Map, Sun, Moon, Settings, Check, FileSignature, Undo2, Trash2 } from 'lucide-react'
 import { Button } from '../components/ui/Button.jsx'
 import { Badge } from '../components/ui/Badge.jsx'
 import { Input } from '../components/ui/Input.jsx'
@@ -12,6 +12,7 @@ import { useAuth } from '../auth/AuthProvider.jsx'
 import { useSettings, HOTKEY_LABELS } from '../data/useSettings.jsx'
 import { STATUS_LABEL, STATUS_VARIANT } from '../data/sampleData.js'
 import { loadSubscription, SUB_KEY } from '../data/subscription.js'
+import { deletePdfAssets } from '../data/pdfStorage.js'
 import PdfCanvas from '../components/PdfCanvas.jsx'
 import { resolveSheetPdfUrl, sheetHasPdf } from '../components/pdfCache.js'
 import { SaveStatus } from '../components/SaveStatus.jsx'
@@ -55,7 +56,7 @@ function fmtDate(iso) {
 
 export default function ProjectsPage() {
   const navigate = useNavigate()
-  const { projects: allProjects, sheets, addProject, updateProject, pdfAssets } = useAppData()
+  const { projects: allProjects, sheets, addProject, updateProject, deleteProject, pdfAssets } = useAppData()
   const { user: authUser, cloudEnabled, memberships, orgId, switchWorkspace, dataLoading, updateProfile, authError } = useAuth()
   const { theme, setTheme, accent, setAccent, hotkeys, setHotkey, resetHotkeys } = useSettings()
   const [settingsTab, setSettingsTab] = useState('general')
@@ -146,6 +147,22 @@ export default function ProjectsPage() {
   const moveToEstimates = (e, projectId) => {
     e.stopPropagation()
     updateProject(projectId, { contracted: false })
+  }
+
+  // Project pending delete confirmation (null = dialog closed).
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const askDelete = (e, project) => {
+    e.stopPropagation()
+    setDeleteTarget(project)
+  }
+  const confirmDelete = () => {
+    if (!deleteTarget) return
+    // Removes the project + its sheets from whichever workspace is active;
+    // the autosave persists that to app_data/org_data. PDFs in Storage are
+    // cleaned up in the background (best-effort — see deletePdfAssets).
+    const orphanRefs = deleteProject(deleteTarget.id)
+    if (orphanRefs.length) deletePdfAssets(orphanRefs)
+    setDeleteTarget(null)
   }
 
   const totalPipeline = Object.values(allProjects).reduce((s, p) => s + (p.status !== 'archived' ? (p.bidValue || 0) : 0), 0)
@@ -431,25 +448,36 @@ export default function ProjectsPage() {
                   </span>
                   {project.bidValue > 0 && <span className={s.bidVal}>${project.bidValue.toLocaleString()}</span>}
                 </div>
-                {viewingContracted ? (
+                <div className={s.cardActions}>
+                  {viewingContracted ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      iconLeft={<Undo2 size={14} />}
+                      onClick={(e) => moveToEstimates(e, project.id)}
+                    >
+                      Move to Estimates
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      iconLeft={<FileSignature size={14} />}
+                      onClick={(e) => moveToContracted(e, project.id)}
+                    >
+                      Move to Contracted
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     size="sm"
-                    iconLeft={<Undo2 size={14} />}
-                    onClick={(e) => moveToEstimates(e, project.id)}
+                    iconLeft={<Trash2 size={14} />}
+                    aria-label={`Delete ${project.name}`}
+                    onClick={(e) => askDelete(e, project)}
                   >
-                    Move to Estimates
+                    Delete
                   </Button>
-                ) : (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    iconLeft={<FileSignature size={14} />}
-                    onClick={(e) => moveToContracted(e, project.id)}
-                  >
-                    Move to Contracted
-                  </Button>
-                )}
+                </div>
               </div>
             </div>
           )) : (
@@ -508,6 +536,25 @@ export default function ProjectsPage() {
               { value: 'archived', label: 'Archived' },
             ]} />
         </div>
+      </Dialog>
+
+      <Dialog
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete project?"
+        width={440}
+        footer={<>
+          <Button variant="ghost" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+          <Button variant="danger" iconLeft={<Trash2 size={15} />} onClick={confirmDelete}>
+            Delete project
+          </Button>
+        </>}
+      >
+        <p style={{ margin: 0, fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+          <strong style={{ color: 'var(--text-strong)' }}>{deleteTarget?.name}</strong> and
+          all of its sheets, measurements, and uploaded plans will be permanently deleted
+          {orgId ? ' for everyone on this team' : ''}. This can't be undone.
+        </p>
       </Dialog>
 
       <Dialog

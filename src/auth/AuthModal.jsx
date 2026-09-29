@@ -9,7 +9,7 @@
 // "Cloud not configured" (handled gracefully by AuthProvider).
 
 import React, { useState, useEffect } from 'react'
-import { ShieldCheck, Mail, Lock } from 'lucide-react'
+import { ShieldCheck, Mail, Lock, MailCheck } from 'lucide-react'
 import { Dialog } from '../components/ui/Dialog.jsx'
 import { Button } from '../components/ui/Button.jsx'
 import { Input } from '../components/ui/Input.jsx'
@@ -24,14 +24,34 @@ export function AuthModal({ open, onClose }) {
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
+  // Set to the address a confirmation link was just sent to — swaps the form
+  // for a "Check your email" state instead of closing silently.
+  const [sentTo, setSentTo] = useState(null)
 
   // Reset transient form state whenever the modal opens.
   useEffect(() => {
     if (open) {
       setErr(null)
       setBusy(false)
+      setSentTo(null)
     }
   }, [open])
+
+  // Don't carry the previous account's credentials into the next sign-in
+  // after a sign-out (the modal stays mounted across sessions).
+  useEffect(() => {
+    if (!user) {
+      setEmail('')
+      setPassword('')
+    }
+  }, [user])
+
+  const backToSignIn = () => {
+    setSentTo(null)
+    setMode('signin')
+    setPassword('')
+    setErr(null)
+  }
 
   const submit = async (e) => {
     e.preventDefault()
@@ -41,7 +61,11 @@ export function AuthModal({ open, onClose }) {
       if (mode === 'signin') {
         await signIn(email.trim(), password)
       } else {
-        await signUp(email.trim(), password)
+        const res = await signUp(email.trim(), password)
+        if (res?.needsConfirmation) {
+          setSentTo(email.trim())
+          return
+        }
       }
       onClose?.()
     } catch (e) {
@@ -64,11 +88,13 @@ export function AuthModal({ open, onClose }) {
       <img src="/plotline-mark.svg" alt="" className={s.logo} />
       <div>
         <div className={s.heading}>
-          {user ? 'Your account' : mode === 'signin' ? 'Welcome back' : 'Create your account'}
+          {user ? 'Your account' : sentTo ? 'Check your email' : mode === 'signin' ? 'Welcome back' : 'Create your account'}
         </div>
         <div className={s.subheading}>
           {user
             ? 'Signed in and synced to your private cloud workspace.'
+            : sentTo
+              ? 'One more step to finish creating your account.'
             : mode === 'signin'
               ? 'Sign in to sync your projects across devices.'
               : 'Start your free trial — no card required.'}
@@ -77,7 +103,11 @@ export function AuthModal({ open, onClose }) {
     </div>
   )
 
-  const footer = loading ? null : user ? (
+  const footer = loading ? null : sentTo && !user ? (
+    <Button variant="primary" fullWidth onClick={backToSignIn}>
+      Back to sign in
+    </Button>
+  ) : user ? (
     <Button variant="secondary" fullWidth onClick={async () => { await signOut(); onClose?.() }}>
       Sign out
     </Button>
@@ -106,6 +136,17 @@ export function AuthModal({ open, onClose }) {
             <span className={`${s.skelBox} ${s.skelInput}`} style={{ display: 'block' }} />
           </div>
           <span className={`${s.skelBox} ${s.skelButton}`} />
+        </div>
+      ) : sentTo && !user ? (
+        <div className={s.sentCard}>
+          <MailCheck size={20} className={s.sentIcon} />
+          <div>
+            We sent a confirmation link to <strong>{sentTo}</strong>. Click the link in
+            that email to activate your account, then come back and sign in.
+            <div className={s.sentHint}>
+              Don't see it? Check your spam folder — it can take a minute to arrive.
+            </div>
+          </div>
         </div>
       ) : user ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -162,7 +203,7 @@ export function AuthModal({ open, onClose }) {
 
           <div className={s.trustRow}>
             <ShieldCheck size={13} />
-            Your projects stay private — only you (and teammates you invite) can see them.
+            Personal projects stay private to you — only team-workspace projects are shared with teammates.
           </div>
 
           <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>

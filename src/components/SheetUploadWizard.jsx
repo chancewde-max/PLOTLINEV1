@@ -781,11 +781,15 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
   const [pickerField, setPickerField] = useState(null) // 'sheetNum' | 'title'
   const [rowH, setRowH] = useState(80)
   const [versionSetName, setVersionSetName] = useState('')
+  const [importing, setImporting] = useState(false)
+  // Set when a signed-in Storage upload failed — import pauses so the
+  // estimator can retry, or explicitly opt into embedding (see handleImport).
+  const [uploadError, setUploadError] = useState(null)
 
   // Pre-load OCR worker as soon as wizard opens so it's ready when user draws a rect
   useEffect(() => { if (open) getOcrWorker() }, [open])
 
-  const reset = () => { setStep(0); setPages([]); setProcessing(false); setPickerField(null); setSelected(new Set()); setVersionSetName('') }
+  const reset = () => { setStep(0); setPages([]); setProcessing(false); setPickerField(null); setSelected(new Set()); setVersionSetName(''); setImporting(false); setUploadError(null) }
   const handleClose = () => { reset(); onClose() }
 
   // Adds files to the current set without leaving the Files step — the
@@ -871,7 +875,7 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
     })
   }
 
-  const handleImport = async () => {
+  const handleImport = async ({ allowEmbed = false } = {}) => {
     // Store the ORIGINAL PDF bytes so PdfCanvas can re-parse it with pdfjs
     // after reload, unlike the in-memory plotline-pdf: reference which dies
     // on reload — but ONCE PER SOURCE FILE, not once per sheet. A multi-page
@@ -882,10 +886,16 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
     // Signed in: upload to Supabase Storage and store a `storage:` reference
     // — embedding as base64 text in the JSONB blob is what grew one team's
     // cloud row to ~49MB and started timing out every save (see
-    // schema_add_storage.sql). Not signed in (or the upload fails): fall
-    // back to the original base64-embed so local-only/demo mode keeps
-    // working unchanged and a Storage hiccup doesn't block the import.
+    // schema_add_storage.sql). Not signed in: fall back to the original
+    // base64-embed so local-only/demo mode keeps working unchanged. Signed
+    // in and the upload fails: stop and tell the estimator (silently
+    // embedding is exactly how that 49MB row happened), offering a retry
+    // or an explicit "import anyway" that embeds instead.
+    if (importing) return
+    setImporting(true)
+    setUploadError(null)
     const pdfAssets = {}
+    let uploadFailure = null
     for (const fileId of new Set(pages.map(p => p.fileId))) {
       const bytes = pdfCache.get(fileId)
       if (!bytes) continue
@@ -894,13 +904,21 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
           const path = orgId ? orgPdfPath(orgId, fileId) : personalPdfPath(user.id, fileId)
           pdfAssets[fileId] = await uploadPdfAsset(bytes, path)
           continue
-        } catch { /* fall through to embed */ }
+        } catch (e) {
+          if (!allowEmbed) { uploadFailure = e; break }
+          /* allowEmbed: fall through to embed */
+        }
       }
       try {
         let binary = ''
         for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
         pdfAssets[fileId] = `data:application/pdf;base64,${btoa(binary)}`
       } catch (e) { /* leave unset — sheet falls back to plotline-pdf: (session-only) */ }
+    }
+    if (uploadFailure) {
+      setUploadError(`Couldn't upload your plans to cloud storage${uploadFailure?.message ? ` (${uploadFailure.message})` : ''}. Check your connection and retry.`)
+      setImporting(false)
+      return
     }
     const sheetArr = pages.map((p, idx) => ({
       id: p.id,
@@ -1053,6 +1071,11 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
                     <Folder size={14} style={{ color: 'var(--brand-600)' }} />
                     e.g. “Contract Set - 2024-12-06”
                   </div>
+                  {uploadError && (
+                    <div role="alert" style={{ fontSize: 13, color: 'var(--danger-500)', background: 'var(--danger-bg)', borderRadius: 8, padding: '8px 10px', lineHeight: 1.4 }}>
+                      {uploadError}
+                    </div>
+                  )}
                 </div>
                 )}
 
@@ -1091,9 +1114,15 @@ export default function SheetUploadWizard({ open, onClose, onImport }) {
                   Next: Version Set
                 </Button>
               )}
+              {step === 3 && uploadError && (
+                <Button variant="secondary" onClick={() => handleImport({ allowEmbed: true })} disabled={importing}
+                  title="Stores the PDF inside the project data instead of cloud storage. Works, but makes syncing slower.">
+                  Import without cloud upload
+                </Button>
+              )}
               {step === 3 && (
-                <Button variant="primary" onClick={handleImport} disabled={pages.length === 0}>
-                  Import {pages.length} sheet{pages.length !== 1 ? 's' : ''}
+                <Button variant="primary" onClick={() => handleImport()} disabled={pages.length === 0 || importing}>
+                  {importing ? 'Uploading…' : uploadError ? 'Retry upload' : `Import ${pages.length} sheet${pages.length !== 1 ? 's' : ''}`}
                 </Button>
               )}
             </div>

@@ -177,3 +177,6 @@
 
 .sheetCount { font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 5px; }
 .bidVal { font-family: var(--font-mono); font-weight: 600; font-size: 15px; color: var(--text-strong); }
+
+.cardActions { display: flex; align-items: center; gap: 8px; }
+.cardActions > :first-child { flex: 1; }

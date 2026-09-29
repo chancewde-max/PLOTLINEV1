@@ -165,6 +165,48 @@ export function AppDataProvider({ children }) {
   const updateProject = (projectId, updates) =>
     setProjects(p => ({ ...p, [projectId]: { ...p[projectId], ...updates } }))
 
+  // Remove a project and everything nested under it: its sheets (which carry
+  // the measurements — areas/lines/points) and any pdfAssets entries no
+  // longer referenced by a remaining sheet. Regions, sheet sets, MTO and
+  // proposal versions live on the project object itself so they go with it.
+  // customCats are account/workspace-level (not per-project), so they stay.
+  // Operates on whichever workspace is active; AuthProvider's debounced save
+  // then persists the deletion to app_data or org_data accordingly. Returns
+  // the `storage:` refs that were orphaned so the caller can delete the
+  // Storage objects.
+  const deleteProject = (projectId) => {
+    const proj = projects[projectId]
+    if (!proj) return []
+    const doomed = new Set([
+      ...(proj.sheetIds || []),
+      ...Object.values(sheets).filter(sh => sh.projectId === projectId).map(sh => sh.id),
+    ])
+    const remaining = Object.values(sheets).filter(sh => !doomed.has(sh.id))
+    const stillUsed = new Set(remaining.map(sh => sh.pdfAssetId).filter(Boolean))
+    const orphanAssetIds = [...new Set(
+      [...doomed].map(id => sheets[id]?.pdfAssetId).filter(id => id && !stillUsed.has(id))
+    )]
+    const orphanRefs = [
+      ...orphanAssetIds.map(id => pdfAssets[id]),
+      ...[...doomed].map(id => sheets[id]?.pdfUrl),
+    ].filter(ref => typeof ref === 'string' && ref.startsWith('storage:'))
+
+    setProjects(p => { const next = { ...p }; delete next[projectId]; return next })
+    setSheets(s => {
+      const next = { ...s }
+      for (const id of doomed) delete next[id]
+      return next
+    })
+    if (orphanAssetIds.length) {
+      setPdfAssets(a => {
+        const next = { ...a }
+        for (const id of orphanAssetIds) delete next[id]
+        return next
+      })
+    }
+    return [...new Set(orphanRefs)]
+  }
+
   // Account-level vendors (shared across projects). Adds a vendor if a
   // case-insensitive match doesn't already exist; returns the vendor id either
   // way so callers can reference it.
@@ -549,7 +591,7 @@ export function AppDataProvider({ children }) {
       company, updateCompany,
       vendors, addVendor, deleteVendor,
       saveStatus,
-      addProject, updateProject,
+      addProject, updateProject, deleteProject,
       addSheet, addSheets, updateSheet,
       addCustomCat, deleteCustomCat,
       addRegion, updateRegion, deleteRegion,

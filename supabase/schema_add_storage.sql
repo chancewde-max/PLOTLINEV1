@@ -33,19 +33,41 @@ on conflict (id) do nothing;
 -- (storage.foldername(name) splits the object path into folder segments).
 -- Reuses public.is_org_member() from schema_teams.sql so org-scoped access
 -- matches org_data's own RLS exactly.
+--
+-- `to authenticated`: is_org_member() is only granted to authenticated (see
+-- schema_teams.sql), and anon has no business in this bucket anyway.
+-- The CASE (rather than a plain AND/OR) guarantees the ::uuid cast only runs
+-- on org/ paths whose segment is actually uuid-shaped — Postgres doesn't
+-- promise AND/OR short-circuit order, so a malformed path could otherwise
+-- make the cast throw instead of simply being denied.
 drop policy if exists sheet_pdfs_rw on storage.objects;
 create policy sheet_pdfs_rw
   on storage.objects for all
+  to authenticated
   using (
     bucket_id = 'sheet-pdfs' and (
-      ((storage.foldername(name))[1] = 'personal' and (storage.foldername(name))[2] = auth.uid()::text)
-      or ((storage.foldername(name))[1] = 'org' and public.is_org_member(((storage.foldername(name))[2])::uuid))
+      case (storage.foldername(name))[1]
+        when 'personal' then (storage.foldername(name))[2] = auth.uid()::text
+        when 'org' then case
+          when (storage.foldername(name))[2] ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+            then public.is_org_member(((storage.foldername(name))[2])::uuid)
+          else false
+        end
+        else false
+      end
     )
   )
   with check (
     bucket_id = 'sheet-pdfs' and (
-      ((storage.foldername(name))[1] = 'personal' and (storage.foldername(name))[2] = auth.uid()::text)
-      or ((storage.foldername(name))[1] = 'org' and public.is_org_member(((storage.foldername(name))[2])::uuid))
+      case (storage.foldername(name))[1]
+        when 'personal' then (storage.foldername(name))[2] = auth.uid()::text
+        when 'org' then case
+          when (storage.foldername(name))[2] ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+            then public.is_org_member(((storage.foldername(name))[2])::uuid)
+          else false
+        end
+        else false
+      end
     )
   );
 

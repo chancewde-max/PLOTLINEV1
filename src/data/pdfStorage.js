@@ -46,6 +46,22 @@ export async function resolveStoragePdfUrl(ref) {
   return data.signedUrl
 }
 
+// Delete the Storage objects behind a list of `storage:<path>` references
+// (e.g. every PDF orphaned by a project delete). Best-effort: returns false
+// on failure rather than throwing — the project data is already gone at that
+// point, and an orphaned object is a storage-cost leak, not a data-loss bug.
+export async function deletePdfAssets(refs) {
+  if (!supabaseEnabled || !supabase) return false
+  const paths = (refs || []).filter(isStorageRef).map(ref => ref.slice(STORAGE_PREFIX.length))
+  if (!paths.length) return true
+  const { error } = await supabase.storage.from(BUCKET).remove(paths)
+  if (error) {
+    console.warn('[pdfStorage] deletePdfAssets failed:', error.message)
+    return false
+  }
+  return true
+}
+
 function dataUrlToBytes(dataUrl) {
   const base64 = dataUrl.split(',')[1]
   const binary = atob(base64)

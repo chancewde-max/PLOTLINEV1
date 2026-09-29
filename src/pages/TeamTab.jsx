@@ -150,8 +150,8 @@ function NoOrgState({ memberships, switchWorkspace, createOrganization, acceptIn
       <div className={s.card}>
         <div className={s.cardTitle}>Create a team</div>
         <p className={s.cardHint}>
-          Projects, sheets, and categories become shared with everyone you invite.
-          You'll be the team admin.
+          Projects you create in this team workspace are shared with everyone you invite.
+          Your existing personal projects stay private. You'll be the team admin.
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <Input
