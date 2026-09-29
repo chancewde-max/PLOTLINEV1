@@ -379,7 +379,11 @@ export function AuthProvider({ children }) {
       throw new Error('Cloud not configured')
     }
     setAuthError(null)
-    const { error } = await supabase.auth.signUp({ email, password })
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: window.location.origin },
+    })
     if (error) {
       setAuthError(error.message)
       throw error

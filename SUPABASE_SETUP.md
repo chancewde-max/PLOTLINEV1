@@ -18,39 +18,37 @@ create one for you.
    (save it somewhere), and choose a region close to you.
 4. Wait for the project to finish provisioning (~1–2 min).
 
-## 2. Create the database table
+## 2. Run the SQL migrations — ALL REQUIRED, IN THIS ORDER
 
-1. In your project, open **SQL → New query**.
-2. Paste the entire contents of [`supabase/schema.sql`](./supabase/schema.sql)
-   (in this repo) into the editor.
-3. Click **Run**.
-4. This creates a `public.app_data` table with **Row Level Security** enabled,
-   so each user can only read/write their own row.
+Every file below is required for any cloud setup. Order matters: later files
+reference tables/functions (`org_data`, `org_members`, `is_org_member`) that
+only exist once `schema_teams.sql` has run. Supabase runs each pasted script
+as a single transaction, so if one statement fails, **the whole file rolls
+back** — including its `app_data` columns — and every save silently fails
+while the UI still shows "Saved".
 
-## 2b. Apply the follow-up migrations — REQUIRED, not optional
+For each file: open **SQL → New query**, paste the **entire** file, click
+**Run**, and confirm it succeeded before moving on.
 
-`schema.sql` alone is not enough to run this app. The client
-(`src/data/cloudSync.js`) has always saved/loaded a few columns —
-`company`, `proposal_templates`, `mto_templates`, `clients`, `pdf_assets`,
-`ocr_memory` — that only exist once these run. **Skip this step and every
-single save silently fails** (Postgres rejects an upsert that references a
-column that doesn't exist) while the UI still shows "Saved" — this is a
-real incident that happened because these migrations were undocumented.
+1. [`supabase/schema.sql`](./supabase/schema.sql) — the personal `app_data`
+   table with Row Level Security.
+2. [`supabase/schema_teams.sql`](./supabase/schema_teams.sql) — **REQUIRED**
+   (not optional, even if you never use Teams): `organizations`,
+   `org_members`, `org_invites`, `org_data`, and the `is_org_member` helper
+   that every later file depends on.
+3. [`supabase/schema_add_templates.sql`](./supabase/schema_add_templates.sql)
+4. [`supabase/schema_add_pdf_assets.sql`](./supabase/schema_add_pdf_assets.sql)
+5. [`supabase/schema_add_ocr_memory.sql`](./supabase/schema_add_ocr_memory.sql)
+6. [`supabase/schema_add_member_names.sql`](./supabase/schema_add_member_names.sql)
+7. [`supabase/schema_add_storage.sql`](./supabase/schema_add_storage.sql) —
+   also creates the private `sheet-pdfs` Storage bucket (see "PDF storage"
+   below).
+8. [`supabase/schema_add_delete_org.sql`](./supabase/schema_add_delete_org.sql) —
+   owner-only `delete_organization()` RPC; prevents a team from being
+   abandoned with nobody able to clean it up.
 
-Run each of these, **in this exact order**, in **SQL → New query** (one at a
-time, click **Run** after each):
-
-1. [`supabase/schema_add_templates.sql`](./supabase/schema_add_templates.sql)
-2. [`supabase/schema_add_pdf_assets.sql`](./supabase/schema_add_pdf_assets.sql)
-3. [`supabase/schema_add_ocr_memory.sql`](./supabase/schema_add_ocr_memory.sql)
-4. [`supabase/schema_add_member_names.sql`](./supabase/schema_add_member_names.sql)
-   (only meaningful once you've also run `schema_teams.sql` in step 6 below,
-   but safe to run now regardless)
-5. [`supabase/schema_add_storage.sql`](./supabase/schema_add_storage.sql) —
-   creates the private `sheet-pdfs` Storage bucket (uploaded PDFs now live
-   here instead of embedded as base64 text — see the "PDF storage" note
-   below) and adds the `phrases`/`vendors` columns, which had never had a
-   cloud column at all before this.
+If a file errors, fix the cause (usually an earlier file that was skipped),
+then re-run that file — they're safe to re-run.
 
 **Verify** by running this in the SQL editor — it should return `clients`,
 `company`, `custom_cats`, `mto_templates`, `ocr_memory`, `pdf_assets`,
@@ -63,11 +61,8 @@ where table_name = 'app_data' and table_schema = 'public'
 order by column_name;
 ```
 
-If any of `company`, `proposal_templates`, `mto_templates`, `pdf_assets`,
-`ocr_memory`, `phrases`, or `vendors` are missing, saves are failing
-silently right now (for the missing-before-`schema_add_templates.sql`
-columns) or that data just isn't reaching the cloud (`phrases`/`vendors`) —
-run the missing migration file(s) above.
+If any are missing, saves are failing right now — re-run the files above in
+order, starting from the first one that didn't succeed.
 
 ### PDF storage — why this matters
 
@@ -85,9 +80,11 @@ the next time that account signs in) once this migration has been run.
 
 1. Open **Authentication → Providers**.
 2. Make sure **Email** is enabled (it is by default).
-3. (Optional) Under **Authentication → URL Configuration**, set the Site URL to
-   your dev URL (`http://localhost:5173` by default for Vite) so confirmation
-   emails link back correctly.
+3. Under **Authentication → URL Configuration**, add your dev URL
+   (`http://localhost:5173` by default for Vite) to **Redirect URLs**. Sign-up
+   confirmation emails link back to whatever origin the user signed up from,
+   but only if that origin is on this list — otherwise Supabase falls back to
+   the Site URL. (For production, see "Deploying to Vercel" below.)
 
 ## 4. Copy the credentials into `.env`
 
@@ -114,34 +111,12 @@ the next time that account signs in) once this migration has been run.
 - Open the app in another browser/profile and sign in with the same account —
   your data is there.
 
-## 6. (Optional) Teams
+## 6. Teams
 
 The **Team** tab on the home page lets one account own a shared workspace
-that teammates are invited into. It needs one more SQL file on top of the
-base schema above:
-
-1. In Supabase, open **SQL → New query**.
-2. Paste the entire contents of
-   [`supabase/schema_teams.sql`](./supabase/schema_teams.sql) and click **Run**.
-   This adds `organizations`, `org_members`, `org_invites`, and `org_data`
-   (a shared, RLS-scoped counterpart to `app_data`), plus a couple of
-   `security definer` RPCs (`create_organization`, `accept_org_invite`) that
-   do the multi-row writes those actions need atomically.
-3. Then run [`supabase/schema_add_member_names.sql`](./supabase/schema_add_member_names.sql)
-   (step 2b above) if you haven't already — it caches each member's display
-   name on `org_members` for the roster/assignment UI, and depends on
-   `schema_teams.sql` already existing.
-4. Then run [`supabase/schema_add_delete_org.sql`](./supabase/schema_add_delete_org.sql) —
-   **required**, not optional, if Teams is enabled at all. Without it, a
-   team's creator can only "leave" it like any other member, which abandons
-   the team's `org_data` row (and every project/sheet in it) with nobody left
-   who can reach it to clean up — a real ghost row was found holding ~49MB of
-   stale data this way, large enough to make an unrelated team's saves start
-   failing. This migration adds a `delete_organization()` RPC (owner-only —
-   permanently deletes the team and everything in it) and locks the owner's
-   own membership row so leaving isn't possible for them; only deleting the
-   team is.
-5. No new env vars — it reuses the same Supabase project/credentials.
+that teammates are invited into. Its database pieces (`schema_teams.sql`,
+`schema_add_member_names.sql`, `schema_add_delete_org.sql`) are already
+installed by step 2 — no extra SQL and no new env vars.
 
 How it works:
 
@@ -163,6 +138,26 @@ How it works:
 
 ---
 
+## Deploying to Vercel
+
+1. In Vercel, **Add New → Project** and import this repo (framework preset:
+   Vite).
+2. **Before the first build**, open **Settings → Environment Variables** and
+   add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (same values as your
+   `.env`), checking both **Production** and **Preview**. Vite bakes these in
+   at build time: if they're missing, the deployed site silently runs
+   localStorage-only with no cloud sync, and adding them later has no effect
+   until you redeploy.
+3. In Supabase, open **Authentication → URL Configuration**:
+   - Set **Site URL** to your production Vercel domain
+     (e.g. `https://plotline.vercel.app`).
+   - Add to **Redirect URLs**: that production domain, plus a pattern for
+     preview deployments (e.g. `https://*-<your-vercel-team>.vercel.app/**`).
+4. After **any** env var change in Vercel, redeploy (**Deployments → ⋯ →
+   Redeploy**) — a running deployment never picks up new values.
+
+---
+
 ## How it works (no-cred safe)
 
 - `src/lib/supabaseClient.js` exports `supabaseEnabled` (false when the env vars
@@ -179,15 +174,15 @@ How it works:
 
 | File | Purpose |
 |------|---------|
-| `supabase/schema.sql` | Table + RLS policies to run in Supabase |
+| `supabase/schema.sql` | **Required (run 1st)** — `app_data` table + RLS policies |
+| `supabase/schema_teams.sql` | **Required (run 2nd)** — orgs, membership, invites, shared `org_data`, `is_org_member` |
 | `supabase/schema_add_templates.sql` | **Required** — adds `company`/`proposal_templates`/`mto_templates`/`clients` columns |
 | `supabase/schema_add_pdf_assets.sql` | **Required** — adds `pdf_assets` column |
 | `supabase/schema_add_ocr_memory.sql` | **Required** — adds `ocr_memory` column |
-| `supabase/schema_add_member_names.sql` | **Required for Teams** — caches member display names, adds `create_organization`/`accept_org_invite` RPCs |
-| `supabase/schema_add_delete_org.sql` | **Required for Teams** — adds `delete_organization()` RPC and locks the owner's membership row so a team can be deleted but never abandoned |
+| `supabase/schema_add_member_names.sql` | **Required** — caches member display names, adds `create_organization`/`accept_org_invite` RPCs |
+| `supabase/schema_add_delete_org.sql` | **Required (run last)** — adds `delete_organization()` RPC and locks the owner's membership row so a team can be deleted but never abandoned |
 | `supabase/schema_add_storage.sql` | **Required** — creates the private `sheet-pdfs` Storage bucket + RLS, adds `phrases`/`vendors` columns |
 | `src/data/pdfStorage.js` | Upload/path-builder/signed-URL helpers + the legacy-PDF self-heal migration |
-| `supabase/schema_teams.sql` | Teams: orgs, membership, invites, shared `org_data` |
 | `src/lib/supabaseClient.js` | `createClient` + `supabaseEnabled` guard |
 | `src/data/cloudSync.js` | `loadUserSnapshot` / `saveUserSnapshot` (personal) |
 | `src/data/orgSync.js` | Org CRUD, invites, `loadOrgSnapshot` / `saveOrgSnapshot` (shared) |
