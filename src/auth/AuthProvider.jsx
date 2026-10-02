@@ -104,6 +104,10 @@ export function AuthProvider({ children }) {
   // gate the debounced save until after the initial cloud load has landed.
   const hydratedRef = useRef(false)
   const saveTimer = useRef(null)
+  // User id + org of the snapshot currently in memory. flushCurrent refuses
+  // to write unless both still match, so a user switch or a failed load
+  // cannot push the previous account's rows into the new cloud row.
+  const snapshotOwnerRef = useRef(null)
 
   // ---- Organization membership ----
   // `memberships` = every org the user belongs to. `orgId` (+ role/name) =
@@ -135,6 +139,9 @@ export function AuthProvider({ children }) {
   // before we swap the data source out from under it.
   const flushCurrent = useCallback(async () => {
     if (!user || !hydratedRef.current) return
+    const loaded = snapshotOwnerRef.current
+    const targetOrg = orgIdRef.current ?? null
+    if (!loaded || loaded.userId !== user.id || loaded.orgId !== targetOrg) return
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
     const payload = {
       projects: app.projects,
@@ -188,6 +195,7 @@ export function AuthProvider({ children }) {
       return
     }
     app.hydrate?.(snap || emptySnapshot(), false)
+    if (user) snapshotOwnerRef.current = { userId: user.id, orgId: targetOrgId ?? null }
   }, [user, app, memberships])
 
   // Flush the outgoing workspace's edits and load the incoming workspace's
@@ -222,6 +230,7 @@ export function AuthProvider({ children }) {
       setOrgName(membership?.name ?? null)
       if (user) setWorkspacePref(user.id, targetOrgId)
       app.hydrate?.(snap || emptySnapshot(), false)
+      if (user) snapshotOwnerRef.current = { userId: user.id, orgId: targetOrgId ?? null }
     } finally {
       setHydrating(false)
     }
@@ -264,8 +273,15 @@ export function AuthProvider({ children }) {
   // debounced autosave had a chance to persist it (e.g. a just-added sheet).
   useEffect(() => {
     if (!supabaseEnabled || !supabase) return
+    // Any user-id change, including A → B with no null user in between.
+    // The !user branch below never runs on that path, so the previous
+    // account's hydrated flag and pending save would otherwise stay armed
+    // and write A's in-memory rows into B's app_data / org_data.
+    hydratedRef.current = false
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
+    snapshotOwnerRef.current = null
+    app.prepareForUser?.(user?.id ?? null)
     if (!user) {
-      hydratedRef.current = false
       orgIdRef.current = null
       setMemberships([])
       setOrgId(null)
@@ -300,8 +316,13 @@ export function AuthProvider({ children }) {
       // and doing so would silently blank out real cloud data on a mere
       // network hiccup.
       if (snap === undefined) {
-        setAuthError('Could not load your saved data from the cloud. Showing what’s stored on this device — reload to retry.')
-        hydratedRef.current = true
+        // Unknown cloud state. Do not keep the previous account's rows
+        // loaded, and do not mark hydrated — that is what let a later
+        // autosave write them into this user.
+        setAuthError('Could not load your saved data from the cloud. Reload to retry.')
+        hydratedRef.current = false
+        snapshotOwnerRef.current = null
+        app.reset?.()
         setHydrating(false)
         return
       }
@@ -311,11 +332,15 @@ export function AuthProvider({ children }) {
           (snap.sheets && Object.keys(snap.sheets).length) ||
           (snap.customCats && snap.customCats.length) ||
           (snap.company && snap.company.name))
+      const ownSnapshot = () => {
+        snapshotOwnerRef.current = { userId: user.id, orgId: orgIdRef.current ?? null }
+      }
       if (hasCloudData) {
         // This account already has cloud data (returning user, or a fresh
         // browser signing into an existing account) — the cloud row is
         // authoritative for a real account, so replace local state with it.
         app.hydrate?.(snap, false)
+        ownSnapshot()
         hydratedRef.current = true
         // Fire-and-forget: move any PDFs still embedded as base64 text (a
         // pre-Storage-era account) into Storage in the background — this is
@@ -327,11 +352,14 @@ export function AuthProvider({ children }) {
         migrateLegacyPdfsToStorage({ sheets: snap.sheets, pdfAssets: snap.pdfAssets }, pathPrefix, {
           updateSheet: app.updateSheet, addPdfAssets: app.addPdfAssets,
         })
-      } else if (app.hasLocalEdits?.()) {
+      } else if (app.hasLocalEdits?.(user.id)) {
         // Brand-new account (cloud confirmed empty) but this browser has
         // real pre-signin edits (e.g. work done while trying the app out
         // before creating an account) — migrate them up so they become this
         // account's projects instead of staying stuck on one device.
+        // Only this user's own key, or anonymous data stamped
+        // localOwner:'anonymous'. Never another user's rows.
+        ownSnapshot()
         hydratedRef.current = true
         flushCurrent()
       } else {
@@ -339,6 +367,7 @@ export function AuthProvider({ children }) {
         // locally — start the account genuinely empty instead of pushing
         // the canned demo projects in as if the user had created them.
         app.hydrate?.(emptySnapshot(), false)
+        ownSnapshot()
         hydratedRef.current = true
       }
       setHydrating(false)
