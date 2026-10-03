@@ -1,10 +1,285 @@
 const { chromium } = require('playwright')
 const BASE = process.env.BASE || 'http://127.0.0.1:5173'
+// The signed-in case needs Vite started with these. CI sets them. A server
+// without them never flips dataLoading, so that case fails closed.
+const SUPABASE_URL = 'https://plotline-e2e.supabase.co'
+const SUPABASE_STORAGE_KEY = 'sb-plotline-e2e-auth-token'
+const HOOK_CRASH = /more hooks than during the previous render|fewer hooks than expected|Minified React error #310|Minified React error #300/
 
 const results = []
 function record(name, pass, detail) {
   results.push({ name, pass, detail })
   console.log(`[${pass ? 'PASS' : 'FAIL'}] ${name}${detail ? ' — ' + detail : ''}`)
+}
+
+function hookCrash(messages) {
+  return messages.some((m) => HOOK_CRASH.test(m))
+}
+
+function corsHeaders() {
+  return {
+    'access-control-allow-origin': '*',
+    'access-control-allow-headers': '*',
+    'access-control-allow-methods': 'GET,POST,PATCH,PUT,DELETE,OPTIONS',
+    'content-type': 'application/json',
+  }
+}
+
+function fakeUser() {
+  return {
+    id: '11111111-1111-4111-8111-111111111111',
+    aud: 'authenticated',
+    role: 'authenticated',
+    email: 'qa@plotline.test',
+    app_metadata: { provider: 'email', providers: ['email'] },
+    user_metadata: {},
+    created_at: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+// Expired session so AuthProvider's getSession waits on a token refresh.
+// The test holds that request until the sheet skeleton has rendered.
+function expiredSession() {
+  const user = fakeUser()
+  return {
+    access_token: 'e2e-access',
+    refresh_token: 'e2e-refresh',
+    token_type: 'bearer',
+    expires_in: 3600,
+    expires_at: Math.floor(Date.now() / 1000) - 120,
+    user,
+  }
+}
+
+function refreshedSession() {
+  const user = fakeUser()
+  return {
+    access_token: 'e2e-access-2',
+    refresh_token: 'e2e-refresh-2',
+    token_type: 'bearer',
+    expires_in: 3600,
+    expires_at: Math.floor(Date.now() / 1000) + 3600,
+    user,
+  }
+}
+
+async function signedInDirectLoad(browser) {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+  const errors = []
+  let releaseToken = () => {}
+  const tokenGate = new Promise((resolve) => { releaseToken = resolve })
+  let tokenHits = 0
+  const supabaseHost = new URL(SUPABASE_URL).host
+  await ctx.route(`**/*${supabaseHost}/**`, async (route) => {
+    const req = route.request()
+    if (req.method() === 'OPTIONS') {
+      await route.fulfill({ status: 204, headers: corsHeaders() })
+      return
+    }
+    const url = req.url()
+    if (url.includes('/auth/v1/token')) {
+      tokenHits += 1
+      await tokenGate
+      await route.fulfill({ status: 200, headers: corsHeaders(), body: JSON.stringify(refreshedSession()) })
+      return
+    }
+    if (url.includes('/rest/v1/org_members')) {
+      await route.fulfill({ status: 200, headers: corsHeaders(), body: '[]' })
+      return
+    }
+    // Snapshot fetch fails on purpose: AuthProvider keeps the local sample
+    // data (undefined snap) instead of replacing it with an empty cloud row.
+    if (url.includes('/rest/v1/app_data')) {
+      await route.fulfill({
+        status: 500,
+        headers: corsHeaders(),
+        body: JSON.stringify({ message: 'e2e snapshot', code: 'e2e' }),
+      })
+      return
+    }
+    await route.fulfill({ status: 200, headers: corsHeaders(), body: '{}' })
+  })
+  await ctx.addInitScript(({ key, session }) => {
+    localStorage.setItem(key, JSON.stringify(session))
+  }, { key: SUPABASE_STORAGE_KEY, session: expiredSession() })
+  const page = await ctx.newPage()
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto(`${BASE}/app/project/proj-1/sheet/sheet-1`, { waitUntil: 'domcontentloaded', timeout: 45000 })
+  const sawSkeleton = await page.getByLabel('Loading sheet').waitFor({ state: 'visible', timeout: 10000 }).then(() => true).catch(() => false)
+  releaseToken()
+  // dataLoading goes true again while the workspace hydrates, which unmounts
+  // the editor. The toolbar has to be back, and stay back, after that.
+  const turf = page.locator('button[aria-label="Synthetic turf"]')
+  let toolbar = false
+  const deadline = Date.now() + 15000
+  while (Date.now() < deadline) {
+    if (await turf.isVisible().catch(() => false)) {
+      await page.waitForTimeout(1200)
+      toolbar = await turf.isVisible().catch(() => false)
+      if (toolbar) break
+    } else {
+      await page.waitForTimeout(200)
+    }
+  }
+  const crashed = hookCrash(errors)
+  record('Signed-in direct load renders toolbar (no hooks crash)',
+    sawSkeleton && toolbar && !crashed && tokenHits > 0,
+    `skeleton=${sawSkeleton} toolbar=${toolbar} tokenHits=${tokenHits} errors=${errors.map((m) => m.split('\n')[0]).join(' | ') || 'none'}`)
+  await ctx.close()
+}
+
+function bodyHasOwnSheet(raw, id) {
+  let parsed
+  try { parsed = JSON.parse(raw) } catch { return false }
+  const rows = Array.isArray(parsed) ? parsed : [parsed]
+  return rows.some((row) => {
+    const sheets = row && row.sheets
+    return !!sheets && typeof sheets === 'object' && Object.hasOwn(sheets, id)
+  })
+}
+
+// Signed-in, but the session is already fresh so getSession does not block.
+// GET app_data fails on purpose (local sample data stays, hydration finishes).
+// POST/PATCH/PUT bodies are kept so the test can see what the remote save sent.
+async function openSignedInProjects(browser, posts) {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+  const errors = []
+  const supabaseHost = new URL(SUPABASE_URL).host
+  await ctx.route(`**/*${supabaseHost}/**`, async (route) => {
+    const req = route.request()
+    if (req.method() === 'OPTIONS') {
+      await route.fulfill({ status: 204, headers: corsHeaders() })
+      return
+    }
+    const url = req.url()
+    if (url.includes('/auth/v1/token')) {
+      await route.fulfill({ status: 200, headers: corsHeaders(), body: JSON.stringify(refreshedSession()) })
+      return
+    }
+    if (url.includes('/rest/v1/org_members')) {
+      await route.fulfill({ status: 200, headers: corsHeaders(), body: '[]' })
+      return
+    }
+    if (url.includes('/rest/v1/app_data')) {
+      if (req.method() === 'POST' || req.method() === 'PATCH' || req.method() === 'PUT') {
+        posts.push(req.postData() || '')
+        await route.fulfill({ status: 201, headers: corsHeaders(), body: '{}' })
+        return
+      }
+      await route.fulfill({
+        status: 500,
+        headers: corsHeaders(),
+        body: JSON.stringify({ message: 'e2e snapshot', code: 'e2e' }),
+      })
+      return
+    }
+    await route.fulfill({ status: 200, headers: corsHeaders(), body: '{}' })
+  })
+  await ctx.addInitScript(({ key, session }) => {
+    localStorage.setItem(key, JSON.stringify(session))
+  }, { key: SUPABASE_STORAGE_KEY, session: refreshedSession() })
+  const page = await ctx.newPage()
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto(`${BASE}/app`, { waitUntil: 'domcontentloaded', timeout: 45000 })
+  // Hydration has finished (hydratedRef is set in the same turn as this
+  // banner). SheetPage's first render is then past dataLoading, which is
+  // the path that stores a prototype id instead of throwing #310.
+  await page.getByText('Could not load your saved data').waitFor({ state: 'visible', timeout: 15000 })
+  return { ctx, page, errors }
+}
+
+async function missingSheetLoad(browser) {
+  // s1 is a plain unknown id. __proto__ and constructor are inherited names:
+  // sheets[id] is truthy via Object.prototype unless the lookup uses hasOwn.
+  const ids = ['s1', '__proto__', 'constructor']
+  for (const sheetId of ids) {
+    const posts = []
+    const { ctx, page, errors } = await openSignedInProjects(browser, posts)
+    const path = `/app/project/proj-1/sheet/${sheetId}`
+    // Install before the sheet route mounts so its debounce timers are fake.
+    await page.clock.install()
+    await page.evaluate((nextPath) => {
+      const state = window.history.state || {}
+      const idx = typeof state.idx === 'number' ? state.idx + 1 : 1
+      window.history.pushState({ ...state, idx, key: 'e2e-missing', usr: null }, '', nextPath)
+      window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }))
+    }, path)
+    await page.waitForFunction(
+      (id) => decodeURIComponent(location.pathname).endsWith('/sheet/' + id),
+      sheetId,
+      { timeout: 5000 },
+    )
+    // Fake timers, not a wall-clock sleep. runFor fires timers in order, so
+    // the 400ms sheet save, the 500ms localStorage write it schedules, and
+    // the 800ms cloud save all run before the assertions.
+    await page.clock.runFor(10_000)
+    await page.getByText('Sheet not found.').waitFor({ state: 'visible', timeout: 5000 }).catch(() => {})
+    const notFound = await page.getByText('Sheet not found.').isVisible().catch(() => false)
+    const localHit = await page.evaluate((id) => {
+      try {
+        const data = JSON.parse(localStorage.getItem('plotline-appdata') || 'null')
+        const sheets = data && data.sheets
+        return !!(sheets && typeof sheets === 'object' && Object.hasOwn(sheets, id))
+      } catch {
+        return false
+      }
+    }, sheetId)
+    const remoteHit = posts.some((raw) => bodyHasOwnSheet(raw, sheetId))
+    const crashed = hookCrash(errors)
+    record(`Missing sheet ${sheetId} is not found and is not saved`,
+      notFound && !localHit && !remoteHit && !crashed,
+      `notFound=${notFound} localHit=${localHit} remoteHit=${remoteHit} posts=${posts.length} errors=${errors.map((m) => m.split('\n')[0]).join(' | ') || 'none'}`)
+    await ctx.close()
+  }
+}
+
+async function stampDefaultRoll(browser) {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+  const page = await ctx.newPage()
+  const errors = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto(`${BASE}/app/project/proj-1/sheet/sheet-1`, { waitUntil: 'networkidle', timeout: 45000 })
+  await page.getByText('Essential only').click().catch(() => {})
+  await page.locator('button[aria-label="Synthetic turf"]').click()
+  await page.waitForTimeout(200)
+  const paper = page.locator('[class*="paper"]').first()
+  const pb = await paper.boundingBox()
+  let rolls = 0
+  let width = ''
+  let length = ''
+  if (pb) {
+    await page.getByRole('tab', { name: 'Draw area' }).click()
+    // Nearly the whole sheet. A 15×100 ft roll does not fit the smaller
+    // quad the rest of this file draws, and that rejection is out of scope.
+    const pts = [
+      [pb.x + pb.width * 0.08, pb.y + pb.height * 0.08],
+      [pb.x + pb.width * 0.92, pb.y + pb.height * 0.08],
+      [pb.x + pb.width * 0.92, pb.y + pb.height * 0.92],
+      [pb.x + pb.width * 0.08, pb.y + pb.height * 0.92],
+    ]
+    for (const [x, y] of pts) { await page.mouse.click(x, y); await page.waitForTimeout(70) }
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(250)
+    width = await page.getByLabel('Roll width').inputValue().catch(() => '')
+    length = await page.getByLabel('Roll length').inputValue().catch(() => '')
+    const clicks = [
+      [pb.x + pb.width * 0.50, pb.y + pb.height * 0.50],
+      [pb.x + pb.width * 0.50, pb.y + pb.height * 0.42],
+      [pb.x + pb.width * 0.45, pb.y + pb.height * 0.55],
+    ]
+    for (const [x, y] of clicks) {
+      await page.mouse.move(x, y)
+      await page.waitForTimeout(80)
+      await page.mouse.click(x, y)
+      await page.waitForTimeout(150)
+      rolls = await page.locator('[data-testid="turf-roll"]').count()
+      if (rolls > 0) break
+    }
+  }
+  record('Default 15×100 ft roll stamps inside a large turf area',
+    rolls > 0 && width === '15' && length === '100' && !hookCrash(errors),
+    `rolls=${rolls} width=${width} length=${length} paper=${!!pb} errors=${errors.map((m) => m.split('\n')[0]).join(' | ') || 'none'}`)
+  await ctx.close()
 }
 
 async function main() {
@@ -13,6 +288,18 @@ async function main() {
     headless: true,
   })
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+
+  await signedInDirectLoad(browser)
+  await missingSheetLoad(browser)
+  await stampDefaultRoll(browser)
+  if (process.env.SMOKE_ONLY === 'hooks') {
+    const failed = results.filter((x) => !x.pass)
+    console.log(`\n=== ${failed.length === 0 ? 'ALL PASS' : 'FAILURES: ' + failed.length} ===`)
+    if (failed.length) console.log('FAILED: ' + failed.map((f) => f.name).join(' | '))
+    await browser.close()
+    process.exit(failed.length === 0 ? 0 : 1)
+  }
+
   const page = await ctx.newPage()
   const consoleErrors = [], pageErrors = []
   page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()) })
@@ -899,7 +1186,9 @@ async function main() {
     const stuck = verts.some(v => Math.hypot(v.x - 750, v.y - 450) < 1)
     const saved = await page2.evaluate(() => {
       const d = JSON.parse(localStorage.getItem('plotline-appdata') || 'null')
-      const polys = d?.sheets?.['sheet-1']?.regionPolys || {}
+      const bag = d && d.sheets
+      const sheet = bag && typeof bag === 'object' && Object.hasOwn(bag, 'sheet-1') ? bag['sheet-1'] : null
+      const polys = sheet?.regionPolys || {}
       return Object.values(polys).flat()
     })
     const savedHit = saved.some(p => p && Math.hypot(p.x - 690, p.y - 530) < 8)
@@ -1026,7 +1315,9 @@ async function main() {
     const panelText = await page2.locator('aside').innerText()
     const saved = await page2.evaluate(() => {
       const d = JSON.parse(localStorage.getItem('plotline-appdata') || 'null')
-      const polys = d?.sheets?.['sheet-1']?.regionPolys || {}
+      const bag = d && d.sheets
+      const sheet = bag && typeof bag === 'object' && Object.hasOwn(bag, 'sheet-1') ? bag['sheet-1'] : null
+      const polys = sheet?.regionPolys || {}
       return Object.values(polys).filter(p => Array.isArray(p) && p.length >= 3)
     })
     const savedOriginal = saved.some(poly => poly.some(p => Math.hypot(p.x - 750, p.y - 450) < 1))

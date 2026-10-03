@@ -47,6 +47,11 @@ jobs:
         run: node e2e/turf-math-check.mjs
 
       - name: Start Vite
+        env:
+          # Dummy project so AuthProvider starts in the signed-in loading
+          # state. The smoke script mocks every request to this host.
+          VITE_SUPABASE_URL: https://plotline-e2e.supabase.co
+          VITE_SUPABASE_ANON_KEY: test-anon-key
         run: |
           set -euo pipefail
           npm run dev -- --host 127.0.0.1 --port 5173 > /tmp/vite-dev.log 2>&1 &

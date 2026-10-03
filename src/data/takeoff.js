@@ -7,6 +7,7 @@
 // Units: counts -> EA, areas -> SF, linear -> LF. Deduction items subtract.
 import { linePathLenPx, measuredAreaPx2 } from '../workspace/geometry.js'
 import { areaExportNotes, isUngroupedSoilArea } from '../workspace/areaProps.js'
+import { ownRecord } from './ownRecord.js'
 
 const DEFAULT_PXFT = 4
 const sign = (it) => (it && it.deduct ? -1 : 1)
@@ -34,7 +35,7 @@ export function takeoffMaterialItems(project, sheets, sheetIds) {
   }
 
   for (const sid of sheetIds || project.sheetIds || []) {
-    const sh = sheets?.[sid]
+    const sh = ownRecord(sheets, sid)
     if (!sh) continue
     const pxft = sh.pxPerFt || DEFAULT_PXFT
     const sqft = (px2) => px2 / (pxft * pxft)
